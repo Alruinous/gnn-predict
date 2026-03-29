@@ -1,0 +1,1375 @@
+base_model_groups:
+- base_model:
+    name: resnet50
+    pretrained: true
+  combinatorial_variant_grid:
+    input_channels:
+    - 1
+    output_classes:
+    - 10
+    base_variant_config_template:
+      export_onnx: true
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      use_fake_imagenet: true
+      run_training: true
+      training_epochs: 2
+      training_batch_sizes:
+      - 16
+      - 64
+      - 128
+      fake_dataset_size: 5000
+      run_inference: true
+    mutation_sets:
+    - name: no_mutations
+      mutations: []
+    - name: kernel_1x1_conv1
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv1
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+    - name: kernel_5x5_conv1
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv1
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+          stride: 2
+    - name: kernel_3x3_conv1
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv1
+          new_kernel:
+          - 3
+          - 3
+          padding: 1
+          stride: 2
+    - name: kernel_5x5_layer2_bottleneck_conv2
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer2.0.conv2
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+    - name: kernel_1x1_layer3_bottleneck_conv2
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer3.0.conv2
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer3.1.conv2
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+    - name: prune_stem_conv1
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: conv1
+          ratio: 0.2
+    - name: prune_layer1_bottleneck_conv1
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.1.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.2.conv1
+          ratio: 0.15
+    - name: prune_layer1_bottleneck_conv3
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.conv3
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.1.conv3
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.2.conv3
+          ratio: 0.2
+    - name: prune_layer2_bottleneck_conv1
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.1.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.2.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.3.conv1
+          ratio: 0.2
+    - name: prune_layer2_bottleneck_conv3
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.conv3
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.1.conv3
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.2.conv3
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.3.conv3
+          ratio: 0.25
+    - name: prune_layer3_early_blocks
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.1.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.2.conv1
+          ratio: 0.25
+    - name: prune_layer3_middle_blocks
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.2.conv1
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.3.conv1
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.4.conv1
+          ratio: 0.3
+    - name: prune_layer3_late_blocks
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.3.conv1
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.4.conv1
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.5.conv1
+          ratio: 0.35
+    - name: prune_layer4_all_blocks
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.0.conv1
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.1.conv1
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.2.conv1
+          ratio: 0.4
+    - name: prune_layer4_conv3_expansion
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.0.conv3
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.1.conv3
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.2.conv3
+          ratio: 0.3
+    - name: prune_downsample_systematic
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.downsample.0
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.downsample.0
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.downsample.0
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.0.downsample.0
+          ratio: 0.5
+    - name: prune_layer1_systematic_indices
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer1.0.conv1
+          prune_indices:
+          - 0
+          - 8
+          - 16
+          - 24
+          - 32
+          - 40
+          - 48
+          - 56
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer1.1.conv1
+          prune_indices:
+          - 4
+          - 12
+          - 20
+          - 28
+          - 36
+          - 44
+          - 52
+          - 60
+    - name: prune_layer2_pattern_indices
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer2.0.conv1
+          prune_indices:
+          - 0
+          - 16
+          - 32
+          - 48
+          - 64
+          - 80
+          - 96
+          - 112
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer2.2.conv1
+          prune_indices:
+          - 8
+          - 24
+          - 40
+          - 56
+          - 72
+          - 88
+          - 104
+          - 120
+    - name: prune_layer3_deep_indices
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.0.conv1
+          prune_indices:
+          - 0
+          - 32
+          - 64
+          - 96
+          - 128
+          - 160
+          - 192
+          - 224
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.3.conv1
+          prune_indices:
+          - 16
+          - 48
+          - 80
+          - 112
+          - 144
+          - 176
+          - 208
+          - 240
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.5.conv1
+          prune_indices:
+          - 8
+          - 40
+          - 72
+          - 104
+          - 136
+          - 168
+          - 200
+          - 232
+    - name: prune_bn_layer1_pattern
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.bn1
+          ratio: 0.1
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.bn3
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.1.bn1
+          ratio: 0.1
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.1.bn3
+          ratio: 0.15
+    - name: prune_bn_layer2_systematic
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.bn2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.1.bn2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.2.bn2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.3.bn2
+          ratio: 0.2
+    - name: prune_bn_layer3_deep
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.2.bn1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.3.bn1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.4.bn1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.5.bn1
+          ratio: 0.25
+    - name: act_swap_relu_gelu
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+    - name: act_swap_relu_swish
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: swish
+    - name: act_swap_relu_hardswish
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: hardswish
+    - name: act_swap_relu_leaky_relu
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: leaky_relu
+    - name: global_l1_prune_20
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.2
+          pruning_method: l1
+    - name: global_l1_prune_35_exclude_stem_head
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.35
+          pruning_method: l1
+          ignored_layers:
+          - conv1
+          - fc
+    - name: global_l2_prune_30_layer34_only
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: l2
+          layers_to_target:
+          - layer3
+          - layer4
+    - name: global_random_prune_45
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.45
+          pruning_method: random
+    - name: global_conservative_prune_25
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+          pruning_method: l1
+          ignored_layers:
+          - conv1
+          - layer1.0.downsample.0
+          - fc
+    - name: simple_intermediate_fc
+      mutations:
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 1024
+          dropout_rate: 0.2
+          activation: relu
+    - name: dual_fc_layers
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 1024
+          - 512
+          dropout_rates:
+          - 0.3
+          - 0.2
+          activations:
+          - gelu
+          - swish
+    - name: complex_fc_structure
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 2048
+          - 1024
+          - 512
+          - 256
+          dropout_rates:
+          - 0.3
+          - 0.25
+          - 0.2
+          - 0.15
+          activations:
+          - relu
+          - gelu
+          - swish
+          - relu
+    - name: bottleneck_fc_structure
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 512
+          - 1024
+          - 512
+          dropout_rates:
+          - 0.3
+          - 0.2
+          - 0.3
+          activations:
+          - gelu
+          - swish
+          - gelu
+    - name: light_combo_stem_layer1
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.conv1
+          ratio: 0.1
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+    - name: light_combo_layer2_focus
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.2.conv1
+          ratio: 0.15
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: swish
+    - name: light_combo_downsample_optimization
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.downsample.0
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.downsample.0
+          ratio: 0.25
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+    - name: light_combo_kernel_prune
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer1.0.conv2
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.conv1
+          ratio: 0.2
+    - name: medium_combo_layer3_comprehensive
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.2.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.4.conv1
+          ratio: 0.25
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+    - name: medium_combo_bottleneck_pattern
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.conv3
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.conv3
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.conv3
+          ratio: 0.3
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer2.1.conv2
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+    - name: medium_combo_global_plus_local
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: l1
+          ignored_layers:
+          - conv1
+          - fc
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: swish
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 1024
+          dropout_rate: 0.2
+          activation: gelu
+    - name: medium_combo_layer_balanced
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.2.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.3.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.5.conv1
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.2.conv1
+          ratio: 0.35
+    - name: heavy_combo_layer4_focus
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.0.conv1
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.1.conv1
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.2.conv1
+          ratio: 0.4
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer3.5.conv2
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: swish
+    - name: heavy_combo_systematic_reduction
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.45
+          pruning_method: l2
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv1
+          new_kernel:
+          - 3
+          - 3
+          padding: 1
+          stride: 2
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 1024
+          - 256
+          dropout_rates:
+          - 0.4
+          - 0.3
+          activations:
+          - gelu
+          - swish
+    - name: heavy_combo_bottleneck_decimation
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.conv1
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.conv1
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.conv1
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.0.conv1
+          ratio: 0.5
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 512
+          dropout_rate: 0.3
+          activation: swish
+    - name: heavy_combo_extreme_compression
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.6
+          pruning_method: random
+          layers_to_target:
+          - layer3
+          - layer4
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.3.conv3
+          ratio: 0.5
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer1.1.conv2
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 512
+          - 128
+          dropout_rates:
+          - 0.5
+          - 0.4
+          activations:
+          - swish
+          - gelu
+    - name: kernel_7x7_layer2_conv2
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer2.1.conv2
+          new_kernel:
+          - 7
+          - 7
+          padding: 3
+    - name: kernel_mixed_layer1_conv2
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer1.0.conv2
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer1.1.conv2
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+    - name: kernel_asymmetric_conv2
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer2.2.conv2
+          new_kernel:
+          - 3
+          - 1
+          padding:
+          - 1
+          - 0
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer2.3.conv2
+          new_kernel:
+          - 1
+          - 3
+          padding:
+          - 0
+          - 1
+    - name: kernel_progressive_expansion
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer3.0.conv2
+          new_kernel:
+          - 3
+          - 3
+          padding: 1
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer3.2.conv2
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer3.4.conv2
+          new_kernel:
+          - 7
+          - 7
+          padding: 3
+    - name: prune_layer4_alternating_indices
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer4.0.conv1
+          prune_indices:
+          - 0
+          - 64
+          - 128
+          - 192
+          - 256
+          - 320
+          - 384
+          - 448
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer4.1.conv1
+          prune_indices:
+          - 32
+          - 96
+          - 160
+          - 224
+          - 288
+          - 352
+          - 416
+          - 480
+    - name: prune_fibonacci_pattern
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer1.0.conv1
+          prune_indices:
+          - 1
+          - 1
+          - 2
+          - 3
+          - 5
+          - 8
+          - 13
+          - 21
+          - 34
+          - 55
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer2.0.conv1
+          prune_indices:
+          - 1
+          - 2
+          - 5
+          - 13
+          - 34
+          - 89
+          - 233
+    - name: prune_power_of_two_indices
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.1.conv1
+          prune_indices:
+          - 1
+          - 2
+          - 4
+          - 8
+          - 16
+          - 32
+          - 64
+          - 128
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.3.conv1
+          prune_indices:
+          - 3
+          - 6
+          - 12
+          - 24
+          - 48
+          - 96
+          - 192
+    - name: prune_prime_number_indices
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer2.1.conv1
+          prune_indices:
+          - 2
+          - 3
+          - 5
+          - 7
+          - 11
+          - 13
+          - 17
+          - 19
+          - 23
+          - 29
+          - 31
+          - 37
+          - 41
+          - 43
+          - 47
+          - 53
+          - 59
+          - 61
+          - 67
+          - 71
+          - 73
+          - 79
+          - 83
+          - 89
+          - 97
+          - 101
+          - 103
+          - 107
+          - 109
+          - 113
+    - name: act_swap_selective_layers
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+          layer_patterns:
+          - layer1
+          - layer3
+    - name: act_swap_mish_activation
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: mish
+    - name: act_swap_hard_swish
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: hardswish
+    - name: act_swap_elu_activation
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: elu
+    - name: prune_bn_cross_layer_pattern
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.bn2
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.1.bn2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.2.bn2
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.0.bn2
+          ratio: 0.3
+    - name: prune_bn_skip_connection_focus
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.bn3
+          ratio: 0.1
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.bn3
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.bn3
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.0.bn3
+          ratio: 0.25
+    - name: prune_bn_middle_blocks_emphasis
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.1.bn1
+          ratio: 0.12
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.2.bn1
+          ratio: 0.18
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.3.bn1
+          ratio: 0.22
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.1.bn1
+          ratio: 0.28
+    - name: global_magnitude_prune_15_smart_exclude
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+          pruning_method: magnitude
+          ignored_layers:
+          - conv1
+          - layer1.0.downsample.0
+          - layer4.2.conv3
+          - fc
+    - name: global_taylor_prune_25
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+          pruning_method: taylor
+          layers_to_target:
+          - layer2
+          - layer3
+    - name: global_gradient_prune_35_late_layers
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.35
+          pruning_method: gradient
+          layers_to_target:
+          - layer3
+          - layer4
+    - name: global_mixed_prune_conservative
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.18
+          pruning_method: l1
+          ignored_layers:
+          - conv1
+          - layer1
+          - fc
+    - name: pyramid_fc_structure
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 2048
+          - 1024
+          - 512
+          - 256
+          - 128
+          dropout_rates:
+          - 0.25
+          - 0.2
+          - 0.15
+          - 0.1
+          - 0.05
+          activations:
+          - relu
+          - gelu
+          - swish
+          - relu
+          - gelu
+    - name: hourglass_fc_structure
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 1024
+          - 512
+          - 256
+          - 512
+          - 1024
+          dropout_rates:
+          - 0.3
+          - 0.25
+          - 0.2
+          - 0.25
+          - 0.3
+          activations:
+          - gelu
+          - swish
+          - mish
+          - swish
+          - gelu
+    - name: wide_then_narrow_fc
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 4096
+          - 2048
+          - 512
+          dropout_rates:
+          - 0.4
+          - 0.3
+          - 0.2
+          activations:
+          - swish
+          - gelu
+          - relu
+    - name: progressive_dropout_fc
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 1024
+          - 1024
+          - 1024
+          dropout_rates:
+          - 0.1
+          - 0.3
+          - 0.5
+          activations:
+          - relu
+          - relu
+          - relu
+    - name: light_spatial_focus_combo
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer1.0.conv2
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.1.conv1
+          ratio: 0.1
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: hardswish
+    - name: light_efficiency_combo
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.conv1
+          ratio: 0.08
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.1.conv1
+          ratio: 0.08
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.2.conv1
+          ratio: 0.08
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer2.0.conv2
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+    - name: light_mixed_activation_combo
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: elu
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.conv1
+          ratio: 0.12
+    - name: light_depth_reduction_combo
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.1.conv1
+          ratio: 0.15
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 1536
+          dropout_rate: 0.15
+          activation: mish
+    - name: medium_channel_optimization_combo
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.conv3
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.1.conv3
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.2.conv3
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.3.conv3
+          ratio: 0.2
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: mish
+    - name: medium_asymmetric_kernel_combo
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer3.1.conv2
+          new_kernel:
+          - 3
+          - 1
+          padding:
+          - 1
+          - 0
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer3.2.conv2
+          new_kernel:
+          - 1
+          - 3
+          padding:
+          - 0
+          - 1
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.3.conv1
+          ratio: 0.25
+    - name: medium_progressive_prune_combo
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.2.conv2
+          ratio: 0.1
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.3.conv2
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.5.conv2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.2.conv2
+          ratio: 0.25
+    - name: medium_smart_downsample_combo
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.downsample.0
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.downsample.0
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.downsample.0
+          ratio: 0.25
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: hardswish
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 768
+          dropout_rate: 0.25
+          activation: elu
+    - name: sparse_attention_simulation
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.0.conv1
+          prune_indices:
+          - 0
+          - 16
+          - 32
+          - 48
+          - 64
+          - 80
+          - 96
+          - 112
+          - 128
+          - 144
+          - 160
+          - 176
+          - 192
+          - 208
+          - 224
+          - 240
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.3.conv1
+          prune_indices:
+          - 8
+          - 24
+          - 40
+          - 56
+          - 72
+          - 88
+          - 104
+          - 120
+          - 136
+          - 152
+          - 168
+          - 184
+          - 200
+          - 216
+          - 232
+          - 248
+    - name: layer_wise_activation_diversity
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+          layer_patterns:
+          - layer1
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: swish
+          layer_patterns:
+          - layer2
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: mish
+          layer_patterns:
+          - layer3
+    - name: bottleneck_efficiency_focus
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.conv2
+          ratio: 0.1
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.conv2
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.conv2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.0.conv2
+          ratio: 0.25
+    - name: feature_diversity_preservation
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer2.0.conv1
+          prune_indices:
+          - 10
+          - 30
+          - 50
+          - 70
+          - 90
+          - 110
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.0.conv1
+          prune_indices:
+          - 20
+          - 60
+          - 100
+          - 140
+          - 180
+          - 220
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: elu

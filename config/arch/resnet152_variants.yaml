@@ -1,0 +1,910 @@
+base_model_groups:
+- base_model:
+    name: resnet152
+    pretrained: true
+  combinatorial_variant_grid:
+    input_channels:
+    - 1
+    - 3
+    output_classes:
+    - 10
+    - 1000
+    base_variant_config_template:
+      export_onnx: true
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      use_fake_imagenet: true
+      run_training: true
+      training_epochs: 2
+      training_batch_sizes:
+      - 16
+      - 32
+      - 64
+      fake_dataset_size: 3000
+      run_inference: true
+    mutation_sets:
+    - name: no_mutations
+      mutations: []
+    - name: kernel_1x1_conv1_resnet152
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv1
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+    - name: kernel_3x3_conv1_resnet152
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv1
+          new_kernel:
+          - 3
+          - 3
+          padding: 1
+          stride: 2
+    - name: prune_layer2_early_segment_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.1.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.2.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.3.conv1
+          ratio: 0.2
+    - name: prune_layer2_late_segment_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.4.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.5.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.6.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.7.conv1
+          ratio: 0.25
+    - name: prune_layer3_ultra_early_segment_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.1.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.2.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.3.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.4.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.5.conv1
+          ratio: 0.15
+    - name: prune_layer3_early_segment_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.6.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.7.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.8.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.9.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.10.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.11.conv1
+          ratio: 0.2
+    - name: prune_layer3_mid_early_segment_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.12.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.13.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.14.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.15.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.16.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.17.conv1
+          ratio: 0.25
+    - name: prune_layer3_middle_segment_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.18.conv1
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.19.conv1
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.20.conv1
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.21.conv1
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.22.conv1
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.23.conv1
+          ratio: 0.3
+    - name: prune_layer3_mid_late_segment_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.24.conv1
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.25.conv1
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.26.conv1
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.27.conv1
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.28.conv1
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.29.conv1
+          ratio: 0.35
+    - name: prune_layer3_ultra_late_segment_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.30.conv1
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.31.conv1
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.32.conv1
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.33.conv1
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.34.conv1
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.35.conv1
+          ratio: 0.4
+    - name: prune_layer3_expansion_ultra_early_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.conv3
+          ratio: 0.1
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.6.conv3
+          ratio: 0.12
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.12.conv3
+          ratio: 0.15
+    - name: prune_layer3_expansion_early_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.3.conv3
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.9.conv3
+          ratio: 0.18
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.15.conv3
+          ratio: 0.2
+    - name: prune_layer3_expansion_middle_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.18.conv3
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.24.conv3
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.30.conv3
+          ratio: 0.3
+    - name: prune_layer3_expansion_late_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.21.conv3
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.27.conv3
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.33.conv3
+          ratio: 0.35
+    - name: progressive_ultra_depth_pruning_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.2.conv1
+          ratio: 0.08
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.4.conv1
+          ratio: 0.12
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.7.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.6.conv1
+          ratio: 0.18
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.18.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.30.conv1
+          ratio: 0.32
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.2.conv1
+          ratio: 0.35
+    - name: fibonacci_pattern_ultra_deep_resnet152
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.1.conv1
+          prune_indices:
+          - 1
+          - 1
+          - 2
+          - 3
+          - 5
+          - 8
+          - 13
+          - 21
+          - 34
+          - 55
+          - 89
+          - 144
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.8.conv1
+          prune_indices:
+          - 2
+          - 3
+          - 5
+          - 13
+          - 34
+          - 89
+          - 144
+          - 233
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.21.conv1
+          prune_indices:
+          - 1
+          - 2
+          - 5
+          - 21
+          - 89
+          - 233
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.34.conv1
+          prune_indices:
+          - 3
+          - 8
+          - 34
+          - 144
+    - name: prune_bn_distributed_ultra_deep_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.3.bn1
+          ratio: 0.1
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.9.bn1
+          ratio: 0.12
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.15.bn1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.21.bn1
+          ratio: 0.18
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.27.bn1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.33.bn1
+          ratio: 0.22
+    - name: prune_bn_layer2_comprehensive_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.bn1
+          ratio: 0.12
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.2.bn1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.4.bn1
+          ratio: 0.18
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.6.bn1
+          ratio: 0.2
+    - name: act_swap_relu_gelu_resnet152
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+    - name: act_swap_relu_swish_resnet152
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: swish
+    - name: act_swap_relu_elu_resnet152
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: elu
+    - name: act_swap_relu_hardswish_resnet152
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: hardswish
+    - name: act_swap_relu_mish_resnet152
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: mish
+    - name: global_l1_prune_12_resnet152
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.12
+          pruning_method: l1
+    - name: global_l2_prune_20_layer3_focus_resnet152
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.2
+          pruning_method: l2
+          layers_to_target:
+          - layer3
+    - name: global_conservative_resnet152
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+          pruning_method: l1
+          ignored_layers:
+          - conv1
+          - layer4.2.conv3
+          - fc
+    - name: global_random_prune_18_resnet152
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.18
+          pruning_method: random
+    - name: global_magnitude_prune_25_resnet152
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+          pruning_method: magnitude
+    - name: global_taylor_prune_22_resnet152
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.22
+          pruning_method: taylor
+    - name: global_gradient_prune_30_resnet152
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: gradient
+    - name: resnet152_fc_pyramid
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 1024
+          - 512
+          - 256
+          dropout_rates:
+          - 0.3
+          - 0.2
+          - 0.1
+          activations:
+          - relu
+          - gelu
+          - swish
+    - name: resnet152_fc_bottleneck
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 512
+          - 256
+          - 512
+          dropout_rates:
+          - 0.25
+          - 0.15
+          - 0.25
+          activations:
+          - gelu
+          - swish
+          - gelu
+    - name: resnet152_fc_wide_narrow
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 3072
+          - 1536
+          - 512
+          dropout_rates:
+          - 0.3
+          - 0.25
+          - 0.2
+          activations:
+          - relu
+          - gelu
+          - swish
+    - name: resnet152_fc_progressive
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 2560
+          - 1280
+          - 640
+          - 320
+          dropout_rates:
+          - 0.25
+          - 0.2
+          - 0.15
+          - 0.1
+          activations:
+          - gelu
+          - swish
+          - relu
+          - gelu
+    - name: resnet152_fc_deep_narrow
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 1024
+          - 512
+          - 256
+          - 128
+          - 64
+          dropout_rates:
+          - 0.2
+          - 0.15
+          - 0.1
+          - 0.05
+          - 0.02
+          activations:
+          - swish
+          - gelu
+          - relu
+          - swish
+          - gelu
+    - name: kernel_5x5_layer3_ultra_deep_resnet152
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer3.18.conv2
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+    - name: kernel_7x7_layer2_extended_resnet152
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer2.4.conv2
+          new_kernel:
+          - 7
+          - 7
+          padding: 3
+    - name: asymmetric_kernel_layer3_resnet152
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer3.12.conv2
+          new_kernel:
+          - 3
+          - 1
+          padding:
+          - 1
+          - 0
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer3.13.conv2
+          new_kernel:
+          - 1
+          - 3
+          padding:
+          - 0
+          - 1
+    - name: prune_layer1_comprehensive_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.1.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.2.conv1
+          ratio: 0.15
+    - name: prune_layer2_comprehensive_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.2.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.4.conv1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.6.conv1
+          ratio: 0.2
+    - name: prune_downsample_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.downsample.0
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.downsample.0
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.downsample.0
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.0.downsample.0
+          ratio: 0.45
+    - name: prune_conv3_systematic_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.conv3
+          ratio: 0.12
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.conv3
+          ratio: 0.18
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.conv3
+          ratio: 0.22
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.0.conv3
+          ratio: 0.28
+    - name: prune_indices_layer3_pattern1_resnet152
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.6.conv1
+          prune_indices:
+          - 0
+          - 32
+          - 64
+          - 96
+          - 128
+          - 160
+          - 192
+          - 224
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.18.conv1
+          prune_indices:
+          - 16
+          - 48
+          - 80
+          - 112
+          - 144
+          - 176
+          - 208
+          - 240
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.30.conv1
+          prune_indices:
+          - 8
+          - 24
+          - 40
+          - 56
+          - 72
+          - 88
+          - 104
+          - 120
+    - name: prune_indices_layer3_pattern2_resnet152
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.9.conv1
+          prune_indices:
+          - 4
+          - 12
+          - 28
+          - 36
+          - 52
+          - 60
+          - 76
+          - 84
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.21.conv1
+          prune_indices:
+          - 2
+          - 6
+          - 14
+          - 18
+          - 26
+          - 30
+          - 38
+          - 42
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: layer3.33.conv1
+          prune_indices:
+          - 1
+          - 3
+          - 7
+          - 9
+          - 13
+          - 15
+          - 19
+          - 21
+    - name: light_combo_resnet152_ultra_depth_aware
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.9.conv1
+          ratio: 0.12
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.27.conv1
+          ratio: 0.15
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+    - name: medium_combo_resnet152_layer3_optimization
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.6.conv1
+          ratio: 0.18
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.18.conv1
+          ratio: 0.22
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.30.conv1
+          ratio: 0.25
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 1024
+          dropout_rate: 0.2
+          activation: swish
+    - name: heavy_combo_resnet152_aggressive
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.32
+          pruning_method: l2
+          layers_to_target:
+          - layer3
+          - layer4
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.6.conv3
+          ratio: 0.28
+      - type: ConvKernelReplacement
+        params:
+          layer_name: layer3.15.conv2
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 1024
+          - 256
+          dropout_rates:
+          - 0.4
+          - 0.3
+          activations:
+          - swish
+          - gelu
+    - name: layer3_skip_connection_optimization_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.conv3
+          ratio: 0.08
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.9.conv3
+          ratio: 0.12
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.18.conv3
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.27.conv3
+          ratio: 0.18
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.35.conv3
+          ratio: 0.22
+    - name: depth_gradient_pruning_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer1.0.conv1
+          ratio: 0.08
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.0.conv1
+          ratio: 0.12
+      - type: ChannelPruning
+        params:
+          layer_name: layer2.4.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.0.conv1
+          ratio: 0.18
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.12.conv1
+          ratio: 0.22
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.24.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.35.conv1
+          ratio: 0.28
+      - type: ChannelPruning
+        params:
+          layer_name: layer4.0.conv1
+          ratio: 0.32
+    - name: specialized_layer3_segment_pruning_resnet152
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.6.conv1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.12.conv1
+          ratio: 0.18
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.18.conv1
+          ratio: 0.22
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.24.conv1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: layer3.30.conv1
+          ratio: 0.28

@@ -1,0 +1,402 @@
+base_model_groups:
+- base_model:
+    name: bert-large-cased
+    pretrained: true
+  combinatorial_variant_grid:
+    input_channels:
+    - 1
+    output_classes:
+    - 2
+    - 10
+    - 100
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 128
+      export_onnx: true
+      max_sequence_length: 128
+      use_real_text_dataset: true
+      use_fake_imagenet: false
+      run_training: true
+      training_epochs: 2
+      training_batch_sizes:
+      - 2
+      - 4
+      - 8
+      fake_dataset_size: 2000
+      use_fake_text_dataset: true
+      run_inference: true
+    mutation_sets:
+    - name: no_mutations_large
+      mutations: []
+    - name: reduce_to_22_layers_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 22
+    - name: reduce_to_20_layers_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 20
+    - name: reduce_to_18_layers_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 18
+    - name: reduce_to_16_layers_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 16
+    - name: reduce_to_14_layers_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 14
+    - name: reduce_to_12_layers_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 12
+    - name: reduce_to_10_layers_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 10
+    - name: reduce_to_8_layers_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 8
+    - name: reduce_to_6_layers_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 6
+    - name: reduce_to_4_layers_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 4
+    - name: attention_heads_20_large
+      mutations:
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 20
+    - name: attention_heads_12_large
+      mutations:
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 12
+    - name: attention_heads_8_large
+      mutations:
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 8
+    - name: attention_heads_4_large
+      mutations:
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 4
+    - name: attention_heads_2_large
+      mutations:
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 2
+    - name: attention_heads_1_large
+      mutations:
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 1
+    - name: intermediate_size_6144_large
+      mutations:
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 6144
+    - name: intermediate_size_5120_large
+      mutations:
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 5120
+    - name: intermediate_size_3072_large
+      mutations:
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 3072
+    - name: intermediate_size_2048_large
+      mutations:
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 2048
+    - name: intermediate_size_1536_large
+      mutations:
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 1536
+    - name: intermediate_size_1024_large
+      mutations:
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 1024
+    - name: intermediate_size_512_large
+      mutations:
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 512
+    - name: hidden_size_896_large
+      mutations:
+      - type: HiddenSizeModification
+        params:
+          hidden_size: 896
+    - name: hidden_size_768_large
+      mutations:
+      - type: HiddenSizeModification
+        params:
+          hidden_size: 768
+    - name: hidden_size_512_large
+      mutations:
+      - type: HiddenSizeModification
+        params:
+          hidden_size: 512
+    - name: hidden_size_384_large
+      mutations:
+      - type: HiddenSizeModification
+        params:
+          hidden_size: 384
+    - name: hidden_size_256_large
+      mutations:
+      - type: HiddenSizeModification
+        params:
+          hidden_size: 256
+    - name: dropout_000_large
+      mutations:
+      - type: DropoutModification
+        params:
+          hidden_dropout_prob: 0.0
+          attention_probs_dropout_prob: 0.0
+    - name: dropout_005_large
+      mutations:
+      - type: DropoutModification
+        params:
+          hidden_dropout_prob: 0.05
+          attention_probs_dropout_prob: 0.05
+    - name: dropout_015_large
+      mutations:
+      - type: DropoutModification
+        params:
+          hidden_dropout_prob: 0.15
+          attention_probs_dropout_prob: 0.15
+    - name: dropout_020_large
+      mutations:
+      - type: DropoutModification
+        params:
+          hidden_dropout_prob: 0.2
+          attention_probs_dropout_prob: 0.2
+    - name: dropout_025_large
+      mutations:
+      - type: DropoutModification
+        params:
+          hidden_dropout_prob: 0.25
+          attention_probs_dropout_prob: 0.25
+    - name: gelu_to_relu_large
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: gelu
+          new_activation: relu
+    - name: gelu_to_swish_large
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: gelu
+          new_activation: swish
+    - name: gelu_to_mish_large
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: gelu
+          new_activation: mish
+    - name: bert_attention_head_pruning_25_large
+      mutations:
+      - type: BertAttentionHeadPruning
+        params:
+          pruning_ratio: 0.25
+    - name: bert_attention_head_pruning_50_large
+      mutations:
+      - type: BertAttentionHeadPruning
+        params:
+          pruning_ratio: 0.5
+    - name: bert_layer_pruning_25_large
+      mutations:
+      - type: BertLayerPruning
+        params:
+          pruning_ratio: 0.25
+    - name: bert_layer_pruning_50_large
+      mutations:
+      - type: BertLayerPruning
+        params:
+          pruning_ratio: 0.5
+    - name: bert_hidden_size_pruning_25_large
+      mutations:
+      - type: BertHiddenSizePruning
+        params:
+          pruning_ratio: 0.25
+    - name: bert_hidden_size_pruning_50_large
+      mutations:
+      - type: BertHiddenSizePruning
+        params:
+          pruning_ratio: 0.5
+    - name: combo_light_1_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 20
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 12
+    - name: combo_light_2_large
+      mutations:
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 3072
+      - type: DropoutModification
+        params:
+          hidden_dropout_prob: 0.05
+          attention_probs_dropout_prob: 0.05
+    - name: combo_light_3_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 18
+      - type: ActivationFunctionSwap
+        params:
+          new_activation: relu
+    - name: combo_light_4_large
+      mutations:
+      - type: BertAttentionHeadPruning
+        params:
+          pruning_ratio: 0.15
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 3584
+    - name: combo_light_5_large
+      mutations:
+      - type: BertLayerPruning
+        params:
+          pruning_ratio: 0.1
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 14
+    - name: combo_medium_1_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 16
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 8
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 2048
+    - name: combo_medium_2_large
+      mutations:
+      - type: BertLayerPruning
+        params:
+          pruning_ratio: 0.25
+      - type: BertAttentionHeadPruning
+        params:
+          pruning_ratio: 0.25
+    - name: combo_medium_3_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 12
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 3072
+    - name: combo_medium_4_large
+      mutations:
+      - type: HiddenSizeModification
+        params:
+          hidden_size: 768
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 18
+    - name: combo_medium_5_large
+      mutations:
+      - type: BertHiddenSizePruning
+        params:
+          pruning_ratio: 0.25
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 16
+    - name: combo_medium_6_large
+      mutations:
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 8
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 2048
+      - type: DropoutModification
+        params:
+          hidden_dropout_prob: 0.15
+          attention_probs_dropout_prob: 0.15
+    - name: combo_heavy_1_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 12
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 8
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 1536
+    - name: combo_heavy_2_large
+      mutations:
+      - type: BertLayerPruning
+        params:
+          pruning_ratio: 0.5
+      - type: BertAttentionHeadPruning
+        params:
+          pruning_ratio: 0.5
+    - name: combo_heavy_3_large
+      mutations:
+      - type: HiddenSizeModification
+        params:
+          hidden_size: 512
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 12
+    - name: combo_heavy_4_large
+      mutations:
+      - type: BertHiddenSizePruning
+        params:
+          pruning_ratio: 0.5
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 12
+    - name: combo_heavy_5_large
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 8
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 4
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 1024
+    - name: combo_heavy_6_large
+      mutations:
+      - type: BertLayerPruning
+        params:
+          pruning_ratio: 0.4
+      - type: BertAttentionHeadPruning
+        params:
+          pruning_ratio: 0.4
+      - type: BertHiddenSizePruning
+        params:
+          pruning_ratio: 0.2

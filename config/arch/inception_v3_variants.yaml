@@ -1,0 +1,754 @@
+base_model_groups:
+- base_model:
+    name: inception_v3
+    pretrained: true
+  combinatorial_variant_grid:
+    input_channels:
+    - 3
+    output_classes:
+    - 10
+    - 100
+    - 1000
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 3
+      - 299
+      - 299
+      export_onnx: true
+      use_fake_imagenet: true
+      run_training: true
+      training_epochs: 2
+      training_batch_sizes:
+      - 16
+      - 32
+      - 64
+      fake_dataset_size: 8000
+      run_inference: true
+    mutation_sets:
+    - name: no_mutations
+      mutations: []
+    - name: early_conv_light_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.25
+    - name: early_conv_medium_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          ratio: 0.25
+    - name: early_conv_heavy_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          ratio: 0.25
+    - name: middle_layer_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_3b_1x1.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_4a_3x3.conv
+          ratio: 0.25
+    - name: comprehensive_light_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_3b_1x1.conv
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_4a_3x3.conv
+          ratio: 0.15
+    - name: inception_a_branch_pruning_light
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch5x5_1.conv
+          ratio: 0.3
+    - name: inception_a_branch_pruning_medium
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5c.branch1x1.conv
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5d.branch1x1.conv
+          ratio: 0.4
+    - name: inception_a_comprehensive_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch5x5_1.conv
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch3x3dbl_1.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch_pool.conv
+          ratio: 0.5
+    - name: inception_c_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6b.branch1x1.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6c.branch1x1.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6d.branch1x1.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6e.branch1x1.conv
+          ratio: 0.3
+    - name: swish_activation
+      mutations:
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: SiLU
+    - name: gelu_activation
+      mutations:
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: GELU
+    - name: leaky_relu_activation
+      mutations:
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: LeakyReLU
+    - name: kernel_replacement_3x3_to_1x1
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+    - name: kernel_replacement_mixed
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_4a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 5
+          - 5
+    - name: aggressive_kernel_replacement
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_4a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+    - name: efficient_inception_v1
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          ratio: 0.25
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: SiLU
+    - name: efficient_inception_v2
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6b.branch1x1.conv
+          ratio: 0.3
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+    - name: mobile_inception
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.6
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: SiLU
+    - name: ultra_efficient_inception
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.6
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          ratio: 0.6
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_3b_1x1.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_4a_3x3.conv
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.7
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: SiLU
+    - name: inception_e_lightweight
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7b.branch1x1.conv
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7c.branch1x1.conv
+          ratio: 0.4
+    - name: late_stage_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7b.branch1x1.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7c.branch1x1.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7b.branch3x3_1.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7c.branch3x3_1.conv
+          ratio: 0.3
+    - name: progressive_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6b.branch1x1.conv
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7b.branch1x1.conv
+          ratio: 0.5
+    - name: balanced_all_stages
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_4a_3x3.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6b.branch1x1.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7b.branch1x1.conv
+          ratio: 0.3
+    - name: inception_branch_diversity
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch3x3dbl_1.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6b.branch7x7_1.conv
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7b.branch3x3_1.conv
+          ratio: 0.3
+    - name: mish_activation
+      mutations:
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: SiLU
+    - name: elu_activation
+      mutations:
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: ELU
+    - name: prelu_activation
+      mutations:
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: PReLU
+    - name: hardswish_activation
+      mutations:
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: SiLU
+    - name: mixed_activation_strategy
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.25
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: GELU
+    - name: depthwise_simulation
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_4a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          ratio: 0.5
+    - name: kernel_size_progression
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_4a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 5
+          - 5
+    - name: large_kernel_experiment
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 7
+          - 7
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_4a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 7
+          - 7
+    - name: asymmetric_kernels
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 3
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 3
+          - 1
+    - name: mixed_kernel_strategy
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_4a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 5
+          - 5
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          ratio: 0.3
+    - name: neural_architecture_search_inspired
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6b.branch1x1.conv
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7b.branch1x1.conv
+          ratio: 0.3
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: SiLU
+    - name: efficient_transformer_like
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          ratio: 0.4
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6b.branch1x1.conv
+          ratio: 0.4
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: GELU
+    - name: mobilenet_inspired
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.6
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          ratio: 0.6
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.7
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: SiLU
+    - name: resnet_inspired_skip
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5c.branch1x1.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5d.branch1x1.conv
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6b.branch1x1.conv
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6c.branch1x1.conv
+          ratio: 0.25
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: ELU
+    - name: extreme_efficiency
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_1a_3x3.conv
+          ratio: 0.75
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          ratio: 0.75
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          ratio: 0.7
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_3b_1x1.conv
+          ratio: 0.6
+      - type: ChannelPruning
+        params:
+          layer_name: Conv2d_4a_3x3.conv
+          ratio: 0.5
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5b.branch1x1.conv
+          ratio: 0.8
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6b.branch1x1.conv
+          ratio: 0.7
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7b.branch1x1.conv
+          ratio: 0.6
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_2b_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Conv2d_4a_3x3.conv
+          old_kernel_size:
+          - 3
+          - 3
+          new_kernel_size:
+          - 1
+          - 1
+      - type: ActivationSwap
+        params:
+          old_activation: ReLU
+          new_activation: SiLU

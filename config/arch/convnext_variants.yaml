@@ -1,0 +1,845 @@
+base_model_groups:
+- base_model:
+    name: convnext_base
+    pretrained: true
+  combinatorial_variant_grid:
+    input_channels:
+    - 3
+    output_classes:
+    - 10
+    - 100
+    - 500
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      use_fake_imagenet: true
+      run_training: true
+      training_epochs: 2
+      training_batch_sizes:
+      - 16
+      - 32
+      - 64
+      - 128
+      fake_dataset_size: 2000
+      run_inference: true
+    mutation_sets:
+    - name: no_mutations
+      mutations: []
+    - name: pruning_05
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.05
+    - name: pruning_15
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+    - name: pruning_25
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+    - name: pruning_35
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.35
+    - name: pruning_45
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.45
+    - name: pruning_55
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.55
+    - name: pruning_65
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.65
+    - name: pruning_70
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.7
+    - name: stage_nano
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 1
+          - 1
+          - 6
+          - 1
+    - name: stage_micro
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 1
+          - 1
+          - 9
+          - 1
+    - name: stage_tiny
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 2
+          - 2
+          - 12
+          - 2
+    - name: stage_small_a
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 3
+          - 3
+          - 15
+          - 3
+    - name: stage_small_b
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 2
+          - 3
+          - 18
+          - 2
+    - name: stage_medium_a
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 3
+          - 3
+          - 21
+          - 3
+    - name: stage_medium_b
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 4
+          - 4
+          - 18
+          - 4
+    - name: stage_large_a
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 3
+          - 3
+          - 30
+          - 3
+    - name: stage_large_b
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 4
+          - 4
+          - 27
+          - 4
+    - name: stage_xlarge
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 4
+          - 4
+          - 36
+          - 4
+    - name: stage_xxlarge
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 5
+          - 5
+          - 42
+          - 5
+    - name: stage_giant
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 6
+          - 6
+          - 48
+          - 6
+    - name: mlp_expansion_1_5x
+      mutations:
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 1.5
+    - name: mlp_expansion_2x
+      mutations:
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 2
+    - name: mlp_expansion_3x
+      mutations:
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 3
+    - name: mlp_expansion_5x
+      mutations:
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 5
+    - name: mlp_expansion_6x
+      mutations:
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 6
+    - name: activation_relu
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: relu
+          replace_activation: gelu
+    - name: activation_swish
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: swish
+          replace_activation: gelu
+    - name: activation_mish
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: mish
+          replace_activation: gelu
+    - name: activation_leaky_relu
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: leaky_relu
+          replace_activation: gelu
+    - name: kernel_size_3x3
+      mutations:
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 3
+    - name: kernel_size_5x5
+      mutations:
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 5
+    - name: kernel_size_9x9
+      mutations:
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 9
+    - name: kernel_size_11x11
+      mutations:
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 11
+    - name: kernel_size_13x13
+      mutations:
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 13
+    - name: kernel_size_15x15
+      mutations:
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 15
+    - name: dropout_light
+      mutations:
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.1
+    - name: dropout_medium
+      mutations:
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.2
+    - name: dropout_heavy
+      mutations:
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.3
+    - name: dropout_extreme
+      mutations:
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.5
+    - name: light_combo_1
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: relu
+          replace_activation: gelu
+    - name: light_combo_2
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 3
+          - 3
+          - 21
+          - 3
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 2
+    - name: light_combo_3
+      mutations:
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 5
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: swish
+          replace_activation: gelu
+    - name: light_combo_4
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 3
+    - name: light_combo_5
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 2
+          - 2
+          - 15
+          - 2
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 3
+    - name: light_combo_6
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: mish
+          replace_activation: gelu
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.1
+    - name: light_combo_7
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.35
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 9
+    - name: light_combo_8
+      mutations:
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 5
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: leaky_relu
+          replace_activation: gelu
+    - name: light_combo_9
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 4
+          - 4
+          - 18
+          - 4
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.2
+    - name: light_combo_10
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.45
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: elu
+          replace_activation: gelu
+    - name: light_combo_11
+      mutations:
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 11
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 1.5
+    - name: light_combo_12
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 1
+          - 1
+          - 9
+          - 1
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: selu
+          replace_activation: gelu
+    - name: medium_combo_1
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 3
+          - 3
+          - 18
+          - 3
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: relu
+          replace_activation: gelu
+    - name: medium_combo_2
+      mutations:
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 3
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 5
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.1
+    - name: medium_combo_3
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.35
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 2
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: swish
+          replace_activation: gelu
+    - name: medium_combo_4
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 2
+          - 2
+          - 12
+          - 2
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 9
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.2
+    - name: medium_combo_5
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 6
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: mish
+          replace_activation: gelu
+    - name: medium_combo_6
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 4
+          - 4
+          - 27
+          - 4
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 3
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: leaky_relu
+          replace_activation: gelu
+    - name: medium_combo_7
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.45
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 5
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.3
+    - name: medium_combo_8
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 1
+          - 1
+          - 6
+          - 1
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 13
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: elu
+          replace_activation: gelu
+    - name: medium_combo_9
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.55
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 8
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: selu
+          replace_activation: gelu
+    - name: medium_combo_10
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 3
+          - 3
+          - 30
+          - 3
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 15
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.1
+    - name: medium_combo_11
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.05
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 10
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 7
+    - name: medium_combo_12
+      mutations:
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 5
+          - 5
+          - 42
+          - 5
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: relu
+          replace_activation: gelu
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.2
+    - name: heavy_combo_1
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.35
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 2
+          - 2
+          - 15
+          - 2
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 2
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: relu
+          replace_activation: gelu
+    - name: heavy_combo_2
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 3
+          - 3
+          - 18
+          - 3
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 5
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.1
+    - name: heavy_combo_3
+      mutations:
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 6
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 9
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: mish
+          replace_activation: gelu
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.2
+    - name: heavy_combo_4
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.45
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 1
+          - 1
+          - 9
+          - 1
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 3
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: swish
+          replace_activation: gelu
+    - name: heavy_combo_5
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 4
+          - 4
+          - 27
+          - 4
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 11
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.3
+    - name: heavy_combo_6
+      mutations:
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 8
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 3
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: leaky_relu
+          replace_activation: gelu
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.1
+    - name: heavy_combo_7
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.55
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 2
+          - 2
+          - 12
+          - 2
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 5
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: elu
+          replace_activation: gelu
+    - name: heavy_combo_8
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.05
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 5
+          - 5
+          - 42
+          - 5
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 13
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.2
+    - name: heavy_combo_9
+      mutations:
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 10
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 15
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: selu
+          replace_activation: gelu
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.5
+    - name: heavy_combo_10
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.65
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 1
+          - 1
+          - 6
+          - 1
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 1.5
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 7
+    - name: heavy_combo_11
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 3
+          - 3
+          - 30
+          - 3
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 12
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: relu
+          replace_activation: gelu
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.1
+    - name: heavy_combo_12
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.35
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 6
+          - 6
+          - 48
+          - 6
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 5
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: mish
+          replace_activation: gelu
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.3
+    - name: heavy_combo_13
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.7
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 2
+          - 2
+          - 9
+          - 2
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 2
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 3
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: swish
+          replace_activation: gelu
+    - name: heavy_combo_14
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.45
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 4
+          - 4
+          - 36
+          - 4
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 6
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 9
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.2
+    - name: heavy_combo_15
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+      - type: ConvNeXtStageReduction
+        params:
+          target_blocks:
+          - 3
+          - 3
+          - 21
+          - 3
+      - type: ConvNeXtMLPExpansionRatio
+        params:
+          expansion_ratio: 8
+      - type: ConvNeXtKernelSizeModification
+        params:
+          kernel_size: 11
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: leaky_relu
+          replace_activation: gelu
+      - type: DropoutModification
+        params:
+          dropout_rate: 0.1

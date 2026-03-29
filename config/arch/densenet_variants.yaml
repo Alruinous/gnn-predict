@@ -1,0 +1,865 @@
+base_model_groups:
+- base_model:
+    name: densenet121
+    pretrained: true
+  combinatorial_variant_grid:
+    input_channels:
+    - 1
+    - 3
+    - 5
+    output_classes:
+    - 10
+    - 100
+    - 1000
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      use_fake_imagenet: true
+      run_training: true
+      training_epochs: 2
+      training_batch_sizes:
+      - 16
+      - 64
+      - 128
+      fake_dataset_size: 5000
+      run_inference: true
+    mutation_sets:
+    - name: no_mutations
+      mutations: []
+    - name: tiny_initial_conv
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.conv0
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+          stride: 1
+    - name: small_initial_conv
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.conv0
+          new_kernel:
+          - 3
+          - 3
+          padding: 1
+          stride: 1
+    - name: medium_initial_conv
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.conv0
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+          stride: 2
+    - name: large_initial_conv
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.conv0
+          new_kernel:
+          - 9
+          - 9
+          padding: 4
+          stride: 2
+    - name: huge_initial_conv
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.conv0
+          new_kernel:
+          - 11
+          - 11
+          padding: 5
+          stride: 2
+    - name: denseblock1_light_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock1.denselayer2.conv2
+          ratio: 0.1
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock1.denselayer4.conv2
+          ratio: 0.1
+    - name: denseblock1_medium_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock1.denselayer2.conv2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock1.denselayer4.conv2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock1.denselayer6.conv2
+          ratio: 0.15
+    - name: denseblock1_systematic_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock1.denselayer1.conv2
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock1.denselayer3.conv2
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock1.denselayer5.conv2
+          ratio: 0.15
+    - name: denseblock2_light_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer3.conv2
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer6.conv2
+          ratio: 0.15
+    - name: denseblock2_medium_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer2.conv2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer5.conv2
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer8.conv2
+          ratio: 0.2
+    - name: denseblock2_systematic_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer4.conv2
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer7.conv2
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer10.conv2
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer12.conv2
+          ratio: 0.25
+    - name: denseblock2_early_focus
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer1.conv2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer2.conv2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer3.conv2
+          ratio: 0.2
+    - name: denseblock2_late_focus
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer10.conv2
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer11.conv2
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer12.conv2
+          ratio: 0.3
+    - name: denseblock3_light_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer6.conv2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer12.conv2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer18.conv2
+          ratio: 0.2
+    - name: denseblock3_medium_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer4.conv2
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer8.conv2
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer16.conv2
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer20.conv2
+          ratio: 0.25
+    - name: denseblock3_systematic_early
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer2.conv2
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer4.conv2
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer6.conv2
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer8.conv2
+          ratio: 0.25
+    - name: denseblock3_systematic_middle
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer9.conv2
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer11.conv2
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer13.conv2
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer15.conv2
+          ratio: 0.3
+    - name: denseblock3_systematic_late
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer17.conv2
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer19.conv2
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer21.conv2
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer23.conv2
+          ratio: 0.35
+    - name: denseblock4_light_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer4.conv2
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer8.conv2
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer12.conv2
+          ratio: 0.25
+    - name: denseblock4_medium_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer2.conv2
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer6.conv2
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer10.conv2
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer14.conv2
+          ratio: 0.3
+    - name: denseblock4_systematic_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer3.conv2
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer7.conv2
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer11.conv2
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer15.conv2
+          ratio: 0.3
+    - name: transition1_light_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.transition1.conv
+          ratio: 0.1
+    - name: transition2_light_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.transition2.conv
+          ratio: 0.15
+    - name: transition3_light_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.transition3.conv
+          ratio: 0.2
+    - name: all_transitions_light
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.transition1.conv
+          ratio: 0.1
+      - type: ChannelPruning
+        params:
+          layer_name: features.transition2.conv
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: features.transition3.conv
+          ratio: 0.2
+    - name: transitions_progressive
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.transition1.conv
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: features.transition2.conv
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: features.transition3.conv
+          ratio: 0.35
+    - name: index_pruning_pattern1
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: features.denseblock2.denselayer6.conv2
+          prune_indices:
+          - 0
+          - 4
+          - 8
+          - 12
+          - 16
+          - 20
+          - 24
+          - 28
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: features.denseblock3.denselayer12.conv2
+          prune_indices:
+          - 1
+          - 5
+          - 9
+          - 13
+          - 17
+          - 21
+          - 25
+          - 29
+    - name: index_pruning_pattern2
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: features.denseblock2.denselayer8.conv2
+          prune_indices:
+          - 2
+          - 6
+          - 10
+          - 14
+          - 18
+          - 22
+          - 26
+          - 30
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: features.denseblock3.denselayer16.conv2
+          prune_indices:
+          - 3
+          - 7
+          - 11
+          - 15
+          - 19
+          - 23
+          - 27
+          - 31
+    - name: index_pruning_pattern3
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: features.denseblock3.denselayer6.conv2
+          prune_indices:
+          - 0
+          - 8
+          - 16
+          - 24
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: features.denseblock4.denselayer8.conv2
+          prune_indices:
+          - 4
+          - 12
+          - 20
+          - 28
+    - name: index_pruning_fibonacci
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: features.denseblock2.denselayer4.conv2
+          prune_indices:
+          - 1
+          - 1
+          - 2
+          - 3
+          - 5
+          - 8
+          - 13
+          - 21
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: features.denseblock3.denselayer8.conv2
+          prune_indices:
+          - 2
+          - 3
+          - 5
+          - 8
+          - 13
+          - 21
+    - name: global_light_l1
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.1
+          pruning_method: l1
+          ignored_layers:
+          - features.conv0
+          - classifier
+          - .bn1
+          - .bn2
+          - .bn3
+          - .norm5
+    - name: global_light_l2
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+          pruning_method: l2
+          ignored_layers:
+          - features.conv0
+          - classifier
+          - .bn1
+          - .bn2
+          - .bn3
+          - .norm5
+    - name: global_medium_l1
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+          pruning_method: l1
+          ignored_layers:
+          - features.conv0
+          - classifier
+          - .bn1
+          - .bn2
+          - .bn3
+          - .norm5
+    - name: global_medium_l2
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: l2
+          ignored_layers:
+          - features.conv0
+          - classifier
+          - .bn1
+          - .bn2
+          - .bn3
+          - .norm5
+    - name: global_heavy_l1
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.4
+          pruning_method: l1
+          ignored_layers:
+          - features.conv0
+          - classifier
+          - .bn1
+          - .bn2
+          - .bn3
+          - .norm5
+    - name: global_targeted_denseblock23
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.35
+          pruning_method: l1
+          ignored_layers:
+          - features.conv0
+          - classifier
+          - .bn1
+          - .bn2
+          - .bn3
+          - .norm5
+          layers_to_target:
+          - features.denseblock2
+          - features.denseblock3
+    - name: global_targeted_denseblock34
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.4
+          pruning_method: l2
+          ignored_layers:
+          - features.conv0
+          - classifier
+          - .bn1
+          - .bn2
+          - .bn3
+          - .norm5
+          layers_to_target:
+          - features.denseblock3
+          - features.denseblock4
+    - name: activation_relu_to_gelu
+      mutations:
+      - type: ActivationSworkload_iterationsp
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+    - name: activation_relu_to_swish
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: swish
+    - name: activation_relu_to_leaky_relu
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: leaky_relu
+    - name: activation_relu_to_elu
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: elu
+    - name: activation_relu_to_selu
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: selu
+    - name: fc_tiny_hidden
+      mutations:
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 128
+          dropout_rate: 0.1
+          activation: relu
+    - name: fc_small_hidden
+      mutations:
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 256
+          dropout_rate: 0.15
+          activation: gelu
+    - name: fc_medium_hidden
+      mutations:
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 512
+          dropout_rate: 0.2
+          activation: swish
+    - name: fc_dual_small
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 512
+          - 256
+          dropout_rates:
+          - 0.2
+          - 0.15
+          activations:
+          - gelu
+          - swish
+    - name: fc_triple_pyramid
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 1024
+          - 512
+          - 256
+          dropout_rates:
+          - 0.3
+          - 0.25
+          - 0.2
+          activations:
+          - gelu
+          - swish
+          - relu
+    - name: fc_bottleneck
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 256
+          - 512
+          - 256
+          dropout_rates:
+          - 0.2
+          - 0.15
+          - 0.2
+          activations:
+          - swish
+          - gelu
+          - swish
+    - name: fc_deep_narrow
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 512
+          - 256
+          - 128
+          - 64
+          dropout_rates:
+          - 0.25
+          - 0.2
+          - 0.15
+          - 0.1
+          activations:
+          - gelu
+          - swish
+          - relu
+          - relu
+    - name: combo_tiny_conv_light_prune
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.conv0
+          new_kernel:
+          - 3
+          - 3
+          padding: 1
+          stride: 1
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock1.denselayer3.conv2
+          ratio: 0.15
+    - name: combo_small_conv_medium_prune
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.conv0
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+          stride: 2
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer6.conv2
+          ratio: 0.2
+    - name: combo_global_light_fc_small
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+          pruning_method: l1
+          ignored_layers:
+          - features.conv0
+          - classifier
+          - .bn1
+          - .bn2
+          - .bn3
+          - .norm5
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 256
+          dropout_rate: 0.15
+          activation: gelu
+    - name: combo_index_prune_fc_medium
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: features.denseblock2.denselayer8.conv2
+          prune_indices:
+          - 0
+          - 8
+          - 16
+          - 24
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 512
+          - 256
+          dropout_rates:
+          - 0.2
+          - 0.15
+          activations:
+          - swish
+          - gelu
+    - name: combo_transition_prune_activation
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.transition2.conv
+          ratio: 0.2
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+    - name: combo_medium_systematic_prune
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock2.denselayer4.conv2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock3.denselayer8.conv2
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer6.conv2
+          ratio: 0.3
+    - name: combo_medium_global_targeted
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+          pruning_method: l2
+          ignored_layers:
+          - features.conv0
+          - classifier
+          - .bn1
+          - .bn2
+          - .bn3
+          - .norm5
+          layers_to_target:
+          - features.denseblock3
+          - features.denseblock4
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 512
+          - 256
+          dropout_rates:
+          - 0.25
+          - 0.2
+          activations:
+          - relu
+          - swish
+    - name: mobile_optimized_light
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.conv0
+          new_kernel:
+          - 3
+          - 3
+          padding: 1
+          stride: 1
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: l1
+          ignored_layers:
+          - features.conv0
+          - classifier
+          - .bn1
+          - .bn2
+          - .bn3
+          - .norm5
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 256
+          dropout_rates:
+          - 0.2
+          activations:
+          - swish
+    - name: accuracy_preserving_conservative
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+          pruning_method: l2
+          ignored_layers:
+          - features.conv0
+          - features.transition3.conv
+          - classifier
+          - .bn1
+          - .bn2
+          - .bn3
+          - .norm5
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 1024
+          dropout_rate: 0.1
+          activation: gelu
+    - name: feature_extraction_optimized
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer12.conv2
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: features.denseblock4.denselayer14.conv2
+          ratio: 0.2
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 2048
+          - 1024
+          dropout_rates:
+          - 0.15
+          - 0.1
+          activations:
+          - gelu
+          - swish

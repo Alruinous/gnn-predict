@@ -1,0 +1,619 @@
+base_model_groups:
+- base_model:
+    name: vgg11
+    pretrained: true
+  single_variant_define:
+  - name: vgg11_extreme_prune
+    variant_config:
+      target_input_channels: 3
+      target_output_classes: 100
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      run_training: true
+      export_onnx: true
+      training_batch_sizes:
+      - 16
+      - 64
+      - 128
+      training_epochs: 2
+      use_fake_imagenet: true
+      fake_dataset_size: 5000
+      run_inference: true
+    mutations:
+    - type: GlobalChannelPruning
+      params:
+        pruning_ratio: 0.8
+        pruning_method: l1
+    - type: ReplaceFCStructure
+      params:
+        fc_structure:
+        - 256
+        - 128
+        dropout_rates:
+        - 0.2
+        - 0.1
+        activations:
+        - swish
+        - gelu
+  - name: vgg11_mobile_optimized
+    variant_config:
+      target_input_channels: 3
+      target_output_classes: 1000
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      run_training: true
+      export_onnx: true
+      training_batch_sizes:
+      - 16
+      - 64
+      - 128
+      training_epochs: 2
+      use_fake_imagenet: true
+      fake_dataset_size: 5000
+      run_inference: true
+    mutations:
+    - type: ConvToDepthwiseSeparable
+      params:
+        layer_name: features.6
+    - type: ConvToDepthwiseSeparable
+      params:
+        layer_name: features.8
+    - type: ConvToDepthwiseSeparable
+      params:
+        layer_name: features.11
+    - type: ReplaceFCStructure
+      params:
+        fc_structure:
+        - 1024
+        - 512
+        dropout_rates:
+        - 0.2
+        - 0.1
+        activations:
+        - swish
+        - swish
+  - name: vgg11_attention_enhanced
+    variant_config:
+      target_input_channels: 3
+      target_output_classes: 1000
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      run_training: true
+      export_onnx: true
+      training_batch_sizes:
+      - 16
+      - 64
+      - 128
+      training_epochs: 2
+      use_fake_imagenet: true
+      fake_dataset_size: 5000
+      run_inference: true
+    mutations:
+    - type: AddSEBlock
+      params:
+        after_layer_name: features.5
+        reduction_ratio: 8
+    - type: AddSEBlock
+      params:
+        after_layer_name: features.10
+        reduction_ratio: 16
+    - type: AddSEBlock
+      params:
+        after_layer_name: features.15
+        reduction_ratio: 32
+    - type: ReplaceFCStructure
+      params:
+        fc_structure:
+        - 4096
+        - 2048
+        - 1024
+        dropout_rates:
+        - 0.3
+        - 0.2
+        - 0.1
+        activations:
+        - gelu
+        - swish
+        - relu
+  combinatorial_variant_grid:
+    input_channels:
+    - 1
+    - 3
+    - 5
+    - 7
+    - 9
+    output_classes:
+    - 10
+    - 100
+    - 500
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      use_fake_imagenet: true
+      run_training: true
+      training_epochs: 2
+      training_batch_sizes:
+      - 16
+      - 64
+      - 128
+      fake_dataset_size: 5000
+      run_inference: true
+    mutation_sets:
+    - name: no_mutations
+      mutations: []
+    - name: prune_early_features_vgg11
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.0
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: features.3
+          ratio: 0.15
+    - name: prune_middle_features_vgg11
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.6
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: features.8
+          ratio: 0.3
+    - name: prune_deep_features_vgg11
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.11
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: features.16
+          ratio: 0.4
+    - name: global_light_prune_vgg11
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.1
+          pruning_method: l1
+    - name: global_heavy_prune_vgg11
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.5
+          pruning_method: l1
+    - name: global_prune_exclude_first_last_vgg11
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: l1
+          ignored_layers:
+          - features.0
+          - head.fc
+    - name: prune_by_index_vgg11
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: features.0
+          prune_indices:
+          - 0
+          - 5
+          - 10
+          - 15
+          - 20
+          - 25
+          - 30
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: features.6
+          prune_indices:
+          - 0
+          - 25
+          - 50
+          - 75
+          - 100
+          - 125
+    - name: prune_multiple_layers_by_index_vgg11
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: features.3
+          prune_indices:
+          - 0
+          - 4
+          - 8
+          - 12
+          - 16
+          - 20
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: features.11
+          prune_indices:
+          - 10
+          - 20
+          - 30
+          - 40
+          - 50
+    - name: conv_kernel_5x5_vgg11
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.0
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+    - name: multiple_kernel_changes_vgg11
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.6
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.11
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+    - name: deep_kernel_changes_vgg11
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.16
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.18
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+    - name: kernel_and_channel_pruning_vgg11
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: features.0
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+      - type: ChannelPruning
+        params:
+          layer_name: features.0
+          ratio: 0.25
+    - name: relu_to_leakyrelu_vgg11
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: leaky_relu
+    - name: relu_to_gelu_vgg11
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+    - name: thin_convmlp_vgg11
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 2048
+          - 1024
+          dropout_rates:
+          - 0.3
+          - 0.2
+          activations:
+          - relu
+          - relu
+    - name: wide_convmlp_vgg11
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 8192
+          - 4096
+          - 2048
+          dropout_rates:
+          - 0.4
+          - 0.3
+          - 0.2
+          activations:
+          - relu
+          - gelu
+          - relu
+    - name: deep_convmlp_vgg11
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 4096
+          - 2048
+          - 1024
+          - 512
+          dropout_rates:
+          - 0.4
+          - 0.3
+          - 0.2
+          - 0.1
+          activations:
+          - relu
+          - relu
+          - gelu
+          - swish
+    - name: ultra_thin_convmlp_vgg11
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 512
+          - 256
+          dropout_rates:
+          - 0.2
+          - 0.1
+          activations:
+          - swish
+          - gelu
+    - name: progressive_convmlp_vgg11
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 3072
+          - 1536
+          - 768
+          - 384
+          dropout_rates:
+          - 0.4
+          - 0.3
+          - 0.2
+          - 0.1
+          activations:
+          - relu
+          - gelu
+          - swish
+          - leaky_relu
+    - name: high_dropout_vgg11
+      mutations:
+      - type: ModifyDropout
+        params:
+          layer_name: pre_logits.drop
+          new_p: 0.6
+      - type: ModifyDropout
+        params:
+          layer_name: head.drop
+          new_p: 0.5
+    - name: low_dropout_vgg11
+      mutations:
+      - type: ModifyDropout
+        params:
+          layer_name: pre_logits.drop
+          new_p: 0.2
+      - type: ModifyDropout
+        params:
+          layer_name: head.drop
+          new_p: 0.1
+    - name: asymmetric_dropout_vgg11
+      mutations:
+      - type: ModifyDropout
+        params:
+          layer_name: pre_logits.drop
+          new_p: 0.7
+      - type: ModifyDropout
+        params:
+          layer_name: head.drop
+          new_p: 0.1
+    - name: combined_light_mods_vgg11
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: features.6
+          ratio: 0.15
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+    - name: combined_medium_mods_vgg11
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.2
+          pruning_method: l1
+      - type: ModifyDropout
+        params:
+          layer_name: pre_logits.drop
+          new_p: 0.35
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: swish
+    - name: combined_heavy_mods_vgg11
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.4
+          pruning_method: l1
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 2048
+          - 1024
+          dropout_rates:
+          - 0.4
+          - 0.2
+          activations:
+          - gelu
+          - swish
+    - name: fc_bottleneck_vgg11
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 1024
+          - 256
+          - 1024
+          dropout_rates:
+          - 0.3
+          - 0.1
+          - 0.2
+          activations:
+          - relu
+          - gelu
+          - relu
+    - name: fc_pyramid_vgg11
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 4096
+          - 2048
+          - 1024
+          - 512
+          - 256
+          dropout_rates:
+          - 0.5
+          - 0.4
+          - 0.3
+          - 0.2
+          - 0.1
+          activations:
+          - relu
+          - gelu
+          - swish
+          - leaky_relu
+          - relu
+    - name: depthwise_separable_early_vgg11
+      mutations:
+      - type: ConvToDepthwiseSeparable
+        params:
+          layer_name: features.3
+    - name: depthwise_separable_multiple_vgg11
+      mutations:
+      - type: ConvToDepthwiseSeparable
+        params:
+          layer_name: features.6
+      - type: ConvToDepthwiseSeparable
+        params:
+          layer_name: features.13
+    - name: grouped_conv_vgg11
+      mutations:
+      - type: ConvToGroupedConv
+        params:
+          layer_name: features.8
+          groups: 4
+      - type: ConvToGroupedConv
+        params:
+          layer_name: features.16
+          groups: 8
+    - name: add_groupnorm_vgg11
+      mutations:
+      - type: AddNormalizationLayer
+        params:
+          after_layer_name: features.9
+          norm_type: group_norm
+          num_groups: 16
+    - name: add_multiple_norms_vgg11
+      mutations:
+      - type: AddNormalizationLayer
+        params:
+          after_layer_name: features.4
+          norm_type: batch_norm
+      - type: AddNormalizationLayer
+        params:
+          after_layer_name: features.12
+          norm_type: group_norm
+          num_groups: 32
+    - name: add_se_blocks_vgg11
+      mutations:
+      - type: AddSEBlock
+        params:
+          after_layer_name: features.5
+          reduction_ratio: 16
+      - type: AddSEBlock
+        params:
+          after_layer_name: features.10
+          reduction_ratio: 16
+    - name: add_multiple_se_blocks_vgg11
+      mutations:
+      - type: AddSEBlock
+        params:
+          after_layer_name: features.2
+          reduction_ratio: 8
+      - type: AddSEBlock
+        params:
+          after_layer_name: features.15
+          reduction_ratio: 32
+      - type: AddSEBlock
+        params:
+          after_layer_name: features.20
+          reduction_ratio: 16
+    - name: extreme_optimization_vgg11
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.6
+          pruning_method: l1
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 1024
+          - 256
+          - 64
+          dropout_rates:
+          - 0.5
+          - 0.3
+          - 0.1
+          activations:
+          - swish
+          - gelu
+          - relu
+      - type: ActivationSwap
+        params:
+          target_func_name: relu
+          new_func_name: gelu
+    - name: feature_enhancement_vgg11
+      mutations:
+      - type: AddSEBlock
+        params:
+          after_layer_name: features.10
+          reduction_ratio: 16
+      - type: AddNormalizationLayer
+        params:
+          after_layer_name: features.7
+          norm_type: batch_norm
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 6144
+          - 3072
+          - 1536
+          dropout_rates:
+          - 0.4
+          - 0.3
+          - 0.2
+          activations:
+          - relu
+          - gelu
+          - swish

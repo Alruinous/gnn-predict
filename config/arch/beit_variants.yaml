@@ -1,0 +1,1500 @@
+base_model_groups:
+- base_model:
+    name: beit_base_patch16_224
+    pretrained: true
+  single_variant_define:
+  - name: beit_mobile_optimized
+    variant_config:
+      target_input_channels: 3
+      target_output_classes: 1000
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      run_training: true
+      training_batch_sizes:
+      - 8
+      training_epochs: 3
+      use_fake_imagenet: true
+      fake_dataset_size: 2000
+      run_inference: true
+    mutations:
+    - type: BEiTBlockReduction
+      params:
+        num_blocks_to_keep: 6
+    - type: BEiTModifyMLPDimension
+      params:
+        new_mlp_dim: 1536
+    - type: BEiTModifyDropout
+      params:
+        dropout_type: attention
+        new_p: 0.0
+    - type: BEiTModifyDropout
+      params:
+        dropout_type: mlp
+        new_p: 0.05
+  - name: beit_edge_device
+    variant_config:
+      target_input_channels: 3
+      target_output_classes: 100
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      run_training: true
+      training_batch_sizes:
+      - 8
+      training_epochs: 3
+      use_fake_imagenet: true
+      fake_dataset_size: 2000
+      run_inference: true
+    mutations:
+    - type: BEiTBlockReduction
+      params:
+        num_blocks_to_keep: 4
+    - type: BEiTModifyMLPDimension
+      params:
+        new_mlp_dim: 1024
+    - type: BEiTGlobalChannelPruning
+      params:
+        pruning_ratio: 0.3
+        pruning_method: l1
+        ignored_layers:
+        - head
+    - type: BEiTModifyDropout
+      params:
+        dropout_type: attention
+        new_p: 0.0
+    - type: BEiTModifyDropout
+      params:
+        dropout_type: mlp
+        new_p: 0.0
+  - name: beit_server_enhanced
+    variant_config:
+      target_input_channels: 3
+      target_output_classes: 1000
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      run_training: true
+      training_batch_sizes:
+      - 16
+      training_epochs: 3
+      use_fake_imagenet: true
+      fake_dataset_size: 2000
+      run_inference: true
+    mutations:
+    - type: BEiTModifyMLPDimension
+      params:
+        new_mlp_dim: 4096
+    - type: BEiTModifyAttentionHeads
+      params:
+        new_num_heads: 16
+    - type: BEiTModifyDropout
+      params:
+        dropout_type: attention
+        new_p: 0.1
+    - type: BEiTModifyDropout
+      params:
+        dropout_type: mlp
+        new_p: 0.15
+  combinatorial_variant_grid:
+    input_channels:
+    - 3
+    output_classes:
+    - 10
+    - 100
+    - 1000
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      use_fake_imagenet: true
+      run_training: true
+      training_epochs: 3
+      training_batch_sizes:
+      - 8
+      - 32
+      - 64
+      fake_dataset_size: 2000
+      run_inference: true
+    mutation_sets:
+    - name: no_mutations
+      mutations: []
+    - name: reduce_blocks_11
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 11
+    - name: reduce_blocks_10
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 10
+    - name: reduce_blocks_9
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 9
+    - name: reduce_blocks_8
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 8
+    - name: reduce_blocks_7
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 7
+    - name: reduce_blocks_6
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 6
+    - name: reduce_blocks_5
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 5
+    - name: reduce_blocks_4
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 4
+    - name: reduce_blocks_3
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 3
+    - name: reduce_blocks_2
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 2
+    - name: reduce_blocks_1
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 1
+    - name: layer_pruning_11_remove_last
+      mutations:
+      - type: BEiTLayerPruning
+        params:
+          target_layers: 11
+          removal_strategy: remove_last
+    - name: layer_pruning_10_remove_last
+      mutations:
+      - type: BEiTLayerPruning
+        params:
+          target_layers: 10
+          removal_strategy: remove_last
+    - name: layer_pruning_9_remove_middle
+      mutations:
+      - type: BEiTLayerPruning
+        params:
+          target_layers: 9
+          removal_strategy: remove_middle
+    - name: layer_pruning_8_remove_middle
+      mutations:
+      - type: BEiTLayerPruning
+        params:
+          target_layers: 8
+          removal_strategy: remove_middle
+    - name: layer_pruning_7_remove_first
+      mutations:
+      - type: BEiTLayerPruning
+        params:
+          target_layers: 7
+          removal_strategy: remove_first
+    - name: layer_pruning_6_remove_last
+      mutations:
+      - type: BEiTLayerPruning
+        params:
+          target_layers: 6
+          removal_strategy: remove_last
+    - name: layer_pruning_5_remove_middle
+      mutations:
+      - type: BEiTLayerPruning
+        params:
+          target_layers: 5
+          removal_strategy: remove_middle
+    - name: layer_pruning_4_remove_first
+      mutations:
+      - type: BEiTLayerPruning
+        params:
+          target_layers: 4
+          removal_strategy: remove_first
+    - name: mlp_dim_4608
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 4608
+    - name: mlp_dim_4096
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 4096
+    - name: mlp_dim_3840
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 3840
+    - name: mlp_dim_3584
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 3584
+    - name: mlp_dim_3072
+      mutations: []
+    - name: mlp_dim_2816
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 2816
+    - name: mlp_dim_2560
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 2560
+    - name: mlp_dim_2304
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 2304
+    - name: mlp_dim_2048
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 2048
+    - name: mlp_dim_1792
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 1792
+    - name: mlp_dim_1536
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 1536
+    - name: mlp_dim_1280
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 1280
+    - name: mlp_dim_1024
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 1024
+    - name: mlp_dim_768
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 768
+    - name: mlp_dim_512
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 512
+    - name: mlp_dim_384
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 384
+    - name: mlp_dim_256
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 256
+    - name: attention_heads_16
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 16
+    - name: attention_heads_14
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 14
+    - name: attention_heads_12
+      mutations: []
+    - name: attention_heads_10
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 10
+    - name: attention_heads_8
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 8
+    - name: attention_heads_6
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 6
+    - name: attention_heads_4
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 4
+    - name: attention_heads_3
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 3
+    - name: attention_heads_2
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 2
+    - name: attention_heads_1
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 1
+    - name: attention_head_pruning_10
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.1
+          layer_pruning_ratio: 0.05
+    - name: attention_head_pruning_20
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.2
+          layer_pruning_ratio: 0.1
+    - name: attention_head_pruning_30
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.3
+          layer_pruning_ratio: 0.15
+    - name: attention_head_pruning_40
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.4
+          layer_pruning_ratio: 0.2
+    - name: attention_head_pruning_50
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.5
+          layer_pruning_ratio: 0.25
+    - name: attention_head_pruning_60
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.6
+          layer_pruning_ratio: 0.3
+    - name: attention_head_pruning_70
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.7
+          layer_pruning_ratio: 0.35
+    - name: prune_patch_embed_light
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: patch_embed.proj
+          ratio: 0.1
+    - name: prune_patch_embed_medium
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: patch_embed.proj
+          ratio: 0.2
+    - name: prune_patch_embed_heavy
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: patch_embed.proj
+          ratio: 0.3
+    - name: prune_early_blocks_qkv
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.0.attn.qkv
+          ratio: 0.15
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.1.attn.qkv
+          ratio: 0.15
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.2.attn.qkv
+          ratio: 0.15
+    - name: prune_middle_blocks_qkv
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.4.attn.qkv
+          ratio: 0.2
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.5.attn.qkv
+          ratio: 0.2
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.6.attn.qkv
+          ratio: 0.2
+    - name: prune_late_blocks_qkv
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.9.attn.qkv
+          ratio: 0.25
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.10.attn.qkv
+          ratio: 0.25
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.11.attn.qkv
+          ratio: 0.25
+    - name: prune_early_blocks_mlp_fc1
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.0.mlp.fc1
+          ratio: 0.1
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.1.mlp.fc1
+          ratio: 0.1
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.2.mlp.fc1
+          ratio: 0.1
+    - name: prune_middle_blocks_mlp_fc1
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.4.mlp.fc1
+          ratio: 0.15
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.5.mlp.fc1
+          ratio: 0.15
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.6.mlp.fc1
+          ratio: 0.15
+    - name: prune_late_blocks_mlp_fc1
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.9.mlp.fc1
+          ratio: 0.2
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.10.mlp.fc1
+          ratio: 0.2
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.11.mlp.fc1
+          ratio: 0.2
+    - name: prune_projection_layers
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.0.attn.proj
+          ratio: 0.1
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.3.attn.proj
+          ratio: 0.15
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.6.attn.proj
+          ratio: 0.2
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.9.attn.proj
+          ratio: 0.25
+    - name: prune_classifier_head
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: head
+          ratio: 0.2
+    - name: global_prune_10_all_layers
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.1
+          pruning_method: l1
+    - name: global_prune_20_all_layers
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.2
+          pruning_method: l1
+    - name: global_prune_30_all_layers
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: l1
+    - name: global_prune_40_all_layers
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.4
+          pruning_method: l1
+    - name: global_prune_50_all_layers
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.5
+          pruning_method: l1
+    - name: global_prune_25_exclude_patch_head
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+          pruning_method: l1
+          ignored_layers:
+          - patch_embed.proj
+          - head
+    - name: global_prune_35_exclude_patch_head
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.35
+          pruning_method: l1
+          ignored_layers:
+          - patch_embed.proj
+          - head
+    - name: global_prune_30_blocks_only
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: l1
+          layers_to_target:
+          - blocks
+    - name: global_prune_40_blocks_only
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.4
+          pruning_method: l1
+          layers_to_target:
+          - blocks
+    - name: global_prune_50_blocks_only
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.5
+          pruning_method: l1
+          layers_to_target:
+          - blocks
+    - name: global_prune_25_random
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+          pruning_method: random
+    - name: global_prune_35_random
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.35
+          pruning_method: random
+    - name: dropout_000
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.0
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.0
+    - name: dropout_003
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.03
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.03
+    - name: dropout_005
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.05
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.05
+    - name: dropout_008
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.08
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.08
+    - name: dropout_010
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.1
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.1
+    - name: dropout_015
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.15
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.15
+    - name: dropout_020
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.2
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.2
+    - name: dropout_025
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.25
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.25
+    - name: dropout_030
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.3
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.3
+    - name: dropout_attention_only_010
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.1
+    - name: dropout_attention_only_020
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.2
+    - name: dropout_mlp_only_010
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.1
+    - name: dropout_mlp_only_020
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.2
+    - name: dropout_asymmetric_1
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.05
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.15
+    - name: dropout_asymmetric_2
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.15
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.05
+    - name: light_combo_mobile_1
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 8
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 2048
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.0
+    - name: light_combo_mobile_2
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 8
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 2560
+      - type: BEiTChannelPruning
+        params:
+          layer_name: patch_embed.proj
+          ratio: 0.1
+    - name: light_combo_prune_1
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+          pruning_method: l1
+          ignored_layers:
+          - patch_embed.proj
+          - head
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.05
+    - name: light_combo_prune_2
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.2
+          layer_pruning_ratio: 0.1
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 2304
+    - name: light_combo_layer_prune_1
+      mutations:
+      - type: BEiTLayerPruning
+        params:
+          target_layers: 10
+          removal_strategy: remove_last
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.05
+    - name: medium_combo_compression_1
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 6
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 6
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 1536
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.05
+    - name: medium_combo_compression_2
+      mutations:
+      - type: BEiTLayerPruning
+        params:
+          target_layers: 8
+          removal_strategy: remove_middle
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+          pruning_method: l1
+          ignored_layers:
+          - head
+    - name: medium_combo_prune_1
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.3
+          layer_pruning_ratio: 0.15
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.0.mlp.fc1
+          ratio: 0.2
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.6.mlp.fc1
+          ratio: 0.2
+    - name: medium_combo_prune_2
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: l1
+          layers_to_target:
+          - blocks
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.1
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.1
+    - name: medium_combo_balanced_1
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 7
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 8
+      - type: BEiTChannelPruning
+        params:
+          layer_name: patch_embed.proj
+          ratio: 0.15
+    - name: heavy_combo_extreme_compression_1
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 4
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 4
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 1024
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.4
+          pruning_method: l1
+          ignored_layers:
+          - head
+    - name: heavy_combo_extreme_compression_2
+      mutations:
+      - type: BEiTLayerPruning
+        params:
+          target_layers: 5
+          removal_strategy: remove_last
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.5
+          layer_pruning_ratio: 0.25
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.0
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.0
+    - name: heavy_combo_aggressive_prune_1
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.5
+          pruning_method: l1
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 6
+    - name: heavy_combo_aggressive_prune_2
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.6
+          layer_pruning_ratio: 0.3
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.0.attn.qkv
+          ratio: 0.3
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.6.attn.qkv
+          ratio: 0.3
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.11.attn.qkv
+          ratio: 0.3
+    - name: heavy_combo_ultra_mobile_1
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 3
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 3
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 768
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.0
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.0
+    - name: experiment_deep_narrow_1
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 1280
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.15
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.15
+    - name: experiment_wide_shallow_1
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 6
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 4096
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 16
+    - name: experiment_attention_focused_1
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 16
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.0.mlp.fc1
+          ratio: 0.3
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.6.mlp.fc1
+          ratio: 0.3
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.11.mlp.fc1
+          ratio: 0.3
+    - name: experiment_mlp_focused_1
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 4608
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.4
+          layer_pruning_ratio: 0.2
+    - name: progressive_reduction_25
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 9
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 2304
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 9
+    - name: progressive_reduction_50
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 6
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 1536
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 6
+    - name: progressive_reduction_75
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 3
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 768
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 3
+    - name: mixed_strategy_1
+      mutations:
+      - type: BEiTLayerPruning
+        params:
+          target_layers: 9
+          removal_strategy: remove_middle
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.2
+          pruning_method: random
+    - name: mixed_strategy_2
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.25
+          layer_pruning_ratio: 0.15
+      - type: BEiTChannelPruning
+        params:
+          layer_name: patch_embed.proj
+          ratio: 0.2
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.08
+    - name: mixed_strategy_3
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 8
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.3.attn.qkv
+          ratio: 0.25
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.7.attn.qkv
+          ratio: 0.25
+- base_model:
+    name: beitv2_large_patch16_224
+    pretrained: true
+  combinatorial_variant_grid:
+    input_channels:
+    - 3
+    output_classes:
+    - 10
+    - 100
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      use_fake_imagenet: true
+      run_training: true
+      training_epochs: 2
+      training_batch_sizes:
+      - 4
+      - 16
+      - 32
+      fake_dataset_size: 1500
+      run_inference: true
+    mutation_sets:
+    - name: no_mutations
+      mutations: []
+    - name: reduce_blocks_22
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 22
+    - name: reduce_blocks_20
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 20
+    - name: reduce_blocks_18
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 18
+    - name: reduce_blocks_16
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 16
+    - name: reduce_blocks_14
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 14
+    - name: reduce_blocks_12
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 12
+    - name: reduce_blocks_10
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 10
+    - name: reduce_blocks_8
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 8
+    - name: reduce_blocks_6
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 6
+    - name: reduce_blocks_4
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 4
+    - name: mlp_dim_5120
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 5120
+    - name: mlp_dim_3584
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 3584
+    - name: mlp_dim_3072
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 3072
+    - name: mlp_dim_2048
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 2048
+    - name: mlp_dim_1024
+      mutations:
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 1024
+    - name: attention_heads_20
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 20
+    - name: attention_heads_12
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 12
+    - name: attention_heads_8
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 8
+    - name: attention_heads_4
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 4
+    - name: attention_head_pruning_15
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.15
+          layer_pruning_ratio: 0.05
+    - name: attention_head_pruning_25
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.25
+          layer_pruning_ratio: 0.1
+    - name: attention_head_pruning_50
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.5
+          layer_pruning_ratio: 0.25
+    - name: prune_patch_embed_medium
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: patch_embed.proj
+          ratio: 0.2
+    - name: prune_early_blocks_qkv
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.2.attn.qkv
+          ratio: 0.15
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.3.attn.qkv
+          ratio: 0.15
+    - name: prune_middle_blocks_qkv
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.11.attn.qkv
+          ratio: 0.2
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.12.attn.qkv
+          ratio: 0.2
+    - name: prune_late_blocks_qkv
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.20.attn.qkv
+          ratio: 0.25
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.22.attn.qkv
+          ratio: 0.25
+    - name: prune_middle_blocks_mlp_fc1
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.10.mlp.fc1
+          ratio: 0.15
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.14.mlp.fc1
+          ratio: 0.15
+    - name: prune_late_blocks_mlp_fc1
+      mutations:
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.18.mlp.fc1
+          ratio: 0.2
+      - type: BEiTChannelPruning
+        params:
+          layer_name: blocks.21.mlp.fc1
+          ratio: 0.2
+    - name: global_prune_15_all_layers
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+          pruning_method: l1
+    - name: global_prune_30_all_layers
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: l1
+    - name: global_prune_45_all_layers
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.45
+          pruning_method: l1
+    - name: global_prune_30_exclude_patch_head
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: l1
+          ignored_layers:
+          - patch_embed.proj
+          - head
+    - name: global_prune_40_blocks_only
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.4
+          pruning_method: l1
+          layers_to_target:
+          - blocks
+    - name: global_prune_30_random
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: random
+    - name: dropout_005
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.05
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.05
+    - name: dropout_010
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.1
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.1
+    - name: dropout_020
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.2
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.2
+    - name: dropout_attention_only_015
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.15
+    - name: dropout_mlp_only_015
+      mutations:
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.15
+    - name: light_combo_1
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 20
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 3072
+    - name: light_combo_2
+      mutations:
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 12
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.1
+          pruning_method: l1
+          layers_to_target:
+          - blocks
+    - name: light_combo_3
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 18
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.05
+    - name: medium_combo_1
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 16
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 12
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 3072
+    - name: medium_combo_2
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 14
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+          pruning_method: l1
+          ignored_layers:
+          - head
+    - name: medium_combo_3
+      mutations:
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.25
+          layer_pruning_ratio: 0.1
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 2048
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.1
+    - name: heavy_combo_1
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 12
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 8
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 2048
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: l1
+    - name: heavy_combo_2
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 10
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.5
+          layer_pruning_ratio: 0.25
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.0
+      - type: BEiTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.0
+    - name: heavy_combo_3
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.4
+          pruning_method: l1
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 8
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 14
+    - name: extreme_combo_1
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 8
+      - type: BEiTModifyAttentionHeads
+        params:
+          new_num_heads: 4
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 1024
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.5
+          pruning_method: l1
+    - name: extreme_combo_2
+      mutations:
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 6
+      - type: BEiTAttentionHeadPruning
+        params:
+          head_pruning_ratio: 0.6
+          layer_pruning_ratio: 0.3
+      - type: BEiTModifyMLPDimension
+        params:
+          new_mlp_dim: 1536
+    - name: extreme_combo_3
+      mutations:
+      - type: BEiTGlobalChannelPruning
+        params:
+          pruning_ratio: 0.6
+          pruning_method: l1
+      - type: BEiTBlockReduction
+        params:
+          num_blocks_to_keep: 10

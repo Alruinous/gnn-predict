@@ -1,0 +1,486 @@
+base_model_groups:
+- base_model:
+    name: mobilenetv2_100
+    pretrained: true
+  combinatorial_variant_grid:
+    input_channels:
+    - 1
+    - 3
+    - 5
+    output_classes:
+    - 10
+    - 100
+    - 1000
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      use_fake_imagenet: true
+      run_training: true
+      training_epochs: 2
+      training_batch_sizes:
+      - 16
+      - 32
+      - 64
+      fake_dataset_size: 3000
+      run_inference: true
+    mutation_sets:
+    - name: no_mutations
+      mutations: []
+    - name: kernel_5x5_conv_stem
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv_stem
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+    - name: kernel_1x1_conv_stem
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv_stem
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+    - name: prune_early_inverted_residual
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.1.0.conv_pw
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.1.1.conv_pw
+          ratio: 0.2
+    - name: prune_middle_inverted_residual
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.2.0.conv_pw
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.2.1.conv_pw
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.2.2.conv_pw
+          ratio: 0.25
+    - name: prune_deep_inverted_residual
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.3.0.conv_pw
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.3.1.conv_pw
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.3.2.conv_pw
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.3.3.conv_pw
+          ratio: 0.3
+    - name: prune_bottleneck_layers
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.4.0.conv_pw
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.4.1.conv_pw
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.4.2.conv_pw
+          ratio: 0.35
+    - name: prune_depthwise_early
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.0.0.conv_dw
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.1.0.conv_dw
+          ratio: 0.2
+    - name: prune_depthwise_middle
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.2.0.conv_dw
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.3.0.conv_dw
+          ratio: 0.3
+    - name: prune_depthwise_late
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.4.0.conv_dw
+          ratio: 0.35
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.5.0.conv_dw
+          ratio: 0.4
+    - name: prune_pointwise_linear
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.1.0.conv_pwl
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.2.0.conv_pwl
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.3.0.conv_pwl
+          ratio: 0.3
+    - name: prune_bn_stem_blocks
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: bn1
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.1.0.bn1
+          ratio: 0.2
+    - name: prune_bn_middle_blocks
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.2.0.bn1
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.3.0.bn1
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.4.0.bn1
+          ratio: 0.3
+    - name: act_swap_relu6_hardswish
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu6
+          new_func_name: hardswish
+    - name: act_swap_relu6_swish
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu6
+          new_func_name: swish
+    - name: act_swap_relu6_gelu
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu6
+          new_func_name: gelu
+    - name: act_swap_relu6_mish
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu6
+          new_func_name: mish
+    - name: global_l1_prune_15
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+          pruning_method: l1
+    - name: global_l1_prune_25
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+          pruning_method: l1
+    - name: global_l2_prune_20
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.2
+          pruning_method: l2
+    - name: global_random_prune_30
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.3
+          pruning_method: random
+    - name: global_magnitude_prune_25
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.25
+          pruning_method: magnitude
+    - name: mobilenet_fc_pyramid
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 640
+          - 320
+          - 160
+          dropout_rates:
+          - 0.3
+          - 0.2
+          - 0.1
+          activations:
+          - relu
+          - hardswish
+          - swish
+    - name: mobilenet_fc_bottleneck
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 320
+          - 160
+          - 320
+          dropout_rates:
+          - 0.25
+          - 0.15
+          - 0.25
+          activations:
+          - hardswish
+          - swish
+          - relu
+    - name: mobilenet_fc_wide
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 2048
+          - 1024
+          - 512
+          dropout_rates:
+          - 0.3
+          - 0.25
+          - 0.2
+          activations:
+          - relu
+          - hardswish
+          - gelu
+    - name: prune_indices_early_pattern
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: blocks.1.0.conv_pw
+          prune_indices:
+          - 0
+          - 16
+          - 32
+          - 48
+          - 64
+          - 80
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: blocks.1.1.conv_pw
+          prune_indices:
+          - 8
+          - 24
+          - 40
+          - 56
+          - 72
+          - 88
+    - name: prune_indices_middle_pattern
+      mutations:
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: blocks.2.0.conv_pw
+          prune_indices:
+          - 4
+          - 12
+          - 20
+          - 28
+          - 36
+          - 44
+      - type: ChannelPruningByIndex
+        params:
+          layer_name: blocks.3.0.conv_pw
+          prune_indices:
+          - 2
+          - 6
+          - 10
+          - 14
+          - 18
+          - 22
+    - name: light_combo_activation_prune
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu6
+          new_func_name: hardswish
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.1.0.conv_pw
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.2.0.conv_pw
+          ratio: 0.2
+    - name: light_combo_stem_optimization
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv_stem
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+      - type: ChannelPruning
+        params:
+          layer_name: conv_stem
+          ratio: 0.2
+      - type: ActivationSwap
+        params:
+          target_func_name: relu6
+          new_func_name: hardswish
+    - name: medium_combo_inverted_optimization
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.1.0.conv_pw
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.2.0.conv_pw
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.3.0.conv_pw
+          ratio: 0.3
+      - type: ActivationSwap
+        params:
+          target_func_name: relu6
+          new_func_name: swish
+    - name: medium_combo_depthwise_focus
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.1.0.conv_dw
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.2.0.conv_dw
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.3.0.conv_dw
+          ratio: 0.3
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 640
+          - 320
+          dropout_rates:
+          - 0.3
+          - 0.2
+          activations:
+          - hardswish
+          - swish
+    - name: heavy_combo_aggressive_pruning
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.35
+          pruning_method: l2
+      - type: ChannelPruning
+        params:
+          layer_name: conv_head
+          ratio: 0.4
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv_stem
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 640
+          - 160
+          dropout_rates:
+          - 0.4
+          - 0.3
+          activations:
+          - hardswish
+          - gelu
+    - name: head_optimization
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: conv_head
+          ratio: 0.3
+      - type: ChannelPruning
+        params:
+          layer_name: bn2
+          ratio: 0.25
+    - name: skip_connection_optimization
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.1.1.conv_pwl
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.2.1.conv_pwl
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.2.2.conv_pwl
+          ratio: 0.25
+    - name: progressive_width_reduction
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.1.0.conv_pw
+          ratio: 0.1
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.2.0.conv_pw
+          ratio: 0.15
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.3.0.conv_pw
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.4.0.conv_pw
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.5.0.conv_pw
+          ratio: 0.3
+    - name: efficient_mobile_design
+      mutations:
+      - type: ActivationSwap
+        params:
+          target_func_name: relu6
+          new_func_name: hardswish
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.4.0.conv_pw
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.5.0.conv_pw
+          ratio: 0.3
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.2
+          pruning_method: l1

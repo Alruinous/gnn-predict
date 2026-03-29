@@ -1,0 +1,436 @@
+base_model_groups:
+- base_model:
+    name: vit_base_patch16_224
+    pretrained: true
+  single_variant_define:
+  - name: vit_lightweight_custom
+    variant_config:
+      target_input_channels: 3
+      target_output_classes: 1000
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      run_training: true
+      training_batch_sizes:
+      - 16
+      - 32
+      - 48
+      - 64
+      training_epochs: 2
+      use_fake_imagenet: true
+      fake_dataset_size: 10000
+      run_inference: true
+    mutations:
+    - type: ViTBlockReduction
+      params:
+        num_blocks_to_keep: 6
+    - type: ViTModifyEmbedDim
+      params:
+        new_embed_dim: 384
+        new_num_heads: 6
+        new_mlp_dim: 1536
+  - name: vit_mobile_optimized
+    variant_config:
+      target_input_channels: 3
+      target_output_classes: 1000
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      run_training: true
+      training_batch_sizes:
+      - 16
+      - 32
+      - 48
+      - 64
+      training_epochs: 2
+      use_fake_imagenet: true
+      fake_dataset_size: 10000
+      run_inference: true
+    mutations:
+    - type: ViTBlockReduction
+      params:
+        num_blocks_to_keep: 4
+    - type: ViTModifyEmbedDim
+      params:
+        new_embed_dim: 256
+        new_num_heads: 4
+        new_mlp_dim: 1024
+    - type: ViTModifyDropout
+      params:
+        dropout_type: attention
+        new_p: 0.0
+    - type: ViTModifyDropout
+      params:
+        dropout_type: mlp
+        new_p: 0.0
+  combinatorial_variant_grid:
+    input_channels:
+    - 3
+    output_classes:
+    - 10
+    - 100
+    - 1000
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      use_fake_imagenet: true
+      run_training: true
+      training_epochs: 2
+      training_batch_sizes:
+      - 16
+      - 32
+      - 48
+      - 64
+      fake_dataset_size: 10000
+      run_inference: true
+    mutation_sets:
+    - name: no_mutations
+      mutations: []
+    - name: reduce_encoder_blocks_ultra_light
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 10
+    - name: reduce_encoder_blocks_light
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 8
+    - name: reduce_encoder_blocks_medium
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 6
+    - name: reduce_encoder_blocks_heavy
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 4
+    - name: reduce_encoder_blocks_extreme
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 2
+    - name: reduce_attention_heads_light
+      mutations:
+      - type: ViTModifyAttentionHeads
+        params:
+          new_num_heads: 10
+    - name: reduce_attention_heads_medium
+      mutations:
+      - type: ViTModifyAttentionHeads
+        params:
+          new_num_heads: 8
+    - name: reduce_attention_heads_heavy
+      mutations:
+      - type: ViTModifyAttentionHeads
+        params:
+          new_num_heads: 6
+    - name: reduce_attention_heads_extreme
+      mutations:
+      - type: ViTModifyAttentionHeads
+        params:
+          new_num_heads: 4
+    - name: increase_attention_heads
+      mutations:
+      - type: ViTModifyAttentionHeads
+        params:
+          new_num_heads: 16
+    - name: reduce_mlp_dim_light
+      mutations:
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 2560
+    - name: reduce_mlp_dim_medium
+      mutations:
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 2048
+    - name: reduce_mlp_dim_heavy
+      mutations:
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 1536
+    - name: reduce_mlp_dim_extreme
+      mutations:
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 1024
+    - name: increase_mlp_dim_medium
+      mutations:
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 4096
+    - name: increase_mlp_dim_large
+      mutations:
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 5120
+    - name: very_high_dropout
+      mutations:
+      - type: ViTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.3
+      - type: ViTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.3
+    - name: high_dropout
+      mutations:
+      - type: ViTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.2
+      - type: ViTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.2
+    - name: medium_dropout
+      mutations:
+      - type: ViTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.15
+      - type: ViTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.15
+    - name: light_dropout
+      mutations:
+      - type: ViTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.1
+      - type: ViTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.1
+    - name: minimal_dropout
+      mutations:
+      - type: ViTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.05
+      - type: ViTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.05
+    - name: no_dropout
+      mutations:
+      - type: ViTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.0
+      - type: ViTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.0
+    - name: reduce_embed_dim_light
+      mutations:
+      - type: ViTModifyEmbedDim
+        params:
+          new_embed_dim: 640
+          new_num_heads: 10
+          new_mlp_dim: 2560
+    - name: reduce_embed_dim_medium
+      mutations:
+      - type: ViTModifyEmbedDim
+        params:
+          new_embed_dim: 512
+          new_num_heads: 8
+          new_mlp_dim: 2048
+    - name: reduce_embed_dim_heavy
+      mutations:
+      - type: ViTModifyEmbedDim
+        params:
+          new_embed_dim: 384
+          new_num_heads: 6
+          new_mlp_dim: 1536
+    - name: reduce_embed_dim_extreme
+      mutations:
+      - type: ViTModifyEmbedDim
+        params:
+          new_embed_dim: 256
+          new_num_heads: 4
+          new_mlp_dim: 1024
+    - name: increase_embed_dim
+      mutations:
+      - type: ViTModifyEmbedDim
+        params:
+          new_embed_dim: 1024
+          new_num_heads: 16
+          new_mlp_dim: 4096
+    - name: ultra_light_vit_v1
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 8
+      - type: ViTModifyAttentionHeads
+        params:
+          new_num_heads: 8
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 2048
+    - name: ultra_light_vit_v2
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 6
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 1536
+      - type: ViTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.1
+    - name: light_vit_balanced
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 8
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 2048
+      - type: ViTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.05
+    - name: medium_vit_optimized
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 10
+      - type: ViTModifyAttentionHeads
+        params:
+          new_num_heads: 10
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 2560
+    - name: tiny_vit_v1
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 4
+      - type: ViTModifyAttentionHeads
+        params:
+          new_num_heads: 6
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 1024
+      - type: ViTModifyEmbedDim
+        params:
+          new_embed_dim: 384
+          new_num_heads: 6
+          new_mlp_dim: 1024
+    - name: tiny_vit_v2
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 6
+      - type: ViTModifyAttentionHeads
+        params:
+          new_num_heads: 8
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 1536
+      - type: ViTModifyEmbedDim
+        params:
+          new_embed_dim: 512
+          new_num_heads: 8
+          new_mlp_dim: 1536
+    - name: micro_vit
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 2
+      - type: ViTModifyAttentionHeads
+        params:
+          new_num_heads: 4
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 512
+      - type: ViTModifyEmbedDim
+        params:
+          new_embed_dim: 256
+          new_num_heads: 4
+          new_mlp_dim: 512
+    - name: large_vit_v1
+      mutations:
+      - type: ViTModifyAttentionHeads
+        params:
+          new_num_heads: 16
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 4096
+      - type: ViTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.1
+    - name: large_vit_v2
+      mutations:
+      - type: ViTModifyEmbedDim
+        params:
+          new_embed_dim: 1024
+          new_num_heads: 16
+          new_mlp_dim: 4096
+      - type: ViTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.15
+    - name: deep_narrow_vit
+      mutations:
+      - type: ViTModifyAttentionHeads
+        params:
+          new_num_heads: 6
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 1536
+      - type: ViTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.2
+    - name: wide_shallow_vit
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 6
+      - type: ViTModifyEmbedDim
+        params:
+          new_embed_dim: 1024
+          new_num_heads: 16
+          new_mlp_dim: 5120
+    - name: extreme_efficient_vit
+      mutations:
+      - type: ViTBlockReduction
+        params:
+          num_blocks_to_keep: 4
+      - type: ViTModifyAttentionHeads
+        params:
+          new_num_heads: 4
+      - type: ViTModifyMLPDimension
+        params:
+          new_mlp_dim: 768
+      - type: ViTModifyEmbedDim
+        params:
+          new_embed_dim: 256
+          new_num_heads: 4
+          new_mlp_dim: 768
+      - type: ViTModifyDropout
+        params:
+          dropout_type: attention
+          new_p: 0.0
+      - type: ViTModifyDropout
+        params:
+          dropout_type: mlp
+          new_p: 0.0
