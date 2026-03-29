@@ -852,3 +852,47 @@ def test_build_variant_model_supports_convnext_kernel_size_modification() -> Non
     with torch.no_grad():
         logits = convnext_model(torch.randn(1, 3, 224, 224))
     assert logits.shape == (1, 4)
+
+
+def test_build_variant_model_supports_convnext_dropout_modification() -> None:
+    baseline_variant = build_convnext_variant([])
+    dropout_variant = build_convnext_variant(
+        [
+            {
+                "type": "ConvNeXtModifyDropout",
+                "params": {"new_p": 0.25},
+            }
+        ],
+        variant_name="convnext_dropout_smoke",
+    )
+
+    baseline_model = build_variant_model(baseline_variant)
+    dropout_model = build_variant_model(dropout_variant)
+
+    assert baseline_model.stages[0].blocks[0].mlp.drop1.p == 0.0
+    assert baseline_model.stages[0].blocks[0].mlp.drop2.p == 0.0
+    assert baseline_model.head.drop.p == 0.0
+    assert dropout_model.stages[0].blocks[0].mlp.drop1.p == 0.25
+    assert dropout_model.stages[0].blocks[0].mlp.drop2.p == 0.25
+    assert dropout_model.head.drop.p == 0.25
+
+    with torch.no_grad():
+        logits = dropout_model(torch.randn(1, 3, 224, 224))
+    assert logits.shape == (1, 4)
+
+
+def test_build_variant_model_rejects_invalid_convnext_dropout_probability() -> None:
+    invalid_variant = build_convnext_variant(
+        [
+            {
+                "type": "ConvNeXtModifyDropout",
+                "params": {"new_p": 1.5},
+            }
+        ],
+        variant_name="convnext_invalid_dropout_smoke",
+    )
+
+    with pytest.raises(
+        ValueError, match=r"ConvNeXtModifyDropout new_probability must be in \[0, 1\]"
+    ):
+        build_variant_model(invalid_variant)

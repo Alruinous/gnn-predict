@@ -258,24 +258,24 @@ base_model_groups:
           kernel_size: 15
     - name: dropout_light
       mutations:
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.1
+          new_p: 0.1
     - name: dropout_medium
       mutations:
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.2
+          new_p: 0.2
     - name: dropout_heavy
       mutations:
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.3
+          new_p: 0.3
     - name: dropout_extreme
       mutations:
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.5
+          new_p: 0.5
     - name: light_combo_1
       mutations:
       - type: GlobalChannelPruning
@@ -332,9 +332,9 @@ base_model_groups:
         params:
           target_activation: mish
           replace_activation: gelu
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.1
+          new_p: 0.1
     - name: light_combo_7
       mutations:
       - type: GlobalChannelPruning
@@ -361,9 +361,9 @@ base_model_groups:
           - 4
           - 18
           - 4
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.2
+          new_p: 0.2
     - name: light_combo_10
       mutations:
       - type: GlobalChannelPruning
@@ -418,9 +418,9 @@ base_model_groups:
       - type: ConvNeXtKernelSizeModification
         params:
           kernel_size: 5
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.1
+          new_p: 0.1
     - name: medium_combo_3
       mutations:
       - type: GlobalChannelPruning
@@ -445,9 +445,9 @@ base_model_groups:
       - type: ConvNeXtKernelSizeModification
         params:
           kernel_size: 9
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.2
+          new_p: 0.2
     - name: medium_combo_5
       mutations:
       - type: GlobalChannelPruning
@@ -484,9 +484,9 @@ base_model_groups:
       - type: ConvNeXtMLPExpansionRatio
         params:
           expansion_ratio: 5
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.3
+          new_p: 0.3
     - name: medium_combo_8
       mutations:
       - type: ConvNeXtStageReduction
@@ -527,9 +527,9 @@ base_model_groups:
       - type: ConvNeXtKernelSizeModification
         params:
           kernel_size: 15
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.1
+          new_p: 0.1
     - name: medium_combo_11
       mutations:
       - type: GlobalChannelPruning
@@ -554,9 +554,9 @@ base_model_groups:
         params:
           target_activation: relu
           replace_activation: gelu
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.2
+          new_p: 0.2
     - name: heavy_combo_1
       mutations:
       - type: GlobalChannelPruning
@@ -591,9 +591,9 @@ base_model_groups:
       - type: ConvNeXtKernelSizeModification
         params:
           kernel_size: 5
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.1
+          new_p: 0.1
     - name: heavy_combo_3
       mutations:
       - type: ConvNeXtMLPExpansionRatio
@@ -606,9 +606,9 @@ base_model_groups:
         params:
           target_activation: mish
           replace_activation: gelu
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.2
+          new_p: 0.2
     - name: heavy_combo_4
       mutations:
       - type: GlobalChannelPruning
@@ -643,9 +643,9 @@ base_model_groups:
       - type: ConvNeXtKernelSizeModification
         params:
           kernel_size: 11
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.3
+          new_p: 0.3
     - name: heavy_combo_6
       mutations:
       - type: ConvNeXtMLPExpansionRatio
@@ -658,9 +658,9 @@ base_model_groups:
         params:
           target_activation: leaky_relu
           replace_activation: gelu
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.1
+          new_p: 0.1
     - name: heavy_combo_7
       mutations:
       - type: GlobalChannelPruning
@@ -695,9 +695,9 @@ base_model_groups:
       - type: ConvNeXtKernelSizeModification
         params:
           kernel_size: 13
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.2
+          new_p: 0.2
     - name: heavy_combo_9
       mutations:
       - type: ConvNeXtMLPExpansionRatio
@@ -710,9 +710,9 @@ base_model_groups:
         params:
           target_activation: selu
           replace_activation: gelu
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.5
+          new_p: 0.5
     - name: heavy_combo_10
       mutations:
       - type: GlobalChannelPruning
@@ -750,9 +750,9 @@ base_model_groups:
         params:
           target_activation: relu
           replace_activation: gelu
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.1
+          new_p: 0.1
     - name: heavy_combo_12
       mutations:
       - type: GlobalChannelPruning
@@ -772,9 +772,9 @@ base_model_groups:
         params:
           target_activation: mish
           replace_activation: gelu
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.3
+          new_p: 0.3
     - name: heavy_combo_13
       mutations:
       - type: GlobalChannelPruning
@@ -815,9 +815,9 @@ base_model_groups:
       - type: ConvNeXtKernelSizeModification
         params:
           kernel_size: 9
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.2
+          new_p: 0.2
     - name: heavy_combo_15
       mutations:
       - type: GlobalChannelPruning
@@ -840,6 +840,6 @@ base_model_groups:
         params:
           target_activation: leaky_relu
           replace_activation: gelu
-      - type: DropoutModification
+      - type: ConvNeXtModifyDropout
         params:
-          dropout_rate: 0.1
+          new_p: 0.1

@@ -35,6 +35,7 @@ IMAGE_MUTATION_TYPES = {
     "ChannelPruningByIndex",
     "ConvKernelReplacement",
     "ConvNeXtKernelSizeModification",
+    "ConvNeXtModifyDropout",
     "ConvNeXtMLPExpansionRatio",
     "ConvNeXtStageReduction",
     "ConvToDepthwiseSeparable",
@@ -221,6 +222,12 @@ def apply_image_mutations(
             mutated_model = modify_convnext_depthwise_kernel_size(
                 mutated_model,
                 kernel_size=int(params["kernel_size"]),
+            )
+            continue
+        if mutation_type == "ConvNeXtModifyDropout":
+            mutated_model = modify_convnext_dropout(
+                mutated_model,
+                new_probability=float(params["new_p"]),
             )
             continue
         if mutation_type == "ViTBlockReduction":
@@ -970,6 +977,33 @@ def modify_convnext_depthwise_kernel_size(
     for stage in convnext_model.stages:
         for block in stage.blocks:
             block.conv_dw = resize_conv2d_kernel(block.conv_dw, kernel_size)
+    return model
+
+
+def modify_convnext_dropout(
+    model: nn.Module,
+    new_probability: float,
+) -> nn.Module:
+    convnext_model = require_convnext_model(model, "ConvNeXtModifyDropout")
+    if not 0.0 <= new_probability <= 1.0:
+        raise ValueError("ConvNeXtModifyDropout new_probability must be in [0, 1]")
+
+    updated_layers = 0
+    for stage in convnext_model.stages:
+        for block in stage.blocks:
+            for attr_name in ("drop1", "drop2"):
+                dropout_layer = getattr(block.mlp, attr_name, None)
+                if isinstance(dropout_layer, nn.Dropout):
+                    dropout_layer.p = new_probability
+                    updated_layers += 1
+
+    head_dropout = getattr(convnext_model.head, "drop", None)
+    if isinstance(head_dropout, nn.Dropout):
+        head_dropout.p = new_probability
+        updated_layers += 1
+
+    if updated_layers == 0:
+        raise ValueError("ConvNeXtModifyDropout did not find any dropout modules")
     return model
 
 

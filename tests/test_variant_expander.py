@@ -1,7 +1,14 @@
 from __future__ import annotations
 
-from gnn_archs.config import ArchConfig
-from gnn_archs.util.variant_expander import expand_group_variants
+from pathlib import Path
+
+import yaml
+
+from gnn_archs.config import ArchConfig, is_text_model_name
+from gnn_archs.util.variant_expander import expand_arch_config, expand_group_variants
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_expand_group_variants_generates_grid_and_fc_variants() -> None:
@@ -109,5 +116,26 @@ def test_expand_group_variants_keeps_text_input_shape_flat() -> None:
     variants = expand_group_variants(config.base_model_groups[0])
 
     assert len(variants) == 2
-    assert all(variant.variant_config.example_input_shape == [1, 128] for variant in variants)
+    assert all(
+        variant.variant_config.example_input_shape == [1, 128] for variant in variants
+    )
+    assert all(variant.variant_config.target_input_channels == 1 for variant in variants)
+
+
+def test_is_text_model_name_uses_normalized_prefixes() -> None:
+    assert is_text_model_name("bert-base-uncased")
+    assert is_text_model_name("google/flan-t5-base")
+    assert not is_text_model_name("resnet50")
+
+
+def test_expand_arch_config_keeps_resnet50_as_image_model() -> None:
+    config_path = ROOT / "config" / "arch" / "resnet50_variants.yaml"
+    raw_config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+    config = ArchConfig.model_validate(raw_config)
+    variants = expand_arch_config(config)
+
+    assert variants
+    assert all(not is_text_model_name(variant.base_model.name) for variant in variants)
+    assert all(len(variant.variant_config.example_input_shape) == 4 for variant in variants)
     assert all(variant.variant_config.target_input_channels == 1 for variant in variants)

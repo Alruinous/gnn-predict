@@ -563,7 +563,7 @@ base_model_groups:
           - features.denseblock4
     - name: activation_relu_to_gelu
       mutations:
-      - type: ActivationSworkload_iterationsp
+      - type: ActivationSwap
         params:
           target_func_name: relu
           new_func_name: gelu

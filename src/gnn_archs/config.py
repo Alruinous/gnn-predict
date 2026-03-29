@@ -4,13 +4,15 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-TEXT_MODEL_MARKERS = (
+TEXT_MODEL_PREFIXES = (
     "albert",
     "bert",
     "deberta",
     "distilbert",
     "electra",
+    "flan-t5",
     "gpt",
+    "mt5",
     "roberta",
     "t5",
     "xlnet",
@@ -18,9 +20,15 @@ TEXT_MODEL_MARKERS = (
 )
 
 
+def normalize_model_identifier(model_name: str) -> str:
+    return model_name.strip().lower().split("/")[-1]
+
+
 def is_text_model_name(model_name: str) -> bool:
-    lowered_name = model_name.lower()
-    return any(marker in lowered_name for marker in TEXT_MODEL_MARKERS)
+    normalized_name = normalize_model_identifier(model_name)
+    return any(
+        normalized_name.startswith(prefix) for prefix in TEXT_MODEL_PREFIXES
+    )
 
 
 class StrictModel(BaseModel):
