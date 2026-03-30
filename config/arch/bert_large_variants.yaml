@@ -79,16 +79,6 @@ base_model_groups:
       - type: TransformerLayerReduction
         params:
           target_layers: 4
-    - name: attention_heads_20_large
-      mutations:
-      - type: AttentionHeadsModification
-        params:
-          num_heads: 20
-    - name: attention_heads_12_large
-      mutations:
-      - type: AttentionHeadsModification
-        params:
-          num_heads: 12
     - name: attention_heads_8_large
       mutations:
       - type: AttentionHeadsModification
@@ -221,22 +211,22 @@ base_model_groups:
       mutations:
       - type: BertAttentionHeadPruning
         params:
-          pruning_ratio: 0.25
+          head_pruning_ratio: 0.25
     - name: bert_attention_head_pruning_50_large
       mutations:
       - type: BertAttentionHeadPruning
         params:
-          pruning_ratio: 0.5
+          head_pruning_ratio: 0.5
     - name: bert_layer_pruning_25_large
       mutations:
       - type: BertLayerPruning
         params:
-          pruning_ratio: 0.25
+          target_layers: 18
     - name: bert_layer_pruning_50_large
       mutations:
       - type: BertLayerPruning
         params:
-          pruning_ratio: 0.5
+          target_layers: 12
     - name: bert_hidden_size_pruning_25_large
       mutations:
       - type: BertHiddenSizePruning
@@ -254,7 +244,7 @@ base_model_groups:
           target_layers: 20
       - type: AttentionHeadsModification
         params:
-          num_heads: 12
+          num_heads: 8
     - name: combo_light_2_large
       mutations:
       - type: IntermediateSizeModification
@@ -276,7 +266,7 @@ base_model_groups:
       mutations:
       - type: BertAttentionHeadPruning
         params:
-          pruning_ratio: 0.15
+          head_pruning_ratio: 0.15
       - type: IntermediateSizeModification
         params:
           intermediate_size: 3584
@@ -284,10 +274,7 @@ base_model_groups:
       mutations:
       - type: BertLayerPruning
         params:
-          pruning_ratio: 0.1
-      - type: AttentionHeadsModification
-        params:
-          num_heads: 14
+          target_layers: 21
     - name: combo_medium_1_large
       mutations:
       - type: TransformerLayerReduction
@@ -303,10 +290,10 @@ base_model_groups:
       mutations:
       - type: BertLayerPruning
         params:
-          pruning_ratio: 0.25
+          target_layers: 18
       - type: BertAttentionHeadPruning
         params:
-          pruning_ratio: 0.25
+          head_pruning_ratio: 0.25
     - name: combo_medium_3_large
       mutations:
       - type: TransformerLayerReduction
@@ -358,10 +345,10 @@ base_model_groups:
       mutations:
       - type: BertLayerPruning
         params:
-          pruning_ratio: 0.5
+          target_layers: 12
       - type: BertAttentionHeadPruning
         params:
-          pruning_ratio: 0.5
+          head_pruning_ratio: 0.5
     - name: combo_heavy_3_large
       mutations:
       - type: HiddenSizeModification
@@ -393,10 +380,10 @@ base_model_groups:
       mutations:
       - type: BertLayerPruning
         params:
-          pruning_ratio: 0.4
+          target_layers: 14
       - type: BertAttentionHeadPruning
         params:
-          pruning_ratio: 0.4
+          head_pruning_ratio: 0.4
       - type: BertHiddenSizePruning
         params:
           pruning_ratio: 0.2

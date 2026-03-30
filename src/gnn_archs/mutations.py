@@ -410,7 +410,19 @@ def apply_text_config_mutations(
             if not 0.0 <= pruning_ratio < 1.0:
                 raise ValueError("BertHiddenSizePruning ratio must be in [0, 1)")
             new_hidden_size = int(mutated_config.hidden_size * (1.0 - pruning_ratio))
-            new_hidden_size = max(8, (new_hidden_size // 8) * 8)
+            remainder = new_hidden_size % mutated_config.num_attention_heads
+            if remainder:
+                lower_hidden_size = new_hidden_size - remainder
+                upper_hidden_size = (
+                    lower_hidden_size + mutated_config.num_attention_heads
+                )
+                if (
+                    new_hidden_size - lower_hidden_size
+                    <= upper_hidden_size - new_hidden_size
+                ):
+                    new_hidden_size = lower_hidden_size
+                else:
+                    new_hidden_size = upper_hidden_size
             mutated_config.hidden_size = new_hidden_size
             continue
 

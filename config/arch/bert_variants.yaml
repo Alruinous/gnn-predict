@@ -374,16 +374,6 @@ base_model_groups:
       - type: AttentionHeadsModification
         params:
           num_heads: 16
-    - name: attention_heads_14_bert
-      mutations:
-      - type: AttentionHeadsModification
-        params:
-          num_heads: 14
-    - name: attention_heads_10_bert
-      mutations:
-      - type: AttentionHeadsModification
-        params:
-          num_heads: 10
     - name: attention_heads_8_bert
       mutations:
       - type: AttentionHeadsModification
@@ -414,66 +404,66 @@ base_model_groups:
       - type: AttentionHeadsModification
         params:
           num_heads: 1
-    - name: hidden_size_1024_bert
+    - name: hidden_size_1020_bert
       mutations:
       - type: HiddenSizeModification
         params:
-          hidden_size: 1024
-    - name: hidden_size_896_bert
+          hidden_size: 1020
+    - name: hidden_size_900_bert
       mutations:
       - type: HiddenSizeModification
         params:
-          hidden_size: 896
-    - name: hidden_size_640_bert
+          hidden_size: 900
+    - name: hidden_size_636_bert
       mutations:
       - type: HiddenSizeModification
         params:
-          hidden_size: 640
-    - name: hidden_size_512_bert
+          hidden_size: 636
+    - name: hidden_size_516_bert
       mutations:
       - type: HiddenSizeModification
         params:
-          hidden_size: 512
-    - name: hidden_size_448_bert
+          hidden_size: 516
+    - name: hidden_size_444_bert
       mutations:
       - type: HiddenSizeModification
         params:
-          hidden_size: 448
+          hidden_size: 444
     - name: hidden_size_384_bert
       mutations:
       - type: HiddenSizeModification
         params:
           hidden_size: 384
-    - name: hidden_size_320_bert
+    - name: hidden_size_324_bert
       mutations:
       - type: HiddenSizeModification
         params:
-          hidden_size: 320
-    - name: hidden_size_256_bert
+          hidden_size: 324
+    - name: hidden_size_252_bert
       mutations:
       - type: HiddenSizeModification
         params:
-          hidden_size: 256
+          hidden_size: 252
     - name: hidden_size_192_bert
       mutations:
       - type: HiddenSizeModification
         params:
           hidden_size: 192
-    - name: hidden_size_128_bert
+    - name: hidden_size_132_bert
       mutations:
       - type: HiddenSizeModification
         params:
-          hidden_size: 128
+          hidden_size: 132
     - name: hidden_size_96_bert
       mutations:
       - type: HiddenSizeModification
         params:
           hidden_size: 96
-    - name: hidden_size_64_bert
+    - name: hidden_size_60_bert
       mutations:
       - type: HiddenSizeModification
         params:
-          hidden_size: 64
+          hidden_size: 60
     - name: intermediate_size_4096_bert
       mutations:
       - type: IntermediateSizeModification
@@ -698,12 +688,12 @@ base_model_groups:
           reduction_strategy: keep_early
       - type: AttentionHeadsModification
         params:
-          num_heads: 10
+          num_heads: 8
     - name: combo_light_2_bert
       mutations:
       - type: HiddenSizeModification
         params:
-          hidden_size: 640
+          hidden_size: 636
       - type: DropoutModification
         params:
           hidden_dropout_prob: 0.15
@@ -800,7 +790,7 @@ base_model_groups:
       mutations:
       - type: HiddenSizeModification
         params:
-          hidden_size: 448
+          hidden_size: 444
       - type: IntermediateSizeModification
         params:
           intermediate_size: 1792
@@ -815,7 +805,7 @@ base_model_groups:
           removal_strategy: remove_middle
       - type: AttentionHeadsModification
         params:
-          num_heads: 5
+          num_heads: 4
       - type: ActivationFunctionSwap
         params:
           target_activation: gelu

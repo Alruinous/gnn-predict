@@ -294,7 +294,7 @@ def train_model(
         raise NotImplementedError("real image dataset preparation is not migrated yet")
 
     batch_size = spec.variant_config.training_batch_sizes[0]
-    dataset = build_training_dataset(spec, model)
+    dataset = build_training_dataset(spec, model, device)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     criterion = nn.CrossEntropyLoss()
@@ -391,9 +391,10 @@ def run_inference(
 def build_training_dataset(
     spec: ResolvedVariantSpec,
     model: nn.Module,
+    device: torch.device,
 ) -> TensorDataset:
     dataset_size = spec.variant_config.fake_dataset_size
-    generator = torch.Generator().manual_seed(0)
+    generator = torch.Generator(device=device).manual_seed(42)
 
     if is_text_model_name(spec.base_model.name):
         sequence_length = spec.variant_config.example_input_shape[1]
@@ -403,6 +404,7 @@ def build_training_dataset(
             spec.variant_config.target_output_classes,
             (dataset_size,),
             generator=generator,
+            device=device,
         )
         return TensorDataset(
             torch.randint(
@@ -410,19 +412,23 @@ def build_training_dataset(
                 vocab_size,
                 (dataset_size, sequence_length),
                 generator=generator,
+                device=device,
             ),
-            torch.ones((dataset_size, sequence_length), dtype=torch.long),
+            torch.ones((dataset_size, sequence_length), dtype=torch.long, device=device),
             labels,
         )
 
     _, channels, height, width = spec.variant_config.example_input_shape
     return TensorDataset(
-        torch.randn((dataset_size, channels, height, width), generator=generator),
+        torch.randn(
+            (dataset_size, channels, height, width), generator=generator, device=device
+        ),
         torch.randint(
             0,
             spec.variant_config.target_output_classes,
             (dataset_size,),
             generator=generator,
+            device=device,
         ),
     )
 
@@ -433,7 +439,7 @@ def build_example_batch(
     device: torch.device,
     is_text_model: bool,
 ) -> dict[str, torch.Tensor]:
-    generator = torch.Generator().manual_seed(0)
+    generator = torch.Generator(device=device).manual_seed(42)
 
     if is_text_model:
         batch_size, sequence_length = variant_config.example_input_shape

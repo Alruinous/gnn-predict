@@ -56,6 +56,45 @@ def build_image_variant(
     return expand_arch_config(config)[0]
 
 
+def build_text_variant(
+    mutations: list[dict[str, object]],
+    *,
+    base_model_name: str = "bert-base-uncased",
+    variant_name: str = "text_mutation_smoke",
+    example_input_shape: list[int] | None = None,
+) -> object:
+    resolved_input_shape = (
+        example_input_shape if example_input_shape is not None else [1, 8]
+    )
+    config = ArchConfig.model_validate(
+        {
+            "base_model_groups": [
+                {
+                    "base_model": {"name": base_model_name, "pretrained": False},
+                    "single_variant_define": [
+                        {
+                            "name": variant_name,
+                            "variant_config": {
+                                "target_input_channels": 1,
+                                "target_output_classes": 4,
+                                "example_input_shape": resolved_input_shape,
+                                "run_training": False,
+                                "run_inference": False,
+                                "export_onnx": False,
+                                "use_fake_text_dataset": True,
+                                "max_sequence_length": resolved_input_shape[1],
+                                "fake_dataset_size": 4,
+                            },
+                            "mutations": mutations,
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    return expand_arch_config(config)[0]
+
+
 def build_vgg_variant(mutations: list[dict[str, object]]) -> object:
     return build_image_variant(
         mutations,
@@ -240,6 +279,42 @@ def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
     assert result.inference is not None
     assert result.metadata["model_kind"] == "text"
     assert result.metadata["validation_num_outputs"] == 3
+
+
+def test_build_variant_model_aligns_bert_hidden_size_pruning_to_attention_heads() -> None:
+    pruned_variant = build_text_variant(
+        [
+            {
+                "type": "BertHiddenSizePruning",
+                "params": {"hidden_size_pruning_ratio": 0.1},
+            }
+        ],
+        variant_name="bert_hidden_size_pruning_smoke",
+    )
+
+    pruned_model = build_variant_model(pruned_variant)
+
+    assert pruned_model.config.hidden_size == 696
+    assert pruned_model.config.num_attention_heads == 12
+    assert pruned_model.config.hidden_size % pruned_model.config.num_attention_heads == 0
+
+
+def test_build_variant_model_keeps_invalid_text_attention_heads_failing_fast() -> None:
+    invalid_variant = build_text_variant(
+        [
+            {
+                "type": "AttentionHeadsModification",
+                "params": {"num_heads": 10},
+            }
+        ],
+        variant_name="bert_invalid_attention_heads",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="hidden_size must be divisible by num_attention_heads",
+    ):
+        build_variant_model(invalid_variant)
 
 
 def test_result_document_serialization_writes_clean_json(tmp_path: Path) -> None:
