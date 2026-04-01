@@ -9,7 +9,7 @@ from main import main
 
 
 def test_main_processes_single_config_file(tmp_path: Path) -> None:
-    config_path = tmp_path / "runtime.yaml"
+    config_path = tmp_path / "runtime_variants.yaml"
     config_path.write_text(
         yaml.safe_dump(
             {
@@ -39,6 +39,7 @@ def test_main_processes_single_config_file(tmp_path: Path) -> None:
     )
 
     output_dir = tmp_path / "run_output"
+    config_output_dir = output_dir / "onnx_models" / "runtime"
     exit_code = main(
         [
             "--config",
@@ -52,10 +53,12 @@ def test_main_processes_single_config_file(tmp_path: Path) -> None:
         ]
     )
 
-    result_files = sorted((output_dir / "results").glob("*.json"))
+    result_files = sorted((config_output_dir / "results").glob("*.json"))
+    log_files = sorted((config_output_dir / "logs").glob("*.log"))
 
     assert exit_code == 0
     assert len(result_files) == 1
+    assert len(log_files) == 1
     payload = json.loads(result_files[0].read_text(encoding="utf-8"))
     assert payload["summary"]["variant_count"] == 1
     assert payload["variants"][0]["name"] == "main_smoke_variant"

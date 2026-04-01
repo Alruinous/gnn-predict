@@ -15,6 +15,7 @@ from gnn_archs.variant_runner import (
     RunContext,
     build_variant_model,
     count_parameters,
+    derive_config_output_name,
     prepare_output_layout,
     run_variant,
 )
@@ -145,6 +146,7 @@ def build_convnext_variant(
 def test_image_variant_runner_executes_training_inference_and_onnx(
     tmp_path: Path,
 ) -> None:
+    config_path = tmp_path / "resnet18_variants.yaml"
     config = ArchConfig.model_validate(
         {
             "base_model_groups": [
@@ -189,9 +191,9 @@ def test_image_variant_runner_executes_training_inference_and_onnx(
         }
     )
     variant = expand_arch_config(config)[0]
-    output_layout = prepare_output_layout(tmp_path / "output")
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
     context = RunContext(
-        config_path=tmp_path / "image.yaml",
+        config_path=config_path,
         output_layout=output_layout,
         device=torch.device("cpu"),
         gpu_node="cpu-test",
@@ -205,11 +207,13 @@ def test_image_variant_runner_executes_training_inference_and_onnx(
     assert result.inference is not None
     assert result.onnx_export is not None
     assert Path(result.onnx_export.path).exists()
+    assert Path(result.onnx_export.path).parent == output_layout.root
     assert result.training.metrics["total_steps"] == 2
     assert result.metadata["model_kind"] == "image"
 
 
 def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
+    config_path = tmp_path / "text_variants.yaml"
     config = ArchConfig.model_validate(
         {
             "base_model_groups": [
@@ -263,9 +267,9 @@ def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
         }
     )
     variant = expand_arch_config(config)[0]
-    output_layout = prepare_output_layout(tmp_path / "output")
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
     context = RunContext(
-        config_path=tmp_path / "text.yaml",
+        config_path=config_path,
         output_layout=output_layout,
         device=torch.device("cpu"),
         gpu_node="cpu-test",
@@ -342,9 +346,10 @@ def test_result_document_serialization_writes_clean_json(tmp_path: Path) -> None
         }
     )
     variant = expand_arch_config(config)[0]
-    output_layout = prepare_output_layout(tmp_path / "output")
+    config_path = tmp_path / "serialization_variants.yaml"
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
     context = RunContext(
-        config_path=tmp_path / "serialization.yaml",
+        config_path=config_path,
         output_layout=output_layout,
         device=torch.device("cpu"),
         gpu_node="cpu-test",
@@ -366,6 +371,13 @@ def test_result_document_serialization_writes_clean_json(tmp_path: Path) -> None
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["schema_version"] == "1.0.0"
     assert payload["variants"][0]["source"] == "single_variant_define"
+
+
+def test_derive_config_output_name_strips_variants_suffix() -> None:
+    assert derive_config_output_name(Path("/tmp/bert_large_variants.yaml")) == (
+        "bert_large"
+    )
+    assert derive_config_output_name(Path("/tmp/runtime.yaml")) == "runtime"
 
 
 def test_build_variant_model_supports_channel_pruning() -> None:

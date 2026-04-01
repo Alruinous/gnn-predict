@@ -63,21 +63,27 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parse_args(argv)
     gpu_ids = parse_gpu_ids(args.gpu_ids)
-    output_layout = prepare_output_layout(Path(args.output_dir).resolve())
+    output_root = Path(args.output_dir).resolve()
     run_timestamp = time.time()
     run_timestamp_text = format_timestamp(run_timestamp)
-    logger = configure_logging(output_layout, args.gpu_node, run_timestamp)
     device = resolve_device(gpu_ids)
-
-    logger.info("starting migrated gnn_archs run")
-    logger.info("config files: %s", ", ".join(args.config))
-    logger.info("gpu_node=%s gpu_ids=%s device=%s", args.gpu_node, gpu_ids, device)
 
     for config_path_str in args.config:
         config_path = Path(config_path_str).resolve()
         config_started_at = time.time()
+        output_layout = prepare_output_layout(output_root, config_path)
+        logger = configure_logging(
+            output_layout,
+            args.gpu_node,
+            run_timestamp,
+            logger_name=f"gnn_predict.{output_layout.root.name}",
+        )
         config = load_arch_config(config_path)
         variants = expand_arch_config(config)
+        logger.info("starting migrated gnn_archs run")
+        logger.info("config files: %s", ", ".join(args.config))
+        logger.info("gpu_node=%s gpu_ids=%s device=%s", args.gpu_node, gpu_ids, device)
+        logger.info("artifacts_dir=%s", output_layout.root)
         logger.info("processing %s with %s variants", config_path, len(variants))
 
         context = RunContext(
@@ -119,11 +125,17 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def configure_logging(
-    output_layout: OutputLayout, gpu_node: str, run_timestamp: float
+    output_layout: OutputLayout,
+    gpu_node: str,
+    run_timestamp: float,
+    *,
+    logger_name: str,
 ) -> logging.Logger:
-    logger = logging.getLogger("gnn_predict")
+    logger = logging.getLogger(logger_name)
     logger.setLevel(logging.INFO)
-    logger.handlers.clear()
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
     logger.propagate = False
 
     formatter = logging.Formatter(
