@@ -34,7 +34,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--output_dir",
         default="output",
-        help="Root directory for logs, results, ONNX exports, and checkpoints.",
+        help=(
+            "Parent directory that will contain one artifact directory per config "
+            "dataset."
+        ),
     )
     parser.add_argument(
         "--gpu_node",
@@ -83,7 +86,8 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("starting migrated gnn_archs run")
         logger.info("config files: %s", ", ".join(args.config))
         logger.info("gpu_node=%s gpu_ids=%s device=%s", args.gpu_node, gpu_ids, device)
-        logger.info("artifacts_dir=%s", output_layout.root)
+        logger.info("output_root=%s", output_root)
+        logger.info("dataset_artifacts_dir=%s", output_layout.root)
         logger.info("processing %s with %s variants", config_path, len(variants))
 
         context = RunContext(

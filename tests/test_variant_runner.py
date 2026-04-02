@@ -207,7 +207,9 @@ def test_image_variant_runner_executes_training_inference_and_onnx(
     assert result.inference is not None
     assert result.onnx_export is not None
     assert Path(result.onnx_export.path).exists()
-    assert Path(result.onnx_export.path).parent == output_layout.root
+    assert Path(result.onnx_export.path).parent == output_layout.onnx_models_dir
+    checkpoint_path = Path(str(result.training.metrics["checkpoint_path"]))
+    assert checkpoint_path.parent == output_layout.checkpoints_dir
     assert result.training.metrics["total_steps"] == 2
     assert result.metadata["model_kind"] == "image"
 
@@ -378,6 +380,30 @@ def test_derive_config_output_name_strips_variants_suffix() -> None:
         "bert_large"
     )
     assert derive_config_output_name(Path("/tmp/runtime.yaml")) == "runtime"
+
+
+def test_prepare_output_layout_uses_dataset_root_directories(
+    tmp_path: Path,
+) -> None:
+    output_layout = prepare_output_layout(
+        tmp_path / "output",
+        tmp_path / "bert_large_variants.yaml",
+    )
+
+    dataset_root = tmp_path / "output" / "bert_large"
+    assert output_layout.root == dataset_root
+    assert output_layout.onnx_models_dir == dataset_root / "onnx_models"
+    assert output_layout.results_dir == dataset_root / "results"
+    assert output_layout.logs_dir == dataset_root / "logs"
+    assert output_layout.checkpoints_dir == dataset_root / "checkpoints"
+    for directory in (
+        output_layout.root,
+        output_layout.onnx_models_dir,
+        output_layout.results_dir,
+        output_layout.logs_dir,
+        output_layout.checkpoints_dir,
+    ):
+        assert directory.is_dir()
 
 
 def test_build_variant_model_supports_channel_pruning() -> None:

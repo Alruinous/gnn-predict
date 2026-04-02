@@ -39,7 +39,7 @@ def test_main_processes_single_config_file(tmp_path: Path) -> None:
     )
 
     output_dir = tmp_path / "run_output"
-    config_output_dir = output_dir / "onnx_models" / "runtime"
+    config_output_dir = output_dir / "runtime"
     exit_code = main(
         [
             "--config",

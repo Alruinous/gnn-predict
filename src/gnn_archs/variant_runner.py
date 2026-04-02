@@ -3,7 +3,6 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import onnx
@@ -31,6 +30,7 @@ from gnn_archs.result import (
 
 if TYPE_CHECKING:
     import logging
+    from pathlib import Path
 
     from gnn_archs.config import BaseModelConfig, ResolvedVariantSpec, VariantConfig
 
@@ -85,20 +85,19 @@ def derive_config_output_name(config_path: Path) -> str:
 
 
 def prepare_output_layout(output_root: Path, config_path: Path) -> OutputLayout:
-    config_output_root = output_root / "onnx_models" / derive_config_output_name(
-        config_path
-    )
+    config_output_root = output_root / derive_config_output_name(config_path)
     layout = OutputLayout(
         root=config_output_root,
         logs_dir=config_output_root / "logs",
         results_dir=config_output_root / "results",
-        onnx_models_dir=config_output_root,
+        onnx_models_dir=config_output_root / "onnx_models",
         checkpoints_dir=config_output_root / "checkpoints",
     )
     for directory in (
         layout.root,
         layout.logs_dir,
         layout.results_dir,
+        layout.onnx_models_dir,
         layout.checkpoints_dir,
     ):
         directory.mkdir(parents=True, exist_ok=True)
@@ -433,7 +432,11 @@ def build_training_dataset(
                 generator=generator,
                 device=device,
             ),
-            torch.ones((dataset_size, sequence_length), dtype=torch.long, device=device),
+            torch.ones(
+                (dataset_size, sequence_length),
+                dtype=torch.long,
+                device=device,
+            ),
             labels,
         )
 
