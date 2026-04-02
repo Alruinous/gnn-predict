@@ -79,7 +79,7 @@
   - `src/gnn_archs/result.py`
 - `main.py` 已支持：
   - 读取 YAML
-  - 解析 `--config`、`--output_dir`、`--gpu_node`、`--gpu_ids`
+  - 解析 `--config`、`--output_dir`、`--gpu_node`
   - 创建统一输出目录结构
   - 顺序执行多配置
   - 为每个配置写结果 JSON
@@ -231,7 +231,7 @@
   - 文本训练逻辑只要不是 `use_fake_text_dataset=True` 就会 `NotImplementedError`
   - 图像训练逻辑只要不是 `use_fake_imagenet=True` 就会 `NotImplementedError`
 - `training_batch_sizes` 当前只实际使用第一个 batch size。
-- `gpu_ids` 当前只实际使用第一个设备。
+- 运行链路当前固定使用第一个容器可见 GPU（`cuda:0`）；监控查询使用 monitor 配置中的 `gpu_id`。
 - 仍未迁移：
   - 更完整的训练超参数控制
   - 多 batch size 调度或探测策略

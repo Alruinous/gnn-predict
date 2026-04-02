@@ -52,10 +52,9 @@ class VariantResult(StrictModel):
 
 
 class ResultDocument(StrictModel):
-    schema_version: str = "1.0.0"
+    schema_version: str = "2.0.0"
     config_path: str
     gpu_node: str
-    gpu_ids: list[int]
     timings: dict[str, TimeWindow] = Field(default_factory=dict)
     variants: list[VariantResult]
     summary: dict[str, JsonScalar] = Field(default_factory=dict)

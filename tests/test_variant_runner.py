@@ -197,7 +197,6 @@ def test_image_variant_runner_executes_training_inference_and_onnx(
         output_layout=output_layout,
         device=torch.device("cpu"),
         gpu_node="cpu-test",
-        gpu_ids=[0],
         logger=logging.getLogger("test_image_variant_runner"),
     )
 
@@ -275,7 +274,6 @@ def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
         output_layout=output_layout,
         device=torch.device("cpu"),
         gpu_node="cpu-test",
-        gpu_ids=[0],
         logger=logging.getLogger("test_text_variant_runner"),
     )
 
@@ -355,7 +353,6 @@ def test_result_document_serialization_writes_clean_json(tmp_path: Path) -> None
         output_layout=output_layout,
         device=torch.device("cpu"),
         gpu_node="cpu-test",
-        gpu_ids=[0],
         logger=logging.getLogger("test_result_document"),
     )
 
@@ -363,7 +360,6 @@ def test_result_document_serialization_writes_clean_json(tmp_path: Path) -> None
     document = ResultDocument(
         config_path=str(context.config_path),
         gpu_node=context.gpu_node,
-        gpu_ids=context.gpu_ids,
         variants=[result],
         summary={"variant_count": 1},
     )
@@ -371,8 +367,9 @@ def test_result_document_serialization_writes_clean_json(tmp_path: Path) -> None
     write_result_document(output_path, document)
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "1.0.0"
+    assert payload["schema_version"] == "2.0.0"
     assert payload["variants"][0]["source"] == "single_variant_define"
+    assert "gpu_ids" not in payload
 
 
 def test_derive_config_output_name_strips_variants_suffix() -> None:

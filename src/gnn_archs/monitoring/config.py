@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,9 +37,10 @@ class MonitorTarget(StrictModel):
     result_json: str
     node_name: str
     pod_name: str
+    gpu_id: str
     output_csv: str | None = None
 
-    @field_validator("result_json", "node_name", "pod_name")
+    @field_validator("result_json", "node_name", "pod_name", "gpu_id")
     @classmethod
     def validate_required_strings(cls, value: str) -> str:
         normalized_value = value.strip()
@@ -73,6 +75,7 @@ class ResolvedMonitorTarget:
     name: str
     node_name: str
     pod_name: str
+    gpu_id: str
     result_json: Path
     output_csv: Path
 
@@ -87,39 +90,43 @@ class ResolvedMonitorSettings:
     targets: tuple[ResolvedMonitorTarget, ...]
 
 
-def load_monitor_settings(config_path: Path) -> ResolvedMonitorSettings:
+def load_monitor_settings(
+    config_path: Path,
+    *,
+    target_names: Sequence[str] | None = None,
+) -> ResolvedMonitorSettings:
     resolved_config_path = Path(config_path).resolve()
     with resolved_config_path.open(encoding="utf-8") as file:
         raw_config = yaml.safe_load(file)
 
     config = MonitorConfig.model_validate(raw_config)
-    enabled_targets: list[ResolvedMonitorTarget] = []
     config_dir = resolved_config_path.parent
+    normalized_targets: dict[str, MonitorTarget] = {}
+    enabled_target_names: list[str] = []
 
     for target_name, target in config.targets.items():
-        normalized_name = target_name.strip()
-        if not normalized_name:
-            raise ValueError("target names must not be empty")
-        if not target.enabled:
-            continue
-
-        result_json = _resolve_path(config_dir, target.result_json)
-        output_csv = (
-            _resolve_path(config_dir, target.output_csv)
-            if target.output_csv is not None
-            else result_json.with_name(f"{result_json.stem}_monitor.csv")
-        )
-        enabled_targets.append(
-            ResolvedMonitorTarget(
-                name=normalized_name,
-                node_name=target.node_name,
-                pod_name=target.pod_name,
-                result_json=result_json,
-                output_csv=output_csv,
+        normalized_name = _normalize_target_name(target_name)
+        if normalized_name in normalized_targets:
+            raise ValueError(
+                "monitor config target names must be unique after trimming: "
+                f"{normalized_name}"
             )
-        )
+        normalized_targets[normalized_name] = target
+        if target.enabled:
+            enabled_target_names.append(normalized_name)
 
-    if not enabled_targets:
+    requested_target_names = _normalize_requested_target_names(target_names)
+    selected_target_names = _resolve_selected_target_names(
+        requested_target_names,
+        normalized_targets=normalized_targets,
+        enabled_target_names=enabled_target_names,
+    )
+    resolved_targets = [
+        _resolve_target(config_dir, name, normalized_targets[name])
+        for name in selected_target_names
+    ]
+
+    if not resolved_targets:
         raise ValueError("monitor config must enable at least one target")
 
     return ResolvedMonitorSettings(
@@ -128,7 +135,7 @@ def load_monitor_settings(config_path: Path) -> ResolvedMonitorSettings:
         namespace=config.defaults.namespace,
         cpu_rate_window=config.defaults.cpu_rate_window,
         query_step_seconds=config.defaults.query_step_seconds,
-        targets=tuple(enabled_targets),
+        targets=tuple(resolved_targets),
     )
 
 
@@ -137,3 +144,73 @@ def _resolve_path(base_dir: Path, raw_path: str) -> Path:
     if path.is_absolute():
         return path.resolve()
     return (base_dir / path).resolve()
+
+
+def _normalize_target_name(target_name: str) -> str:
+    normalized_name = target_name.strip()
+    if not normalized_name:
+        raise ValueError("target names must not be empty")
+    return normalized_name
+
+
+def _normalize_requested_target_names(
+    target_names: Sequence[str] | None,
+) -> tuple[str, ...] | None:
+    if target_names is None:
+        return None
+
+    return tuple(_normalize_target_name(target_name) for target_name in target_names)
+
+
+def _resolve_selected_target_names(
+    requested_target_names: tuple[str, ...] | None,
+    *,
+    normalized_targets: dict[str, MonitorTarget],
+    enabled_target_names: list[str],
+) -> tuple[str, ...]:
+    if requested_target_names is None:
+        return tuple(enabled_target_names)
+
+    enabled_target_name_set = set(enabled_target_names)
+    all_target_name_set = set(normalized_targets)
+    unknown_target_names = [
+        name for name in requested_target_names if name not in all_target_name_set
+    ]
+    disabled_target_names = [
+        name
+        for name in requested_target_names
+        if name in all_target_name_set and name not in enabled_target_name_set
+    ]
+    if unknown_target_names or disabled_target_names:
+        problems: list[str] = []
+        if unknown_target_names:
+            problems.append(f"unknown: {', '.join(unknown_target_names)}")
+        if disabled_target_names:
+            problems.append(f"disabled: {', '.join(disabled_target_names)}")
+        enabled_targets_text = ", ".join(enabled_target_names) or "<none>"
+        raise ValueError(
+            "requested monitor targets are unavailable "
+            f"({'; '.join(problems)}); enabled targets: {enabled_targets_text}"
+        )
+    return requested_target_names
+
+
+def _resolve_target(
+    config_dir: Path,
+    target_name: str,
+    target: MonitorTarget,
+) -> ResolvedMonitorTarget:
+    result_json = _resolve_path(config_dir, target.result_json)
+    output_csv = (
+        _resolve_path(config_dir, target.output_csv)
+        if target.output_csv is not None
+        else result_json.with_name(f"{result_json.stem}_monitor.csv")
+    )
+    return ResolvedMonitorTarget(
+        name=target_name,
+        node_name=target.node_name,
+        pod_name=target.pod_name,
+        gpu_id=target.gpu_id,
+        result_json=result_json,
+        output_csv=output_csv,
+    )

@@ -5,8 +5,130 @@ defaults:
   query_step_seconds: 1
 
 targets:
-  bert_large:
+  vit_base_patch16_224:
     enabled: true
-    result_json: "../../res/bert_large/results/bert_large_variants_v100_1774963594_results.json"
-    node_name: "dell-67"
-    pod_name: "sg-wangjh-260331-bbed6-default0-0"
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/vit_base_patch16_224_a100_20251113_145814_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251113-94c94-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/vit_base_patch16_224_monitor.csv"
+
+  vgg11:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/vgg11_a100_20251113_092955_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251113-f2e18-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/vgg11_monitor.csv"
+
+  resnet101:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/resnet101_a100_20251112_014005_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251112-6397a-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/resnet101_monitor.csv"
+
+  mobilenetv2_100:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/mobilenetv2_100_a100_20251111_163418_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251112-371a1-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/mobilenetv2_100_monitor.csv"
+
+  vgg16:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/vgg16_a100_20251113_143141_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251113-bfb37-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/vgg16_monitor.csv"
+
+  convnext_base:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/convnext_base_a100_20251112_111821_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251112-c526e-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/convnext_base_monitor.csv"
+
+  resnet50:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/resnet50_a100_20251111_163012_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251112-221cb-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/resnet50_monitor.csv"
+
+  vgg19:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/vgg19_a100_20251113_143141_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251113-bfb37-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/vgg19_monitor.csv"
+
+  resnet18:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/resnet18_a100_20251213_062409_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251213-f828e-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/resnet18_monitor.csv"
+
+  resnet152:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/resnet152_a100_20251112_014124_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251112-711c1-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/resnet152_monitor.csv"
+
+  yolov8:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/yolo/yolo_validation_results_1114/a100/yolov8_20251114_122840_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "jpt-wangjh-251114-dae5d-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/yolov8_monitor.csv"
+
+  bert-base-uncased:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/bert-base-uncased_a100_20251111_161830_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251112-698b0-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/bert-base-uncased_monitor.csv"
+
+  bert-large-cased:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/bert-large-cased_a100_20251111_161830_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251111-07d6c-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/bert-large-cased_monitor.csv"
+
+  beit_base_patch16_224:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/beit_base_patch16_224_a100_20251112_112045_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251112-c2d70-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/beit_base_patch16_224_monitor.csv"
+
+  beitv2_large_patch16_224:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/beitv2_large_patch16_224_a100_20251112_112045_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251112-c2d70-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/beitv2_large_patch16_224_monitor.csv"
+
+  densenet121:
+    enabled: true
+    result_json: "/home/wangjh/gnn-schedule/gen_archs/tmp/output/a100/densenet121_a100_20251114_083748_results.json"
+    node_name: "inspur-gpu-04"
+    pod_name: "sg-wangjh-251114-e476f-default0-0"
+    gpu_id: "0"
+    output_csv: "csv_dir/densenet121_monitor.csv"

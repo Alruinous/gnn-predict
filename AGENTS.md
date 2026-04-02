@@ -35,9 +35,9 @@ Notes:
 - Setup/build environment:
   - `uv sync --dev`
 - Run CLI on one config:
-  - `uv run python main.py --config config/arch/resnet_variants.yaml --output_dir output --gpu_node node0 --gpu_ids 0`
+  - `uv run python main.py --config config/arch/resnet_variants.yaml --output_dir output --gpu_node node0`
 - Run CLI on multiple configs:
-  - `uv run python main.py --config config/arch/resnet_variants.yaml config/arch/vit_variants.yaml --output_dir output --gpu_node node0 --gpu_ids 0`
+  - `uv run python main.py --config config/arch/resnet_variants.yaml config/arch/vit_variants.yaml --output_dir output --gpu_node node0`
 - Run migration script (requires `PYTHONPATH`):
   - `PYTHONPATH=src uv run python scripts/migrate_arch_configs.py --help`
 

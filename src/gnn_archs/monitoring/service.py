@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -38,7 +37,7 @@ CSV_COLUMNS = [
     "node_name",
     "pod_name",
     "gpu_node",
-    "gpu_ids",
+    "gpu_id",
     "phase",
     "started_at_ts",
     "ended_at_ts",
@@ -101,7 +100,7 @@ class MonitorPhaseRecord:
     node_name: str
     pod_name: str
     gpu_node: str
-    gpu_ids: str
+    gpu_id: str
     phase: str
     started_at_ts: float
     ended_at_ts: float
@@ -115,9 +114,9 @@ def extract_phase_records(
     namespace: str,
     node_name: str,
     pod_name: str,
+    gpu_id: str,
 ) -> tuple[ResultDocument, list[MonitorPhaseRecord]]:
     document = load_result_document(result_json)
-    gpu_ids = json.dumps(document.gpu_ids, separators=(",", ":"))
     records: list[MonitorPhaseRecord] = []
 
     for variant in document.variants:
@@ -133,7 +132,7 @@ def extract_phase_records(
                     pod_name=pod_name,
                     phase="training",
                     timings=variant.training.timings,
-                    gpu_ids=gpu_ids,
+                    gpu_id=gpu_id,
                 )
             )
         if variant.inference is not None:
@@ -148,7 +147,7 @@ def extract_phase_records(
                     pod_name=pod_name,
                     phase="inference",
                     timings=variant.inference.timings,
-                    gpu_ids=gpu_ids,
+                    gpu_id=gpu_id,
                 )
             )
 
@@ -180,6 +179,7 @@ def monitor_target(
         namespace=settings.namespace,
         node_name=target.node_name,
         pod_name=target.pod_name,
+        gpu_id=target.gpu_id,
     )
 
     reference_timestamp = phase_records[0].started_at_ts
@@ -242,7 +242,7 @@ def _build_phase_record(
     pod_name: str,
     phase: str,
     timings: TimeWindow,
-    gpu_ids: str,
+    gpu_id: str,
 ) -> MonitorPhaseRecord:
     started_at_ts = _require_timestamp(
         timings.started_at_ts,
@@ -272,7 +272,7 @@ def _build_phase_record(
         node_name=node_name,
         pod_name=pod_name,
         gpu_node=document.gpu_node,
-        gpu_ids=gpu_ids,
+        gpu_id=gpu_id,
         phase=phase,
         started_at_ts=started_at_ts,
         ended_at_ts=ended_at_ts,
@@ -356,6 +356,7 @@ def _monitor_phase_record(
         tuple(definition.prometheus_name for definition in GPU_METRIC_DEFINITIONS),
         phase_record.pod_name,
         phase_record.namespace,
+        phase_record.gpu_id,
     )
     gpu_series = client.range_query(
         gpu_query,
@@ -400,7 +401,7 @@ def _monitor_phase_record(
         "node_name": phase_record.node_name,
         "pod_name": phase_record.pod_name,
         "gpu_node": phase_record.gpu_node,
-        "gpu_ids": phase_record.gpu_ids,
+        "gpu_id": phase_record.gpu_id,
         "phase": phase_record.phase,
         "started_at_ts": phase_record.started_at_ts,
         "ended_at_ts": phase_record.ended_at_ts,
@@ -453,6 +454,12 @@ def _extract_gpu_metrics(
             raise ValueError(
                 "GPU series must include both gpu and device labels for "
                 f"{definition.prometheus_name}"
+            )
+        if gpu_label != phase_record.gpu_id:
+            raise ValueError(
+                "GPU metrics resolved to an unexpected gpu label for "
+                f"{phase_record.variant_name}/{phase_record.phase}: "
+                f"{gpu_label} != {phase_record.gpu_id}"
             )
         if resolved_gpu_label is None:
             resolved_gpu_label = gpu_label

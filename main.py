@@ -44,11 +44,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         required=True,
         help="GPU node label for the current run.",
     )
-    parser.add_argument(
-        "--gpu_ids",
-        required=True,
-        help='Comma-separated GPU ids, for example "0" or "0,1".',
-    )
     return parser.parse_args(argv)
 
 
@@ -65,11 +60,10 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parse_args(argv)
-    gpu_ids = parse_gpu_ids(args.gpu_ids)
     output_root = Path(args.output_dir).resolve()
     run_timestamp = time.time()
     run_timestamp_text = format_timestamp(run_timestamp)
-    device = resolve_device(gpu_ids)
+    device = resolve_device()
 
     for config_path_str in args.config:
         config_path = Path(config_path_str).resolve()
@@ -85,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         variants = expand_arch_config(config)
         logger.info("starting migrated gnn_archs run")
         logger.info("config files: %s", ", ".join(args.config))
-        logger.info("gpu_node=%s gpu_ids=%s device=%s", args.gpu_node, gpu_ids, device)
+        logger.info("gpu_node=%s device=%s", args.gpu_node, device)
         logger.info("output_root=%s", output_root)
         logger.info("dataset_artifacts_dir=%s", output_layout.root)
         logger.info("processing %s with %s variants", config_path, len(variants))
@@ -95,14 +89,12 @@ def main(argv: list[str] | None = None) -> int:
             output_layout=output_layout,
             device=device,
             gpu_node=args.gpu_node,
-            gpu_ids=gpu_ids,
             logger=logger,
         )
         variant_results = [run_variant(variant, context) for variant in variants]
         document = ResultDocument(
             config_path=str(config_path),
             gpu_node=args.gpu_node,
-            gpu_ids=gpu_ids,
             timings={
                 "full": build_time_window(config_started_at, time.time()),
                 "run_started": TimeWindow(
@@ -166,16 +158,9 @@ def load_arch_config(config_path: Path) -> ArchConfig:
     return ArchConfig.model_validate(raw_config)
 
 
-def parse_gpu_ids(raw_gpu_ids: str) -> list[int]:
-    gpu_ids = [item.strip() for item in raw_gpu_ids.split(",") if item.strip()]
-    if not gpu_ids:
-        raise ValueError("gpu_ids must contain at least one GPU id")
-    return [int(item) for item in gpu_ids]
-
-
-def resolve_device(gpu_ids: list[int]) -> torch.device:
+def resolve_device() -> torch.device:
     if torch.cuda.is_available():
-        return torch.device(f"cuda:{gpu_ids[0]}")
+        return torch.device("cuda:0")
     return torch.device("cpu")
 
 

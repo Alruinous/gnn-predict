@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +83,7 @@ def test_load_monitor_settings_validates_and_resolves_paths(tmp_path: Path) -> N
                 f'    result_json: "{result_json.name}"',
                 '    node_name: "dell-67"',
                 '    pod_name: "sg-wangjh-260331-bbed6-default0-0"',
+                '    gpu_id: "1"',
             ]
         ),
         encoding="utf-8",
@@ -96,8 +96,174 @@ def test_load_monitor_settings_validates_and_resolves_paths(tmp_path: Path) -> N
     assert settings.cpu_rate_window == "2m"
     assert settings.query_step_seconds == 3
     assert len(settings.targets) == 1
+    assert settings.targets[0].gpu_id == "1"
     assert settings.targets[0].result_json == result_json.resolve()
     assert settings.targets[0].output_csv == result_json.with_name("results_monitor.csv")
+
+
+def test_load_monitor_settings_without_target_filter_keeps_all_enabled_targets(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "monitor.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "defaults:",
+                '  prometheus_url: "http://example:9090"',
+                '  namespace: "crater-workspace"',
+                "targets:",
+                "  bert_large:",
+                "    enabled: true",
+                '    result_json: "bert.json"',
+                '    node_name: "dell-67"',
+                '    pod_name: "pod-bert"',
+                '    gpu_id: "1"',
+                "  disabled_target:",
+                "    enabled: false",
+                '    result_json: "disabled.json"',
+                '    node_name: "dell-67"',
+                '    pod_name: "pod-disabled"',
+                '    gpu_id: "2"',
+                "  resnet50:",
+                "    enabled: true",
+                '    result_json: "resnet.json"',
+                '    node_name: "dell-68"',
+                '    pod_name: "pod-resnet"',
+                '    gpu_id: "0"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = load_monitor_settings(config_path)
+
+    assert [target.name for target in settings.targets] == ["bert_large", "resnet50"]
+
+
+def test_load_monitor_settings_filters_targets_in_requested_order(
+    tmp_path: Path,
+) -> None:
+    absolute_result = (tmp_path / "bert.json").resolve()
+    config_path = tmp_path / "monitor.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "defaults:",
+                '  prometheus_url: "http://example:9090"',
+                '  namespace: "crater-workspace"',
+                "targets:",
+                "  bert_large:",
+                "    enabled: true",
+                f'    result_json: "{absolute_result}"',
+                '    node_name: "dell-67"',
+                '    pod_name: "pod-bert"',
+                '    gpu_id: "1"',
+                "  resnet50:",
+                "    enabled: true",
+                '    result_json: "resnet.json"',
+                '    node_name: "dell-68"',
+                '    pod_name: "pod-resnet"',
+                '    gpu_id: "0"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = load_monitor_settings(
+        config_path,
+        target_names=("resnet50", "bert_large"),
+    )
+
+    assert [target.name for target in settings.targets] == ["resnet50", "bert_large"]
+    assert settings.targets[0].result_json == (tmp_path / "resnet.json").resolve()
+    assert settings.targets[1].result_json == absolute_result
+
+
+def test_load_monitor_settings_rejects_unknown_requested_targets(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "monitor.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "defaults:",
+                '  prometheus_url: "http://example:9090"',
+                '  namespace: "crater-workspace"',
+                "targets:",
+                "  bert_large:",
+                "    enabled: true",
+                '    result_json: "bert.json"',
+                '    node_name: "dell-67"',
+                '    pod_name: "pod-bert"',
+                '    gpu_id: "1"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="unknown: missing_target",
+    ):
+        load_monitor_settings(config_path, target_names=("missing_target",))
+
+
+def test_load_monitor_settings_rejects_disabled_requested_targets(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "monitor.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "defaults:",
+                '  prometheus_url: "http://example:9090"',
+                '  namespace: "crater-workspace"',
+                "targets:",
+                "  bert_large:",
+                "    enabled: false",
+                '    result_json: "bert.json"',
+                '    node_name: "dell-67"',
+                '    pod_name: "pod-bert"',
+                '    gpu_id: "1"',
+                "  resnet50:",
+                "    enabled: true",
+                '    result_json: "resnet.json"',
+                '    node_name: "dell-68"',
+                '    pod_name: "pod-resnet"',
+                '    gpu_id: "0"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="disabled: bert_large",
+    ):
+        load_monitor_settings(config_path, target_names=("bert_large",))
+
+
+def test_load_monitor_settings_requires_gpu_id(tmp_path: Path) -> None:
+    config_path = tmp_path / "monitor.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "defaults:",
+                '  prometheus_url: "http://example:9090"',
+                '  namespace: "crater-workspace"',
+                "targets:",
+                "  bert_large:",
+                "    enabled: true",
+                '    result_json: "results.json"',
+                '    node_name: "dell-67"',
+                '    pod_name: "sg-wangjh-260331-bbed6-default0-0"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError):
+        load_monitor_settings(config_path)
 
 
 def test_load_monitor_settings_rejects_invalid_step(tmp_path: Path) -> None:
@@ -116,6 +282,7 @@ def test_load_monitor_settings_rejects_invalid_step(tmp_path: Path) -> None:
                 '    result_json: "results.json"',
                 '    node_name: "dell-67"',
                 '    pod_name: "sg-wangjh-260331-bbed6-default0-0"',
+                '    gpu_id: "1"',
             ]
         ),
         encoding="utf-8",
@@ -134,10 +301,12 @@ def test_extract_phase_records_reads_training_and_inference(tmp_path: Path) -> N
         namespace="crater-workspace",
         node_name="dell-67",
         pod_name="sg-wangjh-260331-bbed6-default0-0",
+        gpu_id="1",
     )
 
     assert document.gpu_node == "v100"
     assert [record.phase for record in records] == ["training", "inference"]
+    assert [record.gpu_id for record in records] == ["1", "1"]
     assert records[0].duration_sec == 2.0
     assert records[1].duration_sec == 0.5
 
@@ -152,6 +321,7 @@ def test_extract_phase_records_fails_when_phase_timing_missing(tmp_path: Path) -
             namespace="crater-workspace",
             node_name="dell-67",
             pod_name="sg-wangjh-260331-bbed6-default0-0",
+            gpu_id="1",
         )
 
 
@@ -173,10 +343,10 @@ def test_monitor_target_writes_expected_csv_columns_and_rows(tmp_path: Path) -> 
     loaded = pd.read_csv(target.output_csv)
     assert loaded.shape[0] == 2
     assert set(loaded["phase"]) == {"training", "inference"}
+    assert loaded["gpu_id"].astype(str).tolist() == ["1", "1"]
     assert set(loaded["resolved_gpu_label"].astype(str)) == {"1"}
     assert set(loaded["resolved_device_label"]) == {"nvidia1"}
     assert loaded["sample_count"].tolist() == [2, 2]
-    assert loaded["gpu_ids"].tolist() == ["[0]", "[0]"]
 
 
 def test_monitor_target_keeps_zero_value_samples(tmp_path: Path) -> None:
@@ -241,6 +411,29 @@ def test_monitor_target_fails_when_metric_samples_are_missing(tmp_path: Path) ->
         monitor_target(settings, target, client)
 
 
+def test_monitor_target_fails_when_configured_gpu_has_no_series(
+    tmp_path: Path,
+) -> None:
+    result_json = _write_result_document(tmp_path)
+    settings, target = _build_settings(tmp_path, result_json)
+    client = _build_fake_client(
+        namespace=settings.namespace,
+        node_name=target.node_name,
+        pod_name=target.pod_name,
+        gpu_id=target.gpu_id,
+    )
+    gpu_query = build_gpu_metrics_query(
+        tuple(definition.prometheus_name for definition in GPU_METRIC_DEFINITIONS),
+        target.pod_name,
+        settings.namespace,
+        target.gpu_id,
+    )
+    client.range_responses[gpu_query][0] = []
+
+    with pytest.raises(ValueError, match="expected exactly one GPU series"):
+        monitor_target(settings, target, client)
+
+
 def test_monitor_target_fails_when_multiple_gpu_series_are_returned(
     tmp_path: Path,
 ) -> None:
@@ -255,14 +448,15 @@ def test_monitor_target_fails_when_multiple_gpu_series_are_returned(
         tuple(definition.prometheus_name for definition in GPU_METRIC_DEFINITIONS),
         target.pod_name,
         settings.namespace,
+        target.gpu_id,
     )
     multi_gpu_response = client.range_responses[gpu_query][0]
     client.range_responses[gpu_query][0] = multi_gpu_response + [
         {
             "metric": {
                 "__name__": GPU_METRIC_DEFINITIONS[0].prometheus_name,
-                "gpu": "2",
-                "device": "nvidia2",
+                "gpu": target.gpu_id,
+                "device": "nvidia-duplicate",
                 "pod": target.pod_name,
                 "namespace": settings.namespace,
                 "Hostname": target.node_name,
@@ -294,17 +488,34 @@ def test_query_builders_lock_expected_cpu_and_memory_promql() -> None:
         'count by (pod,namespace,node) '
         '(kube_pod_info{pod="pod-a",namespace="ns-a"})'
     )
+    assert build_gpu_metrics_query(
+        tuple(definition.prometheus_name for definition in GPU_METRIC_DEFINITIONS),
+        "pod-a",
+        "ns-a",
+        "1",
+    ) == (
+        'max by (__name__,pod,namespace,gpu,device,Hostname) '
+        '({__name__=~"DCGM_FI_DEV_GPU_UTIL|DCGM_FI_PROF_SM_ACTIVE|'
+        'DCGM_FI_PROF_SM_OCCUPANCY|DCGM_FI_DEV_FB_USED|DCGM_FI_DEV_FB_FREE|'
+        'DCGM_FI_DEV_MEM_COPY_UTIL|DCGM_FI_PROF_DRAM_ACTIVE|'
+        'DCGM_FI_PROF_PCIE_TX_BYTES|DCGM_FI_PROF_PCIE_RX_BYTES|'
+        'DCGM_FI_DEV_POWER_USAGE|DCGM_FI_DEV_GPU_TEMP",pod="pod-a",'
+        'namespace="ns-a",gpu="1"})'
+    )
 
 
 def _build_settings(
     tmp_path: Path,
     result_json: Path,
+    *,
+    gpu_id: str = "1",
 ) -> tuple[ResolvedMonitorSettings, ResolvedMonitorTarget]:
     output_csv = tmp_path / "out" / "monitor.csv"
     target = ResolvedMonitorTarget(
         name="bert_large",
         node_name="dell-67",
         pod_name="sg-wangjh-260331-bbed6-default0-0",
+        gpu_id=gpu_id,
         result_json=result_json,
         output_csv=output_csv,
     )
@@ -355,7 +566,6 @@ def _write_result_document(
     document = ResultDocument(
         config_path="/tmp/bert_large_variants.yaml",
         gpu_node="v100",
-        gpu_ids=[0],
         variants=[variant],
         summary={"variant_count": 1, "training_count": 1, "inference_count": 1},
     )
@@ -369,6 +579,7 @@ def _build_fake_client(
     namespace: str,
     node_name: str,
     pod_name: str,
+    gpu_id: str = "1",
     zero_gpu_values: bool = False,
 ) -> FakePrometheusClient:
     pod_info_query = build_pod_info_query(pod_name, namespace)
@@ -380,6 +591,7 @@ def _build_fake_client(
         tuple(definition.prometheus_name for definition in GPU_METRIC_DEFINITIONS),
         pod_name,
         namespace,
+        gpu_id,
     )
 
     gpu_training_values = ["0", "0"] if zero_gpu_values else ["10", "20"]
@@ -432,12 +644,14 @@ def _build_fake_client(
                     pod_name=pod_name,
                     namespace=namespace,
                     node_name=node_name,
+                    gpu_id=gpu_id,
                     values=gpu_training_values,
                 ),
                 _build_gpu_response(
                     pod_name=pod_name,
                     namespace=namespace,
                     node_name=node_name,
+                    gpu_id=gpu_id,
                     values=gpu_inference_values,
                 ),
             ],
@@ -450,6 +664,7 @@ def _build_gpu_response(
     pod_name: str,
     namespace: str,
     node_name: str,
+    gpu_id: str,
     values: list[str],
 ) -> list[dict[str, Any]]:
     response: list[dict[str, Any]] = []
@@ -460,8 +675,8 @@ def _build_gpu_response(
                     "__name__": definition.prometheus_name,
                     "pod": pod_name,
                     "namespace": namespace,
-                    "gpu": "1",
-                    "device": "nvidia1",
+                    "gpu": gpu_id,
+                    "device": f"nvidia{gpu_id}",
                     "Hostname": node_name,
                 },
                 "values": [[100.0, values[0]], [101.0, values[1]]],

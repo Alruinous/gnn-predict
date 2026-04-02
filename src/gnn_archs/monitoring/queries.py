@@ -75,6 +75,7 @@ def build_gpu_metrics_query(
     metric_names: tuple[str, ...],
     pod_name: str,
     namespace: str,
+    gpu_id: str,
 ) -> str:
     escaped_metric_names = "|".join(
         _escape_regex_value(metric_name) for metric_name in metric_names
@@ -84,7 +85,8 @@ def build_gpu_metrics_query(
         "({"
         f'__name__=~"{escaped_metric_names}",'
         f'pod="{_escape_label_value(pod_name)}",'
-        f'namespace="{_escape_label_value(namespace)}"'
+        f'namespace="{_escape_label_value(namespace)}",'
+        f'gpu="{_escape_label_value(gpu_id)}"'
         "})"
     )
 

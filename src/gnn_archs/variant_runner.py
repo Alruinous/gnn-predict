@@ -53,7 +53,6 @@ class RunContext:
     output_layout: OutputLayout
     device: torch.device
     gpu_node: str
-    gpu_ids: list[int]
     logger: logging.Logger
 
 
