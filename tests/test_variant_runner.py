@@ -7,12 +7,15 @@ from pathlib import Path
 import pytest
 import torch
 
+import gnn_archs.variant_runner as variant_runner_module
 from gnn_archs.config import ArchConfig
 from gnn_archs.mutations import SqueezeExcitationBlock
 from gnn_archs.result import ResultDocument, write_result_document
 from gnn_archs.util.variant_expander import expand_arch_config
 from gnn_archs.variant_runner import (
     RunContext,
+    build_example_batch,
+    build_training_dataset,
     build_variant_model,
     count_parameters,
     derive_config_output_name,
@@ -283,6 +286,123 @@ def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
     assert result.inference is not None
     assert result.metadata["model_kind"] == "text"
     assert result.metadata["validation_num_outputs"] == 3
+
+
+def test_cleanup_workload_boundary_clears_cuda_cache_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gc_calls: list[str] = []
+    cuda_calls: list[tuple[str, str | None]] = []
+
+    monkeypatch.setattr(
+        variant_runner_module.gc,
+        "collect",
+        lambda: gc_calls.append("gc"),
+    )
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(
+        torch.cuda,
+        "synchronize",
+        lambda device: cuda_calls.append(("sync", str(device))),
+    )
+    monkeypatch.setattr(
+        torch.cuda,
+        "empty_cache",
+        lambda: cuda_calls.append(("empty_cache", None)),
+    )
+
+    variant_runner_module.cleanup_workload_boundary(torch.device("cuda:0"))
+
+    assert gc_calls == ["gc"]
+    assert cuda_calls == [("sync", "cuda:0"), ("empty_cache", None)]
+
+
+def test_build_training_dataset_keeps_fake_tensors_on_cpu() -> None:
+    image_variant = build_image_variant(
+        [],
+        variant_name="image_cpu_dataset",
+        example_input_shape=[1, 3, 16, 16],
+    )
+    image_model = build_variant_model(image_variant)
+    image_dataset = build_training_dataset(image_variant, image_model)
+    image_inputs, image_labels = image_dataset.tensors
+
+    assert image_inputs.device.type == "cpu"
+    assert image_labels.device.type == "cpu"
+
+    text_variant = build_text_variant([], variant_name="text_cpu_dataset")
+    text_model = build_variant_model(text_variant)
+    text_dataset = build_training_dataset(text_variant, text_model)
+    text_input_ids, text_attention_mask, text_labels = text_dataset.tensors
+
+    assert text_input_ids.device.type == "cpu"
+    assert text_attention_mask.device.type == "cpu"
+    assert text_labels.device.type == "cpu"
+
+
+def test_build_example_batch_keeps_runtime_inputs_on_cpu() -> None:
+    image_variant = build_image_variant(
+        [],
+        variant_name="image_cpu_batch",
+        example_input_shape=[1, 3, 16, 16],
+    )
+    image_model = build_variant_model(image_variant)
+    image_batch = build_example_batch(
+        image_variant.variant_config,
+        image_model,
+        False,
+    )
+
+    assert image_batch["inputs"].device.type == "cpu"
+
+    text_variant = build_text_variant([], variant_name="text_cpu_batch")
+    text_model = build_variant_model(text_variant)
+    text_batch = build_example_batch(
+        text_variant.variant_config,
+        text_model,
+        True,
+    )
+
+    assert text_batch["input_ids"].device.type == "cpu"
+    assert text_batch["attention_mask"].device.type == "cpu"
+
+
+def test_run_variant_cleans_workload_boundary_on_success_and_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    variant = build_image_variant([])
+    config_path = tmp_path / "cleanup_variants.yaml"
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_variant_cleanup"),
+    )
+    cleanup_calls: list[str] = []
+
+    monkeypatch.setattr(
+        variant_runner_module,
+        "cleanup_workload_boundary",
+        lambda device: cleanup_calls.append(str(device)),
+    )
+
+    run_variant(variant, context)
+    assert cleanup_calls == ["cpu"]
+
+    cleanup_calls.clear()
+    monkeypatch.setattr(
+        variant_runner_module,
+        "validate_model",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("cleanup test")),
+    )
+
+    with pytest.raises(RuntimeError, match="cleanup test"):
+        run_variant(variant, context)
+
+    assert cleanup_calls == ["cpu"]
 
 
 def test_build_variant_model_aligns_bert_hidden_size_pruning_to_attention_heads() -> None:

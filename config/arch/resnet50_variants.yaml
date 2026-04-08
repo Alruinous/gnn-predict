@@ -840,7 +840,6 @@ base_model_groups:
           layer_name: layer1.0.conv1
           prune_indices:
           - 1
-          - 1
           - 2
           - 3
           - 5
@@ -859,7 +858,7 @@ base_model_groups:
           - 13
           - 34
           - 89
-          - 233
+          - 127
     - name: prune_power_of_two_indices
       mutations:
       - type: ChannelPruningByIndex

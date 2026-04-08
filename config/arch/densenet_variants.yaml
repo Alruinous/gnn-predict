@@ -447,7 +447,6 @@ base_model_groups:
           layer_name: features.denseblock2.denselayer4.conv2
           prune_indices:
           - 1
-          - 1
           - 2
           - 3
           - 5

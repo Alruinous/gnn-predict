@@ -590,18 +590,6 @@ base_model_groups:
         params:
           target_activation: gelu
           new_activation: leaky_relu
-    - name: gelu_to_elu_bert
-      mutations:
-      - type: ActivationFunctionSwap
-        params:
-          target_activation: gelu
-          new_activation: elu
-    - name: gelu_to_selu_bert
-      mutations:
-      - type: ActivationFunctionSwap
-        params:
-          target_activation: gelu
-          new_activation: selu
     - name: gelu_to_prelu_bert
       mutations:
       - type: ActivationFunctionSwap
@@ -614,17 +602,6 @@ base_model_groups:
         params:
           target_activation: gelu
           new_activation: mish
-    - name: gelu_to_glu_bert
-      mutations:
-      - type: ActivationFunctionSwap
-        params:
-          target_activation: gelu
-          new_activation: glu
-    - name: position_encoding_64_bert
-      mutations:
-      - type: PositionEncodingModification
-        params:
-          max_position_embeddings: 64
     - name: position_encoding_128_bert
       mutations:
       - type: PositionEncodingModification

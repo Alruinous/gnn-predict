@@ -187,10 +187,6 @@ base_model_groups:
         params:
           layer_name: conv1
           ratio: 0.4
-      - type: ChannelPruning
-        params:
-          layer_name: fc
-          ratio: 0.6
     - name: act_swap_relu_gelu
       mutations:
       - type: ActivationSwap

@@ -125,7 +125,7 @@ base_model_groups:
       mutations:
       - type: ViTModifyAttentionHeads
         params:
-          new_num_heads: 10
+          new_num_heads: 12
     - name: reduce_attention_heads_medium
       mutations:
       - type: ViTModifyAttentionHeads
@@ -313,7 +313,7 @@ base_model_groups:
           num_blocks_to_keep: 10
       - type: ViTModifyAttentionHeads
         params:
-          new_num_heads: 10
+          new_num_heads: 12
       - type: ViTModifyMLPDimension
         params:
           new_mlp_dim: 2560

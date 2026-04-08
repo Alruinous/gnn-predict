@@ -332,7 +332,6 @@ base_model_groups:
           layer_name: layer3.1.conv1
           prune_indices:
           - 1
-          - 1
           - 2
           - 3
           - 5

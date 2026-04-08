@@ -58,7 +58,10 @@ def test_main_processes_single_config_file(tmp_path: Path) -> None:
     assert len(result_files) == 1
     assert len(log_files) == 1
     payload = json.loads(result_files[0].read_text(encoding="utf-8"))
+    log_text = log_files[0].read_text(encoding="utf-8")
+
     assert payload["schema_version"] == "2.0.0"
     assert payload["summary"]["variant_count"] == 1
     assert payload["variants"][0]["name"] == "main_smoke_variant"
+    assert "processing variant 1/1: main_smoke_variant" in log_text
     assert "gpu_ids" not in payload

@@ -138,7 +138,7 @@ def apply_image_mutations(
                 mutated_model,
                 layer_name=str(params["layer_name"]),
                 new_kernel=[int(value) for value in params["new_kernel"]],
-                padding=int(params["padding"]),
+                padding=params["padding"],
             )
             continue
         if mutation_type == "ConvToDepthwiseSeparable":
@@ -1469,7 +1469,10 @@ def replace_fc_structure(
 
 
 def replace_conv_kernel(
-    model: nn.Module, layer_name: str, new_kernel: list[int], padding: int
+    model: nn.Module, 
+    layer_name: str, 
+    new_kernel: list[int], 
+    padding: int | tuple[int, int] | str
 ) -> nn.Module:
     if len(new_kernel) != 2:
         raise ValueError("new_kernel must contain two integers")

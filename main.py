@@ -91,7 +91,15 @@ def main(argv: list[str] | None = None) -> int:
             gpu_node=args.gpu_node,
             logger=logger,
         )
-        variant_results = [run_variant(variant, context) for variant in variants]
+        variant_results = []
+        for index, variant in enumerate(variants, start=1):
+            logger.info(
+                "processing variant %s/%s: %s",
+                index,
+                len(variants),
+                variant.name,
+            )
+            variant_results.append(run_variant(variant, context))
         document = ResultDocument(
             config_path=str(config_path),
             gpu_node=args.gpu_node,

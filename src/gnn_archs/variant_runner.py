@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -107,63 +108,83 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
     run_started_at = time.time()
     timings: dict[str, TimeWindow] = {}
     is_text_model = is_text_model_name(spec.base_model.name)
-
-    model_build_started_at = time.time()
-    model = build_variant_model(spec)
-    model = model.to(context.device)
-    timings["model_build"] = build_time_window(model_build_started_at, time.time())
-
-    validation_started_at = time.time()
-    validation_metrics = validate_model(spec, model, context.device, is_text_model)
-    timings["validation"] = build_time_window(validation_started_at, time.time())
-
+    model: nn.Module | None = None
     onnx_result: OnnxExportResult | None = None
-    if spec.variant_config.export_onnx:
-        onnx_started_at = time.time()
-        onnx_result = export_onnx_model(spec, model, context, is_text_model)
-        timings["onnx_export"] = build_time_window(onnx_started_at, time.time())
-
     training_result: TrainingResult | None = None
-    if spec.variant_config.run_training:
-        training_started_at = time.time()
-        training_result = train_model(
-            spec,
-            model,
-            context.device,
-            context.output_layout,
-        )
-        timings["training"] = build_time_window(training_started_at, time.time())
-
     inference_result: InferenceResult | None = None
-    if spec.variant_config.run_inference:
-        inference_started_at = time.time()
-        inference_result = run_inference(spec, model, context.device, is_text_model)
-        timings["inference"] = build_time_window(inference_started_at, time.time())
+    try:
+        model_build_started_at = time.time()
+        model = build_variant_model(spec)
+        model = model.to(context.device)
+        timings["model_build"] = build_time_window(model_build_started_at, time.time())
 
-    timings["full"] = build_time_window(run_started_at, time.time())
+        validation_started_at = time.time()
+        validation_metrics = validate_model(spec, model, context.device, is_text_model)
+        timings["validation"] = build_time_window(validation_started_at, time.time())
 
-    return VariantResult(
-        name=spec.name,
-        base_model_name=spec.base_model.name,
-        base_model_pretrained=spec.base_model.pretrained,
-        source=spec.source,
-        group_total_variants_defined=spec.group_total_variants_defined,
-        variant_config=spec.variant_config.model_dump(mode="json"),
-        mutations=[mutation.model_dump(mode="json") for mutation in spec.mutations],
-        timings=timings,
-        training=training_result,
-        inference=inference_result,
-        onnx_export=onnx_result,
-        metadata={
-            "device": str(context.device),
-            "gpu_node": context.gpu_node,
-            "model_kind": "text" if is_text_model else "image",
-            "parameter_count": count_parameters(model),
-            "validation_batch_size": validation_metrics["batch_size"],
-            "validation_num_outputs": validation_metrics["num_outputs"],
-            "pretrained_weights_loaded": False,
-        },
-    )
+        if spec.variant_config.export_onnx:
+            onnx_started_at = time.time()
+            onnx_result = export_onnx_model(spec, model, context, is_text_model)
+            timings["onnx_export"] = build_time_window(onnx_started_at, time.time())
+
+        if spec.variant_config.run_training:
+            training_started_at = time.time()
+            training_result = train_model(
+                spec,
+                model,
+                context.device,
+                context.output_layout,
+            )
+            timings["training"] = build_time_window(training_started_at, time.time())
+
+        if spec.variant_config.run_inference:
+            inference_started_at = time.time()
+            inference_result = run_inference(
+                spec,
+                model,
+                context.device,
+                is_text_model,
+            )
+            timings["inference"] = build_time_window(
+                inference_started_at,
+                time.time(),
+            )
+
+        timings["full"] = build_time_window(run_started_at, time.time())
+
+        return VariantResult(
+            name=spec.name,
+            base_model_name=spec.base_model.name,
+            base_model_pretrained=spec.base_model.pretrained,
+            source=spec.source,
+            group_total_variants_defined=spec.group_total_variants_defined,
+            variant_config=spec.variant_config.model_dump(mode="json"),
+            mutations=[mutation.model_dump(mode="json") for mutation in spec.mutations],
+            timings=timings,
+            training=training_result,
+            inference=inference_result,
+            onnx_export=onnx_result,
+            metadata={
+                "device": str(context.device),
+                "gpu_node": context.gpu_node,
+                "model_kind": "text" if is_text_model else "image",
+                "parameter_count": count_parameters(model),
+                "validation_batch_size": validation_metrics["batch_size"],
+                "validation_num_outputs": validation_metrics["num_outputs"],
+                "pretrained_weights_loaded": False,
+            },
+        )
+    finally:
+        model = None
+        cleanup_workload_boundary(context.device)
+
+
+def cleanup_workload_boundary(device: torch.device) -> None:
+    gc.collect()
+    if device.type != "cuda" or not torch.cuda.is_available():
+        return
+    torch.cuda.synchronize(device)
+    torch.cuda.empty_cache()
 
 
 def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
@@ -230,7 +251,8 @@ def validate_model(
 ) -> dict[str, int]:
     model.eval()
     with torch.no_grad():
-        batch = build_example_batch(spec.variant_config, model, device, is_text_model)
+        batch = build_example_batch(spec.variant_config, model, is_text_model)
+        batch = {name: tensor.to(device) for name, tensor in batch.items()}
         outputs = forward_model(model, batch, is_text_model)
         logits = extract_logits(outputs)
 
@@ -254,12 +276,11 @@ def export_onnx_model(
 ) -> OnnxExportResult:
     model.eval()
     export_wrapper = OnnxExportWrapper(model, is_text_model).to(context.device)
-    batch = build_example_batch(
-        spec.variant_config,
-        model,
-        context.device,
-        is_text_model,
-    )
+    batch = build_example_batch(spec.variant_config, model, is_text_model)
+    batch = {
+        name: tensor.to(context.device)
+        for name, tensor in batch.items()
+    }
     export_path = context.output_layout.onnx_models_dir / f"{spec.name}.onnx"
     opset_version = 14
 
@@ -311,7 +332,7 @@ def train_model(
         raise NotImplementedError("real image dataset preparation is not migrated yet")
 
     batch_size = spec.variant_config.training_batch_sizes[0]
-    dataset = build_training_dataset(spec, model, device)
+    dataset = build_training_dataset(spec, model)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     criterion = nn.CrossEntropyLoss()
@@ -374,7 +395,8 @@ def run_inference(
     device: torch.device,
     is_text_model: bool,
 ) -> InferenceResult:
-    batch = build_example_batch(spec.variant_config, model, device, is_text_model)
+    batch = build_example_batch(spec.variant_config, model, is_text_model)
+    batch = {name: tensor.to(device) for name, tensor in batch.items()}
     iterations = 3
 
     model.eval()
@@ -408,10 +430,9 @@ def run_inference(
 def build_training_dataset(
     spec: ResolvedVariantSpec,
     model: nn.Module,
-    device: torch.device,
 ) -> TensorDataset:
     dataset_size = spec.variant_config.fake_dataset_size
-    generator = torch.Generator(device=device).manual_seed(42)
+    generator = torch.Generator().manual_seed(42)
 
     if is_text_model_name(spec.base_model.name):
         sequence_length = spec.variant_config.example_input_shape[1]
@@ -421,7 +442,6 @@ def build_training_dataset(
             spec.variant_config.target_output_classes,
             (dataset_size,),
             generator=generator,
-            device=device,
         )
         return TensorDataset(
             torch.randint(
@@ -429,27 +449,22 @@ def build_training_dataset(
                 vocab_size,
                 (dataset_size, sequence_length),
                 generator=generator,
-                device=device,
             ),
             torch.ones(
                 (dataset_size, sequence_length),
                 dtype=torch.long,
-                device=device,
             ),
             labels,
         )
 
     _, channels, height, width = spec.variant_config.example_input_shape
     return TensorDataset(
-        torch.randn(
-            (dataset_size, channels, height, width), generator=generator, device=device
-        ),
+        torch.randn((dataset_size, channels, height, width), generator=generator),
         torch.randint(
             0,
             spec.variant_config.target_output_classes,
             (dataset_size,),
             generator=generator,
-            device=device,
         ),
     )
 
@@ -457,10 +472,9 @@ def build_training_dataset(
 def build_example_batch(
     variant_config: VariantConfig,
     model: nn.Module,
-    device: torch.device,
     is_text_model: bool,
 ) -> dict[str, torch.Tensor]:
-    generator = torch.Generator(device=device).manual_seed(42)
+    generator = torch.Generator().manual_seed(42)
 
     if is_text_model:
         batch_size, sequence_length = variant_config.example_input_shape
@@ -477,12 +491,10 @@ def build_example_batch(
                 vocab_size,
                 (batch_size, sequence_length),
                 generator=generator,
-                device=device,
             ),
             "attention_mask": torch.ones(
                 (batch_size, sequence_length),
                 dtype=torch.long,
-                device=device,
             ),
         }
 
@@ -491,7 +503,6 @@ def build_example_batch(
         "inputs": torch.randn(
             (batch_size, channels, height, width),
             generator=generator,
-            device=device,
         )
     }
 
