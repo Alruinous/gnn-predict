@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import json
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -27,6 +28,11 @@ from gnn_archs.result import (
     TimeWindow,
     TrainingResult,
     VariantResult,
+)
+from gnn_archs.util.onnx_initializer import (
+    ONNX_EXPORT_MODE_METADATA_KEY,
+    RUNTIME_INPUT_NAMES_METADATA_KEY,
+    set_model_metadata_value,
 )
 
 if TYPE_CHECKING:
@@ -277,10 +283,7 @@ def export_onnx_model(
     model.eval()
     export_wrapper = OnnxExportWrapper(model, is_text_model).to(context.device)
     batch = build_example_batch(spec.variant_config, model, is_text_model)
-    batch = {
-        name: tensor.to(context.device)
-        for name, tensor in batch.items()
-    }
+    batch = {name: tensor.to(context.device) for name, tensor in batch.items()}
     export_path = context.output_layout.onnx_models_dir / f"{spec.name}.onnx"
     opset_version = 14
 
@@ -291,6 +294,7 @@ def export_onnx_model(
         args = (batch["inputs"],)
         input_names = ["inputs"]
 
+    export_mode = spec.variant_config.onnx_export_mode
     torch.onnx.export(
         export_wrapper,
         args,
@@ -299,15 +303,36 @@ def export_onnx_model(
         output_names=["logits"],
         opset_version=opset_version,
         dynamo=False,
+        export_params=export_mode == "full",
     )
 
     onnx_model = onnx.load(export_path)
+    set_model_metadata_value(
+        onnx_model,
+        RUNTIME_INPUT_NAMES_METADATA_KEY,
+        json.dumps(input_names),
+    )
+    set_model_metadata_value(
+        onnx_model,
+        ONNX_EXPORT_MODE_METADATA_KEY,
+        export_mode,
+    )
+    onnx.save(onnx_model, export_path)
     onnx.checker.check_model(onnx_model)
+    graph_input_names = [value.name for value in onnx_model.graph.input]
+    parameter_input_names = [
+        name for name in graph_input_names if name not in input_names
+    ]
+    initializer_names = [value.name for value in onnx_model.graph.initializer]
     graph_info = {
         "node_count": len(onnx_model.graph.node),
-        "input_names": [value.name for value in onnx_model.graph.input],
+        "input_names": graph_input_names,
         "output_names": [value.name for value in onnx_model.graph.output],
         "op_types": sorted({node.op_type for node in onnx_model.graph.node}),
+        "runtime_input_names": input_names,
+        "parameter_input_names": parameter_input_names,
+        "initializer_names": initializer_names,
+        "initializer_count": len(initializer_names),
     }
     return OnnxExportResult(
         path=str(export_path),

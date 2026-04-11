@@ -22,6 +22,7 @@ def test_migrated_resnet_config_matches_new_schema() -> None:
     assert template.run_training is True
     assert template.run_inference is True
     assert template.export_onnx is True
+    assert template.onnx_export_mode == "architecture_only"
     assert template.target_input_channels is None
     assert template.target_output_classes is None
     assert group.combinatorial_variant_grid.mutation_sets[1].mutations[0].params[
@@ -71,3 +72,4 @@ def test_legacy_mutation_keys_are_moved_into_params() -> None:
     }
     assert "run_workload" not in variant_config
     assert variant_config["run_inference"] is True
+    assert variant_config["onnx_export_mode"] == "full"

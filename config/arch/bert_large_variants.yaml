@@ -14,6 +14,7 @@ base_model_groups:
       - 1
       - 128
       export_onnx: true
+      onnx_export_mode: architecture_only
       max_sequence_length: 128
       use_real_text_dataset: true
       use_fake_imagenet: false

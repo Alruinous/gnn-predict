@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -26,9 +26,7 @@ def normalize_model_identifier(model_name: str) -> str:
 
 def is_text_model_name(model_name: str) -> bool:
     normalized_name = normalize_model_identifier(model_name)
-    return any(
-        normalized_name.startswith(prefix) for prefix in TEXT_MODEL_PREFIXES
-    )
+    return any(normalized_name.startswith(prefix) for prefix in TEXT_MODEL_PREFIXES)
 
 
 class StrictModel(BaseModel):
@@ -68,6 +66,7 @@ class VariantConfig(StrictModel):
     run_training: bool = False
     run_inference: bool = False
     export_onnx: bool = False
+    onnx_export_mode: Literal["full", "architecture_only"] = "full"
     training_batch_sizes: list[int] = Field(default_factory=lambda: [32])
     training_epochs: int = 1
     use_fake_imagenet: bool = False

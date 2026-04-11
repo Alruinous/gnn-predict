@@ -14,6 +14,7 @@ base_model_groups:
       - 224
       run_training: true
       export_onnx: true
+      onnx_export_mode: architecture_only
       training_batch_sizes:
       - 16
       - 64
@@ -52,6 +53,7 @@ base_model_groups:
       - 224
       run_training: true
       export_onnx: true
+      onnx_export_mode: architecture_only
       training_batch_sizes:
       - 16
       - 64
@@ -103,6 +105,7 @@ base_model_groups:
       - 224
       - 224
       export_onnx: true
+      onnx_export_mode: architecture_only
       use_fake_imagenet: true
       run_training: true
       training_epochs: 2

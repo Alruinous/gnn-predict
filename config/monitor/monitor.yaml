@@ -7,49 +7,49 @@ defaults:
 targets:
   vit:
     enabled: true
-    result_json: /home/wangjh/gnn_predict/res/beit/results/beit_variants_v100_1775468654_results.json
-    node_name: dell-67
-    pod_name: sg-wangjh-260406-ae02f-default0-0
-    gpu_id: "0"
+    result_json: res/vit/results/vit_variants_v100_1775773710_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260409-41195-default0-0
+    gpu_id: "1"
     output_csv: csv/vit_monitor.csv
 
   vgg11:
     enabled: true
-    result_json: /home/wangjh/gnn_predict/res/vgg11/results/vgg11_variants_v100_1775468704_results.json
+    result_json: res/vgg11/results/vgg11_variants_v100_1775752472_results.json
     node_name: dell-67
-    pod_name: sg-wangjh-260406-e445a-default0-0
-    gpu_id: "1"
+    pod_name: sg-wangjh-260409-7b3bb-default0-0
+    gpu_id: "0"
     output_csv: csv/vgg11_monitor.csv
 
   resnet101:
     enabled: true
-    result_json: res/resnet101/results/resnet101_variants_v100_1775489032_results.json
-    node_name: dell-68
-    pod_name: sg-wangjh-260406-6424e-default0-0
+    result_json: res/resnet101/results/resnet101_variants_v100_1775775604_results.json
+    node_name: dell-67
+    pod_name: sg-wangjh-260409-8fdc9-default0-0
     gpu_id: "1"
     output_csv: csv/resnet101_monitor.csv
 
   mobilenet:
     enabled: true
-    result_json: /home/wangjh/gnn_predict/res/mobilenet/results/mobilenet_variants_v100_1775468718_results.json
+    result_json: res/mobilenet/results/mobilenet_variants_v100_1775733295_results.json
     node_name: dell-68
-    pod_name: sg-wangjh-260406-e11b2-default0-0
+    pod_name: sg-wangjh-260409-05004-default0-0
     gpu_id: "1"
     output_csv: "csv/mobilenet_monitor.csv"
 
   vgg16:
     enabled: true
-    result_json: /home/wangjh/gnn_predict/res/vgg16/results/vgg16_variants_v100_1775468718_results.json
+    result_json: res/vgg16/results/vgg16_variants_v100_1775748952_results.json
     node_name: dell-68
-    pod_name: sg-wangjh-260406-0c52f-default0-0
-    gpu_id: "2"
+    pod_name: sg-wangjh-260409-c25de-default0-0
+    gpu_id: "1"
     output_csv: "csv/vgg16_monitor.csv"
 
   convnext:
     enabled: true
-    result_json: res/convnext/results/convnext_variants_v100_1775468680_results.json
+    result_json: res/convnext/results/convnext_variants_v100_1775733277_results.json
     node_name: dell-67
-    pod_name: sg-wangjh-260406-4619e-default0-0
+    pod_name: sg-wangjh-260409-96ed0-default0-0
     gpu_id: "0"
     output_csv: "csv/convnext_monitor.csv"
 
@@ -63,10 +63,10 @@ targets:
 
   vgg19:
     enabled: true
-    result_json: /home/wangjh/gnn_predict/res/vgg19/results/vgg19_variants_v100_1775468722_results.json
-    node_name: dell-66
-    pod_name: sg-wangjh-260406-2e2a9-default0-0
-    gpu_id: "0"
+    result_json: res/vgg19/results/vgg19_variants_v100_1775773031_results.json
+    node_name: dell-67
+    pod_name: sg-wangjh-260409-854ab-default0-0
+    gpu_id: "2"
     output_csv: csv/vgg19_monitor.csv
 
   resnet18:
@@ -77,12 +77,20 @@ targets:
     gpu_id: "0"
     output_csv: "csv_dir/resnet18_monitor.csv"
 
+  resnet:
+    enabled: true
+    result_json: res/resnet/results/resnet_variants_v100_1775785951_results.json
+    node_name: dell-67
+    pod_name: sg-wangjh-260409-596ac-default0-0
+    gpu_id: 1
+    output_csv: "csv_dir/resnet_monitor.csv"
+
   resnet152:
     enabled: true
-    result_json: /home/wangjh/gnn_predict/res/resnet152/results/resnet152_variants_v100_1775485753_results.json
-    node_name: dell-66
-    pod_name: sg-wangjh-260406-2614e-default0-0
-    gpu_id: "1"
+    result_json: res/resnet152/results/resnet152_variants_v100_1775753114_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260409-541ec-default0-0
+    gpu_id: "0"
     output_csv: csv/resnet152_monitor.csv
 
   yolov8:
@@ -95,25 +103,25 @@ targets:
 
   bert:
     enabled: true
-    result_json: /home/wangjh/gnn_predict/res/bert/results/bert_variants_v100_1775468696_results.json
-    node_name: dell-66
-    pod_name: sg-wangjh-260406-4f606-default0-0
-    gpu_id: "1"
+    result_json: res/bert/results/bert_variants_v100_1775733306_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260409-db521-default0-0
+    gpu_id: "0"
     output_csv: csv/bert_monitor.csv
 
   bert_large:
     enabled: true
-    result_json: /home/wangjh/gnn_predict/res/bert_large/results/bert_large_variants_v100_1775468718_results.json
+    result_json: res/bert_large/results/bert_large_variants_v100_1775733176_results.json
     node_name: dell-68
-    pod_name: sg-wangjh-260406-61297-default0-0
-    gpu_id: "0"
+    pod_name: sg-wangjh-260409-d511d-default0-0
+    gpu_id: "2"
     output_csv: csv/bert_large_monitor.csv
 
   beit:
     enabled: true
-    result_json: /home/wangjh/gnn_predict/res/beit/results/beit_variants_v100_1775468654_results.json
+    result_json: res/beit/results/beit_variants_v100_1775733163_results.json
     node_name: dell-67
-    pod_name: sg-wangjh-260406-79105-default0-0
+    pod_name: sg-wangjh-260409-a5677-default0-0
     gpu_id: "2"
     output_csv: "csv/beit_monitor.csv"
 
@@ -135,8 +143,8 @@ targets:
 
   densenet:
     enabled: true
-    result_json: /home/wangjh/gnn_predict/res/densenet/results/densenet_variants_v100_1775468673_results.json
-    node_name: dell-66
-    pod_name: sg-wangjh-260406-79105-default0-0
-    gpu_id: "3"
+    result_json: res/densenet/results/densenet_variants_v100_1775733184_results.json
+    node_name: dell-67
+    pod_name: sg-wangjh-260409-1bc87-default0-0
+    gpu_id: "1"
     output_csv: "csv/densenet_monitor.csv"

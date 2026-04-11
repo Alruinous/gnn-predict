@@ -83,6 +83,11 @@ def test_arch_configs_validate_and_expand(config_path: Path) -> None:
     variants = expand_arch_config(config)
 
     assert variants
+    assert all(
+        variant.variant_config.onnx_export_mode
+        == ("architecture_only" if variant.variant_config.export_onnx else "full")
+        for variant in variants
+    )
 
 
 @pytest.mark.parametrize(

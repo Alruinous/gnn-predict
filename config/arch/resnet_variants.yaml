@@ -13,6 +13,7 @@ base_model_groups:
       - 224
       - 224
       export_onnx: true
+      onnx_export_mode: architecture_only
       run_training: true
       training_batch_sizes:
       - 16
@@ -48,6 +49,7 @@ base_model_groups:
       - 224
       run_training: true
       export_onnx: true
+      onnx_export_mode: architecture_only
       training_batch_sizes:
       - 16
       - 32
@@ -77,6 +79,7 @@ base_model_groups:
       - 224
       - 224
       export_onnx: true
+      onnx_export_mode: architecture_only
       run_training: true
       training_batch_sizes:
       - 16
@@ -110,6 +113,7 @@ base_model_groups:
     - 500
     base_variant_config_template:
       export_onnx: true
+      onnx_export_mode: architecture_only
       example_input_shape:
       - 1
       - 3

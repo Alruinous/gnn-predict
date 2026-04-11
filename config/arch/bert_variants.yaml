@@ -13,6 +13,7 @@ base_model_groups:
       max_sequence_length: 128
       run_training: true
       export_onnx: true
+      onnx_export_mode: architecture_only
       training_batch_sizes:
       - 4
       - 8
@@ -51,6 +52,7 @@ base_model_groups:
       max_sequence_length: 64
       run_training: true
       export_onnx: true
+      onnx_export_mode: architecture_only
       training_batch_sizes:
       - 4
       - 8
@@ -92,6 +94,7 @@ base_model_groups:
       max_sequence_length: 256
       run_training: true
       export_onnx: true
+      onnx_export_mode: architecture_only
       training_batch_sizes:
       - 4
       - 8
@@ -131,6 +134,7 @@ base_model_groups:
       - 1
       - 128
       export_onnx: true
+      onnx_export_mode: architecture_only
       max_sequence_length: 128
       use_real_text_dataset: true
       use_fake_imagenet: false

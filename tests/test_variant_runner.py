@@ -4,6 +4,8 @@ import json
 import logging
 from pathlib import Path
 
+import onnx
+import onnxruntime as ort
 import pytest
 import torch
 
@@ -11,6 +13,7 @@ import gnn_archs.variant_runner as variant_runner_module
 from gnn_archs.config import ArchConfig
 from gnn_archs.mutations import SqueezeExcitationBlock
 from gnn_archs.result import ResultDocument, write_result_document
+from gnn_archs.util.onnx_initializer import write_randomized_onnx_model
 from gnn_archs.util.variant_expander import expand_arch_config
 from gnn_archs.variant_runner import (
     RunContext,
@@ -210,10 +213,130 @@ def test_image_variant_runner_executes_training_inference_and_onnx(
     assert result.onnx_export is not None
     assert Path(result.onnx_export.path).exists()
     assert Path(result.onnx_export.path).parent == output_layout.onnx_models_dir
+    exported_model = onnx.load(result.onnx_export.path)
+    assert len(exported_model.graph.initializer) > 0
+    assert [value.name for value in exported_model.graph.input] == ["inputs"]
     checkpoint_path = Path(str(result.training.metrics["checkpoint_path"]))
     assert checkpoint_path.parent == output_layout.checkpoints_dir
     assert result.training.metrics["total_steps"] == 2
     assert result.metadata["model_kind"] == "image"
+    assert result.onnx_export.graph_info["runtime_input_names"] == ["inputs"]
+    assert result.onnx_export.graph_info["parameter_input_names"] == []
+
+
+def test_image_variant_runner_can_export_architecture_only_onnx(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "resnet18_variants.yaml"
+    config = ArchConfig.model_validate(
+        {
+            "base_model_groups": [
+                {
+                    "base_model": {"name": "resnet18", "pretrained": False},
+                    "single_variant_define": [
+                        {
+                            "name": "resnet18_architecture_only",
+                            "variant_config": {
+                                "target_input_channels": 3,
+                                "target_output_classes": 4,
+                                "example_input_shape": [1, 3, 32, 32],
+                                "run_training": False,
+                                "run_inference": False,
+                                "export_onnx": True,
+                                "onnx_export_mode": "architecture_only",
+                            },
+                            "mutations": [],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    variant = expand_arch_config(config)[0]
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_image_variant_runner_architecture_only"),
+    )
+
+    result = run_variant(variant, context)
+
+    assert result.onnx_export is not None
+    exported_model = onnx.load(result.onnx_export.path)
+    exported_input_names = [value.name for value in exported_model.graph.input]
+
+    assert len(exported_model.graph.initializer) == 0
+    assert exported_input_names[0] == "inputs"
+    assert len(exported_input_names) > 1
+    assert result.onnx_export.graph_info["runtime_input_names"] == ["inputs"]
+    parameter_input_names = result.onnx_export.graph_info["parameter_input_names"]
+    assert isinstance(parameter_input_names, list)
+    assert parameter_input_names
+    assert all(name in exported_input_names for name in parameter_input_names)
+
+
+def test_randomized_architecture_only_onnx_runs_with_runtime_inputs_only(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "resnet18_variants.yaml"
+    config = ArchConfig.model_validate(
+        {
+            "base_model_groups": [
+                {
+                    "base_model": {"name": "resnet18", "pretrained": False},
+                    "single_variant_define": [
+                        {
+                            "name": "resnet18_randomized_architecture_only",
+                            "variant_config": {
+                                "target_input_channels": 3,
+                                "target_output_classes": 4,
+                                "example_input_shape": [1, 3, 32, 32],
+                                "run_training": False,
+                                "run_inference": False,
+                                "export_onnx": True,
+                                "onnx_export_mode": "architecture_only",
+                            },
+                            "mutations": [],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    variant = expand_arch_config(config)[0]
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_randomized_architecture_only_onnx"),
+    )
+
+    result = run_variant(variant, context)
+    assert result.onnx_export is not None
+
+    randomized_path = output_layout.onnx_models_dir / "resnet18_randomized.onnx"
+    write_randomized_onnx_model(
+        Path(result.onnx_export.path),
+        randomized_path,
+        seed=0,
+    )
+
+    randomized_model = onnx.load(randomized_path)
+    assert len(randomized_model.graph.initializer) > 0
+    assert [value.name for value in randomized_model.graph.input] == ["inputs"]
+
+    session = ort.InferenceSession(
+        str(randomized_path),
+        providers=["CPUExecutionProvider"],
+    )
+    assert [value.name for value in session.get_inputs()] == ["inputs"]
+    outputs = session.run(None, {"inputs": torch.randn(1, 3, 32, 32).numpy()})
+    assert outputs[0].shape == (1, 4)
 
 
 def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:

@@ -14,6 +14,7 @@ GRID_TEMPLATE_KEYS = {
     "run_inference",
     "run_workload",
     "export_onnx",
+    "onnx_export_mode",
     "training_batch_sizes",
     "training_epochs",
     "use_fake_imagenet",
@@ -123,6 +124,8 @@ def migrate_variant_config(raw_config: dict[str, Any]) -> dict[str, Any]:
         config["run_inference"] = False
     if "export_onnx" not in config:
         config["export_onnx"] = False
+    if "onnx_export_mode" not in config:
+        config["onnx_export_mode"] = "full"
 
     return config
 

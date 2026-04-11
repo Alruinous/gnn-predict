@@ -25,6 +25,7 @@ def test_expand_group_variants_generates_grid_and_fc_variants() -> None:
                             "run_training": False,
                             "run_inference": True,
                             "export_onnx": True,
+                            "onnx_export_mode": "architecture_only",
                         },
                         "mutation_sets": [
                             {"name": "no_mutations", "mutations": []},
@@ -73,6 +74,10 @@ def test_expand_group_variants_generates_grid_and_fc_variants() -> None:
     )
     assert all(
         variant.variant_config.target_output_classes == 10 for variant in variants
+    )
+    assert all(
+        variant.variant_config.onnx_export_mode == "architecture_only"
+        for variant in variants
     )
 
 
