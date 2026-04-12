@@ -13,6 +13,8 @@ GRID_TEMPLATE_KEYS = {
     "run_training",
     "run_inference",
     "run_workload",
+    "pre_inference_cooldown_seconds",
+    "inference_measurement_min_seconds",
     "export_onnx",
     "onnx_export_mode",
     "training_batch_sizes",

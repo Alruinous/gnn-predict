@@ -87,6 +87,7 @@ CSV_COLUMNS = [
     "gpu_temp_celsius_max",
     "gpu_temp_celsius_p95",
 ]
+MIN_REQUIRED_PHASE_SAMPLES = 3
 
 
 @dataclass(frozen=True)
@@ -202,6 +203,7 @@ def monitor_target(
             phase_record=record,
             client=client,
             cpu_rate_window=settings.cpu_rate_window,
+            cpu_rate_window_seconds=settings.cpu_rate_window_seconds,
             query_step_seconds=settings.query_step_seconds,
             node_total_cpu=node_total_cpu,
             node_total_memory_gb=node_total_memory_gb,
@@ -322,10 +324,19 @@ def _monitor_phase_record(
     phase_record: MonitorPhaseRecord,
     client: PrometheusQueryAPI,
     cpu_rate_window: str,
+    cpu_rate_window_seconds: float,
     query_step_seconds: int,
     node_total_cpu: float,
     node_total_memory_gb: float,
 ) -> dict[str, Any]:
+    cpu_query_start_ts = phase_record.started_at_ts + cpu_rate_window_seconds
+    if cpu_query_start_ts >= phase_record.ended_at_ts:
+        raise ValueError(
+            f"{phase_record.variant_name}/{phase_record.phase} is too short for "
+            f"cpu_rate_window={cpu_rate_window}; increase the experiment "
+            "measurement window"
+        )
+
     cpu_values = _extract_single_series_values(
         client.range_query(
             build_pod_cpu_query(
@@ -333,7 +344,7 @@ def _monitor_phase_record(
                 phase_record.namespace,
                 cpu_rate_window,
             ),
-            phase_record.started_at_ts,
+            cpu_query_start_ts,
             phase_record.ended_at_ts,
             query_step_seconds,
         ),
@@ -383,13 +394,13 @@ def _monitor_phase_record(
         2,
     )
 
-    sample_count = min(
-        [
-            len(cpu_values),
-            len(memory_values),
-            *gpu_sample_counts,
-        ]
-    )
+    sample_count = min([len(cpu_values), len(memory_values), *gpu_sample_counts])
+    if sample_count < MIN_REQUIRED_PHASE_SAMPLES:
+        raise ValueError(
+            f"{phase_record.variant_name}/{phase_record.phase} has too few samples "
+            f"(min={sample_count}, required={MIN_REQUIRED_PHASE_SAMPLES}); "
+            "increase the experiment measurement window"
+        )
 
     row = {
         "target_name": phase_record.target_name,

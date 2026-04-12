@@ -94,6 +94,7 @@ def test_load_monitor_settings_validates_and_resolves_paths(tmp_path: Path) -> N
     assert settings.prometheus_url == "http://example:9090"
     assert settings.namespace == "crater-workspace"
     assert settings.cpu_rate_window == "2m"
+    assert settings.cpu_rate_window_seconds == 120.0
     assert settings.query_step_seconds == 3
     assert len(settings.targets) == 1
     assert settings.targets[0].gpu_id == "1"
@@ -307,8 +308,8 @@ def test_extract_phase_records_reads_training_and_inference(tmp_path: Path) -> N
     assert document.gpu_node == "v100"
     assert [record.phase for record in records] == ["training", "inference"]
     assert [record.gpu_id for record in records] == ["1", "1"]
-    assert records[0].duration_sec == 2.0
-    assert records[1].duration_sec == 0.5
+    assert records[0].duration_sec == 7.0
+    assert records[1].duration_sec == 6.0
 
 
 def test_extract_phase_records_fails_when_phase_timing_missing(tmp_path: Path) -> None:
@@ -346,7 +347,24 @@ def test_monitor_target_writes_expected_csv_columns_and_rows(tmp_path: Path) -> 
     assert loaded["gpu_id"].astype(str).tolist() == ["1", "1"]
     assert set(loaded["resolved_gpu_label"].astype(str)) == {"1"}
     assert set(loaded["resolved_device_label"]) == {"nvidia1"}
-    assert loaded["sample_count"].tolist() == [2, 2]
+    assert loaded["sample_count"].tolist() == [3, 3]
+
+
+def test_monitor_target_offsets_cpu_queries_by_rate_window(tmp_path: Path) -> None:
+    result_json = _write_result_document(tmp_path)
+    settings, target = _build_settings(tmp_path, result_json)
+    client = _build_fake_client(
+        namespace=settings.namespace,
+        node_name=target.node_name,
+        pod_name=target.pod_name,
+    )
+
+    monitor_target(settings, target, client)
+
+    training_cpu_call = client.range_calls[0]
+    inference_cpu_call = client.range_calls[3]
+    assert training_cpu_call[1:] == (103.0, 107.0, 1)
+    assert inference_cpu_call[1:] == (113.0, 116.0, 1)
 
 
 def test_monitor_target_keeps_zero_value_samples(tmp_path: Path) -> None:
@@ -408,6 +426,56 @@ def test_monitor_target_fails_when_metric_samples_are_missing(tmp_path: Path) ->
     client.range_responses[cpu_query][0] = [{"metric": {}, "values": []}]
 
     with pytest.raises(ValueError, match="no samples returned for CPU usage"):
+        monitor_target(settings, target, client)
+
+
+def test_monitor_target_fails_when_phase_is_shorter_than_cpu_window(
+    tmp_path: Path,
+) -> None:
+    result_json = _write_result_document(tmp_path)
+    _, target = _build_settings(tmp_path, result_json)
+    settings = ResolvedMonitorSettings(
+        config_path=tmp_path / "monitor.yaml",
+        prometheus_url="http://example:9090",
+        namespace="crater-workspace",
+        cpu_rate_window="8s",
+        cpu_rate_window_seconds=8.0,
+        query_step_seconds=1,
+        targets=(target,),
+    )
+    client = _build_fake_client(
+        namespace=settings.namespace,
+        node_name=target.node_name,
+        pod_name=target.pod_name,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="is too short for cpu_rate_window=8s",
+    ):
+        monitor_target(settings, target, client)
+
+
+def test_monitor_target_fails_when_sample_count_is_too_small(tmp_path: Path) -> None:
+    result_json = _write_result_document(tmp_path)
+    settings, target = _build_settings(tmp_path, result_json)
+    client = _build_fake_client(
+        namespace=settings.namespace,
+        node_name=target.node_name,
+        pod_name=target.pod_name,
+    )
+    memory_query = build_pod_memory_query(target.pod_name, settings.namespace)
+    client.range_responses[memory_query][0] = [
+        {
+            "metric": {},
+            "values": [
+                [100.0, str(2 * 1024**3)],
+                [101.0, str(4 * 1024**3)],
+            ],
+        }
+    ]
+
+    with pytest.raises(ValueError, match="has too few samples"):
         monitor_target(settings, target, client)
 
 
@@ -523,7 +591,8 @@ def _build_settings(
         config_path=tmp_path / "monitor.yaml",
         prometheus_url="http://example:9090",
         namespace="crater-workspace",
-        cpu_rate_window="2m",
+        cpu_rate_window="3s",
+        cpu_rate_window_seconds=3.0,
         query_step_seconds=1,
         targets=(target,),
     )
@@ -540,16 +609,16 @@ def _write_result_document(
         if missing_training_timing
         else TimeWindow(
             started_at_ts=100.0,
-            ended_at_ts=102.0,
+            ended_at_ts=107.0,
             started_at_text="2026-03-31T13:27:13+00:00",
-            ended_at_text="2026-03-31T13:27:15+00:00",
+            ended_at_text="2026-03-31T13:27:20+00:00",
         )
     )
     inference_timings = TimeWindow(
-        started_at_ts=103.0,
-        ended_at_ts=103.5,
-        started_at_text="2026-03-31T13:27:16+00:00",
-        ended_at_text="2026-03-31T13:27:16.500000+00:00",
+        started_at_ts=110.0,
+        ended_at_ts=116.0,
+        started_at_text="2026-03-31T13:27:23+00:00",
+        ended_at_text="2026-03-31T13:27:29+00:00",
     )
     variant = VariantResult(
         name="bert-large-cased_ic1_oc2_no_mutations_large",
@@ -585,7 +654,7 @@ def _build_fake_client(
     pod_info_query = build_pod_info_query(pod_name, namespace)
     node_cpu_query = build_node_cpu_total_query(node_name)
     node_memory_query = build_node_memory_total_query(node_name)
-    cpu_query = build_pod_cpu_query(pod_name, namespace, "2m")
+    cpu_query = build_pod_cpu_query(pod_name, namespace, "3s")
     memory_query = build_pod_memory_query(pod_name, namespace)
     gpu_query = build_gpu_metrics_query(
         tuple(definition.prometheus_name for definition in GPU_METRIC_DEFINITIONS),
@@ -594,8 +663,8 @@ def _build_fake_client(
         gpu_id,
     )
 
-    gpu_training_values = ["0", "0"] if zero_gpu_values else ["10", "20"]
-    gpu_inference_values = ["0", "0"] if zero_gpu_values else ["30", "40"]
+    gpu_training_values = ["0", "0", "0"] if zero_gpu_values else ["10", "20", "30"]
+    gpu_inference_values = ["0", "0", "0"] if zero_gpu_values else ["30", "40", "50"]
 
     return FakePrometheusClient(
         instant_responses={
@@ -616,8 +685,18 @@ def _build_fake_client(
         },
         range_responses={
             cpu_query: [
-                [{"metric": {}, "values": [[100.0, "1.0"], [101.0, "2.0"]]}],
-                [{"metric": {}, "values": [[103.0, "0.5"], [103.5, "0.25"]]}],
+                [
+                    {
+                        "metric": {},
+                        "values": [[103.0, "1.0"], [105.0, "2.0"], [107.0, "3.0"]],
+                    }
+                ],
+                [
+                    {
+                        "metric": {},
+                        "values": [[113.0, "0.5"], [114.0, "0.25"], [116.0, "0.75"]],
+                    }
+                ],
             ],
             memory_query: [
                 [
@@ -626,6 +705,7 @@ def _build_fake_client(
                         "values": [
                             [100.0, str(2 * 1024**3)],
                             [101.0, str(4 * 1024**3)],
+                            [107.0, str(6 * 1024**3)],
                         ],
                     }
                 ],
@@ -633,8 +713,9 @@ def _build_fake_client(
                     {
                         "metric": {},
                         "values": [
-                            [103.0, str(1 * 1024**3)],
-                            [103.5, str(1 * 1024**3)],
+                            [110.0, str(1 * 1024**3)],
+                            [113.0, str(1 * 1024**3)],
+                            [116.0, str(2 * 1024**3)],
                         ],
                     }
                 ],
@@ -679,7 +760,11 @@ def _build_gpu_response(
                     "device": f"nvidia{gpu_id}",
                     "Hostname": node_name,
                 },
-                "values": [[100.0, values[0]], [101.0, values[1]]],
+                "values": [
+                    [100.0, values[0]],
+                    [101.0, values[1]],
+                    [102.0, values[2]],
+                ],
             }
         )
     return response

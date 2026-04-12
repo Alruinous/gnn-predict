@@ -84,8 +84,7 @@ def test_arch_configs_validate_and_expand(config_path: Path) -> None:
 
     assert variants
     assert all(
-        variant.variant_config.onnx_export_mode
-        == ("architecture_only" if variant.variant_config.export_onnx else "full")
+        variant.variant_config.onnx_export_mode == "architecture_only"
         for variant in variants
     )
 
@@ -107,6 +106,26 @@ def test_arch_config_mutations_match_model_kind(config_path: Path) -> None:
         for mutation_set in iter_group_mutation_sets(group):
             for mutation in mutation_set.mutations:
                 assert mutation.type in allowed_mutation_types
+
+
+@pytest.mark.parametrize(
+    "config_path",
+    ARCH_CONFIG_PATHS,
+    ids=[path.name for path in ARCH_CONFIG_PATHS],
+)
+def test_arch_configs_define_phase_isolation_for_training_inference_pairs(
+    config_path: Path,
+) -> None:
+    config = load_arch_config(config_path)
+
+    for variant in expand_arch_config(config):
+        if not (
+            variant.variant_config.run_training
+            and variant.variant_config.run_inference
+        ):
+            continue
+        assert variant.variant_config.pre_inference_cooldown_seconds == 3.0
+        assert variant.variant_config.inference_measurement_min_seconds == 5.0
 
 
 @pytest.mark.parametrize(

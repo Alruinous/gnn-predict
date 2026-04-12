@@ -65,6 +65,8 @@ class VariantConfig(StrictModel):
     example_input_shape: list[int]
     run_training: bool = False
     run_inference: bool = False
+    pre_inference_cooldown_seconds: float = 3.0
+    inference_measurement_min_seconds: float = 5.0
     export_onnx: bool = False
     onnx_export_mode: Literal["full", "architecture_only"] = "full"
     training_batch_sizes: list[int] = Field(default_factory=lambda: [32])
@@ -110,6 +112,10 @@ class VariantConfig(StrictModel):
             raise ValueError("fake_dataset_size must be positive")
         if self.max_sequence_length <= 0:
             raise ValueError("max_sequence_length must be positive")
+        if self.pre_inference_cooldown_seconds < 0:
+            raise ValueError("pre_inference_cooldown_seconds must be non-negative")
+        if self.inference_measurement_min_seconds <= 0:
+            raise ValueError("inference_measurement_min_seconds must be positive")
         if any(batch_size <= 0 for batch_size in self.training_batch_sizes):
             raise ValueError("training_batch_sizes must only contain positive integers")
 

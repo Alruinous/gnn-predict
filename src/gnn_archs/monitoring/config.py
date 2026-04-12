@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,11 +10,22 @@ from pydantic import Field, field_validator, model_validator
 
 from gnn_archs.config import StrictModel
 
+PROMETHEUS_DURATION_PATTERN = re.compile(r"(\d+)(ms|s|m|h|d|w|y)")
+PROMETHEUS_DURATION_SECONDS = {
+    "ms": 0.001,
+    "s": 1.0,
+    "m": 60.0,
+    "h": 3600.0,
+    "d": 86400.0,
+    "w": 604800.0,
+    "y": 31536000.0,
+}
+
 
 class MonitorDefaults(StrictModel):
     prometheus_url: str
     namespace: str
-    cpu_rate_window: str = "2m"
+    cpu_rate_window: str = "3s"
     query_step_seconds: int = 1
 
     @field_validator("prometheus_url", "namespace", "cpu_rate_window")
@@ -23,6 +35,12 @@ class MonitorDefaults(StrictModel):
         if not normalized_value:
             raise ValueError("monitor config strings must not be empty")
         return normalized_value
+
+    @field_validator("cpu_rate_window")
+    @classmethod
+    def validate_cpu_rate_window(cls, value: str) -> str:
+        parse_prometheus_duration_seconds(value)
+        return value
 
     @field_validator("query_step_seconds")
     @classmethod
@@ -86,6 +104,7 @@ class ResolvedMonitorSettings:
     prometheus_url: str
     namespace: str
     cpu_rate_window: str
+    cpu_rate_window_seconds: float
     query_step_seconds: int
     targets: tuple[ResolvedMonitorTarget, ...]
 
@@ -134,6 +153,9 @@ def load_monitor_settings(
         prometheus_url=config.defaults.prometheus_url,
         namespace=config.defaults.namespace,
         cpu_rate_window=config.defaults.cpu_rate_window,
+        cpu_rate_window_seconds=parse_prometheus_duration_seconds(
+            config.defaults.cpu_rate_window
+        ),
         query_step_seconds=config.defaults.query_step_seconds,
         targets=tuple(resolved_targets),
     )
@@ -214,3 +236,19 @@ def _resolve_target(
         result_json=result_json,
         output_csv=output_csv,
     )
+
+
+def parse_prometheus_duration_seconds(value: str) -> float:
+    total_seconds = 0.0
+    position = 0
+    for match in PROMETHEUS_DURATION_PATTERN.finditer(value):
+        if match.start() != position:
+            raise ValueError(f"invalid Prometheus duration: {value}")
+        position = match.end()
+        total_seconds += int(match.group(1)) * PROMETHEUS_DURATION_SECONDS[
+            match.group(2)
+        ]
+
+    if position != len(value) or total_seconds <= 0:
+        raise ValueError(f"invalid Prometheus duration: {value}")
+    return total_seconds

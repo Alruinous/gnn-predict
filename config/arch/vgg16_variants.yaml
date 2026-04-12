@@ -13,7 +13,7 @@ base_model_groups:
       - 224
       - 224
       run_training: true
-      export_onnx: true
+      export_onnx: false
       onnx_export_mode: architecture_only
       training_batch_sizes:
       - 16
@@ -23,6 +23,8 @@ base_model_groups:
       use_fake_imagenet: true
       fake_dataset_size: 2000
       run_inference: true
+      pre_inference_cooldown_seconds: 3.0
+      inference_measurement_min_seconds: 5.0
     mutations:
     - type: GlobalChannelPruning
       params:
@@ -49,7 +51,7 @@ base_model_groups:
       - 224
       - 224
       run_training: true
-      export_onnx: true
+      export_onnx: false
       onnx_export_mode: architecture_only
       training_batch_sizes:
       - 16
@@ -59,6 +61,8 @@ base_model_groups:
       use_fake_imagenet: true
       fake_dataset_size: 2000
       run_inference: true
+      pre_inference_cooldown_seconds: 3.0
+      inference_measurement_min_seconds: 5.0
     mutations:
     - type: ConvToDepthwiseSeparable
       params:
@@ -101,7 +105,7 @@ base_model_groups:
       - 3
       - 224
       - 224
-      export_onnx: true
+      export_onnx: false
       onnx_export_mode: architecture_only
       use_fake_imagenet: true
       run_training: true
@@ -112,6 +116,8 @@ base_model_groups:
       - 128
       fake_dataset_size: 2000
       run_inference: true
+      pre_inference_cooldown_seconds: 3.0
+      inference_measurement_min_seconds: 5.0
     mutation_sets:
     - name: no_mutations
       mutations: []

@@ -134,27 +134,27 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
             timings["onnx_export"] = build_time_window(onnx_started_at, time.time())
 
         if spec.variant_config.run_training:
-            training_started_at = time.time()
             training_result = train_model(
                 spec,
                 model,
                 context.device,
                 context.output_layout,
             )
-            timings["training"] = build_time_window(training_started_at, time.time())
+            timings["training"] = training_result.timings
 
         if spec.variant_config.run_inference:
-            inference_started_at = time.time()
+            if training_result is not None:
+                wait_for_inference_cooldown(
+                    spec.variant_config.pre_inference_cooldown_seconds,
+                    context.device,
+                )
             inference_result = run_inference(
                 spec,
                 model,
                 context.device,
                 is_text_model,
             )
-            timings["inference"] = build_time_window(
-                inference_started_at,
-                time.time(),
-            )
+            timings["inference"] = inference_result.timings
 
         timings["full"] = build_time_window(run_started_at, time.time())
 
@@ -189,8 +189,24 @@ def cleanup_workload_boundary(device: torch.device) -> None:
     gc.collect()
     if device.type != "cuda" or not torch.cuda.is_available():
         return
-    torch.cuda.synchronize(device)
+    synchronize_device(device)
     torch.cuda.empty_cache()
+
+
+def synchronize_device(device: torch.device) -> None:
+    if device.type != "cuda" or not torch.cuda.is_available():
+        return
+    torch.cuda.synchronize(device)
+
+
+def wait_for_inference_cooldown(
+    cooldown_seconds: float,
+    device: torch.device,
+) -> None:
+    if cooldown_seconds <= 0:
+        return
+    synchronize_device(device)
+    time.sleep(cooldown_seconds)
 
 
 def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
@@ -422,23 +438,26 @@ def run_inference(
 ) -> InferenceResult:
     batch = build_example_batch(spec.variant_config, model, is_text_model)
     batch = {name: tensor.to(device) for name, tensor in batch.items()}
-    iterations = 3
+    measurement_min_seconds = spec.variant_config.inference_measurement_min_seconds
+    iterations = 0
 
     model.eval()
     with torch.no_grad():
         for _ in range(2):
             _ = forward_model(model, batch, is_text_model)
 
-        if device.type == "cuda":
-            torch.cuda.synchronize(device)
+        synchronize_device(device)
 
         started_at = time.time()
-        for _ in range(iterations):
+        ended_at = started_at
+        outputs: Any | None = None
+        while ended_at - started_at < measurement_min_seconds:
             outputs = forward_model(model, batch, is_text_model)
-        if device.type == "cuda":
-            torch.cuda.synchronize(device)
-        ended_at = time.time()
+            synchronize_device(device)
+            iterations += 1
+            ended_at = time.time()
 
+    assert outputs is not None
     logits = extract_logits(outputs)
     total_duration = ended_at - started_at
     return InferenceResult(

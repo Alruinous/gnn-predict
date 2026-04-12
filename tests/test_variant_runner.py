@@ -12,7 +12,13 @@ import torch
 import gnn_archs.variant_runner as variant_runner_module
 from gnn_archs.config import ArchConfig
 from gnn_archs.mutations import SqueezeExcitationBlock
-from gnn_archs.result import ResultDocument, write_result_document
+from gnn_archs.result import (
+    InferenceResult,
+    ResultDocument,
+    TimeWindow,
+    TrainingResult,
+    write_result_document,
+)
 from gnn_archs.util.onnx_initializer import write_randomized_onnx_model
 from gnn_archs.util.variant_expander import expand_arch_config
 from gnn_archs.variant_runner import (
@@ -23,6 +29,7 @@ from gnn_archs.variant_runner import (
     count_parameters,
     derive_config_output_name,
     prepare_output_layout,
+    run_inference,
     run_variant,
 )
 
@@ -409,6 +416,147 @@ def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
     assert result.inference is not None
     assert result.metadata["model_kind"] == "text"
     assert result.metadata["validation_num_outputs"] == 3
+
+
+def test_run_variant_waits_between_training_and_inference(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    variant = build_image_variant([], variant_name="cooldown_variant").model_copy(
+        update={
+            "variant_config": build_image_variant(
+                [],
+                variant_name="cooldown_variant_config",
+            ).variant_config.model_copy(
+                update={
+                    "run_training": True,
+                    "run_inference": True,
+                    "pre_inference_cooldown_seconds": 3.0,
+                }
+            )
+        }
+    )
+    config_path = tmp_path / "cooldown_variants.yaml"
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_variant_cooldown"),
+    )
+    events: list[str] = []
+
+    monkeypatch.setattr(
+        variant_runner_module,
+        "build_variant_model",
+        lambda spec: torch.nn.Identity(),
+    )
+    monkeypatch.setattr(
+        variant_runner_module,
+        "validate_model",
+        lambda *args, **kwargs: {"batch_size": 1, "num_outputs": 4},
+    )
+
+    def fake_train_model(*args: object, **kwargs: object) -> TrainingResult:
+        events.append("train")
+        return TrainingResult(
+            timings=TimeWindow(
+                started_at_ts=10.0,
+                ended_at_ts=20.0,
+                started_at_text="2026-04-11T00:00:10+00:00",
+                ended_at_text="2026-04-11T00:00:20+00:00",
+            )
+        )
+
+    def fake_run_inference(*args: object, **kwargs: object) -> InferenceResult:
+        events.append("infer")
+        return InferenceResult(
+            metrics={
+                "iterations": 5,
+                "batch_size": 1,
+                "avg_latency_ms": 1000.0,
+                "num_outputs": 4,
+            },
+            timings=TimeWindow(
+                started_at_ts=23.0,
+                ended_at_ts=28.0,
+                started_at_text="2026-04-11T00:00:23+00:00",
+                ended_at_text="2026-04-11T00:00:28+00:00",
+            ),
+        )
+
+    monkeypatch.setattr(variant_runner_module, "train_model", fake_train_model)
+    monkeypatch.setattr(variant_runner_module, "run_inference", fake_run_inference)
+    monkeypatch.setattr(
+        variant_runner_module.time,
+        "sleep",
+        lambda seconds: events.append(f"sleep:{seconds}"),
+    )
+    monkeypatch.setattr(
+        variant_runner_module,
+        "cleanup_workload_boundary",
+        lambda device: events.append(f"cleanup:{device}"),
+    )
+
+    result = run_variant(variant, context)
+
+    assert events == ["train", "sleep:3.0", "infer", "cleanup:cpu"]
+    assert result.timings["training"].started_at_ts == 10.0
+    assert result.timings["training"].ended_at_ts == 20.0
+    assert result.timings["inference"].started_at_ts == 23.0
+    assert result.timings["inference"].ended_at_ts == 28.0
+
+
+def test_run_inference_measures_until_min_duration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    variant = build_image_variant(
+        [],
+        variant_name="timed_inference_variant",
+        example_input_shape=[1, 3, 16, 16],
+    ).model_copy(
+        update={
+            "variant_config": build_image_variant(
+                [],
+                variant_name="timed_inference_config",
+                example_input_shape=[1, 3, 16, 16],
+            ).variant_config.model_copy(
+                update={
+                    "run_inference": True,
+                    "inference_measurement_min_seconds": 5.0,
+                }
+            )
+        }
+    )
+    forward_calls: list[str] = []
+    time_values = iter([100.0, 101.0, 102.0, 103.0, 104.0, 105.0])
+
+    monkeypatch.setattr(
+        variant_runner_module,
+        "build_example_batch",
+        lambda *args, **kwargs: {"inputs": torch.ones(1, 3, 16, 16)},
+    )
+
+    def fake_forward_model(*args: object, **kwargs: object) -> torch.Tensor:
+        forward_calls.append("forward")
+        return torch.ones(1, 4)
+
+    monkeypatch.setattr(variant_runner_module, "forward_model", fake_forward_model)
+    monkeypatch.setattr(variant_runner_module.time, "time", lambda: next(time_values))
+
+    result = run_inference(
+        variant,
+        torch.nn.Identity(),
+        torch.device("cpu"),
+        False,
+    )
+
+    assert len(forward_calls) == 7
+    assert result.metrics["iterations"] == 5
+    assert result.metrics["avg_latency_ms"] == 1000.0
+    assert result.timings.started_at_ts == 100.0
+    assert result.timings.ended_at_ts == 105.0
 
 
 def test_cleanup_workload_boundary_clears_cuda_cache_when_available(

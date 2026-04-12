@@ -79,6 +79,14 @@ def test_expand_group_variants_generates_grid_and_fc_variants() -> None:
         variant.variant_config.onnx_export_mode == "architecture_only"
         for variant in variants
     )
+    assert all(
+        variant.variant_config.pre_inference_cooldown_seconds == 3.0
+        for variant in variants
+    )
+    assert all(
+        variant.variant_config.inference_measurement_min_seconds == 5.0
+        for variant in variants
+    )
 
 
 def test_expand_group_variants_keeps_text_input_shape_flat() -> None:

@@ -21,7 +21,9 @@ def test_migrated_resnet_config_matches_new_schema() -> None:
 
     assert template.run_training is True
     assert template.run_inference is True
-    assert template.export_onnx is True
+    assert template.pre_inference_cooldown_seconds == 3.0
+    assert template.inference_measurement_min_seconds == 5.0
+    assert template.export_onnx is False
     assert template.onnx_export_mode == "architecture_only"
     assert template.target_input_channels is None
     assert template.target_output_classes is None
@@ -73,3 +75,33 @@ def test_legacy_mutation_keys_are_moved_into_params() -> None:
     assert "run_workload" not in variant_config
     assert variant_config["run_inference"] is True
     assert variant_config["onnx_export_mode"] == "full"
+
+
+def test_legacy_grid_phase_isolation_settings_are_migrated_into_template() -> None:
+    legacy_config = {
+        "base_model_groups": [
+            {
+                "base_model": {"name": "resnet18", "pretrained": True},
+                "combinatorial_variant_grid": {
+                    "input_channels": [3],
+                    "output_classes": [10],
+                    "run_training": True,
+                    "run_inference": True,
+                    "pre_inference_cooldown_seconds": 4.0,
+                    "inference_measurement_min_seconds": 6.0,
+                    "base_variant_config_template": {
+                        "example_input_shape": [1, 3, 224, 224],
+                    },
+                    "mutation_sets": [{"name": "no_mutations", "mutations": []}],
+                },
+            }
+        ]
+    }
+
+    migrated = migrate_arch_config_dict(legacy_config)
+    template = migrated["base_model_groups"][0]["combinatorial_variant_grid"][
+        "base_variant_config_template"
+    ]
+
+    assert template["pre_inference_cooldown_seconds"] == 4.0
+    assert template["inference_measurement_min_seconds"] == 6.0
