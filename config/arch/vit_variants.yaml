@@ -20,12 +20,12 @@ base_model_groups:
       - 32
       - 48
       - 64
-      training_epochs: 2
+      training_epochs: 3
       use_fake_imagenet: true
       fake_dataset_size: 10000
       run_inference: true
       pre_inference_cooldown_seconds: 3.0
-      inference_measurement_min_seconds: 5.0
+      inference_measurement_min_seconds: 60.0
     mutations:
     - type: ViTBlockReduction
       params:
@@ -52,12 +52,12 @@ base_model_groups:
       - 32
       - 48
       - 64
-      training_epochs: 2
+      training_epochs: 3
       use_fake_imagenet: true
       fake_dataset_size: 10000
       run_inference: true
       pre_inference_cooldown_seconds: 3.0
-      inference_measurement_min_seconds: 5.0
+      inference_measurement_min_seconds: 60.0
     mutations:
     - type: ViTBlockReduction
       params:
@@ -92,7 +92,7 @@ base_model_groups:
       onnx_export_mode: architecture_only
       use_fake_imagenet: true
       run_training: true
-      training_epochs: 2
+      training_epochs: 3
       training_batch_sizes:
       - 16
       - 32
@@ -101,7 +101,7 @@ base_model_groups:
       fake_dataset_size: 10000
       run_inference: true
       pre_inference_cooldown_seconds: 3.0
-      inference_measurement_min_seconds: 5.0
+      inference_measurement_min_seconds: 60.0
     mutation_sets:
     - name: no_mutations
       mutations: []

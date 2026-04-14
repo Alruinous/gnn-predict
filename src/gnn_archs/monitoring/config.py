@@ -114,12 +114,11 @@ def load_monitor_settings(
     *,
     target_names: Sequence[str] | None = None,
 ) -> ResolvedMonitorSettings:
-    resolved_config_path = Path(config_path).resolve()
-    with resolved_config_path.open(encoding="utf-8") as file:
+    config_path = Path(config_path)
+    with config_path.open(encoding="utf-8") as file:
         raw_config = yaml.safe_load(file)
 
     config = MonitorConfig.model_validate(raw_config)
-    config_dir = resolved_config_path.parent
     normalized_targets: dict[str, MonitorTarget] = {}
     enabled_target_names: list[str] = []
 
@@ -141,7 +140,7 @@ def load_monitor_settings(
         enabled_target_names=enabled_target_names,
     )
     resolved_targets = [
-        _resolve_target(config_dir, name, normalized_targets[name])
+        _resolve_target(name, normalized_targets[name])
         for name in selected_target_names
     ]
 
@@ -149,7 +148,7 @@ def load_monitor_settings(
         raise ValueError("monitor config must enable at least one target")
 
     return ResolvedMonitorSettings(
-        config_path=resolved_config_path,
+        config_path=config_path,
         prometheus_url=config.defaults.prometheus_url,
         namespace=config.defaults.namespace,
         cpu_rate_window=config.defaults.cpu_rate_window,
@@ -161,11 +160,8 @@ def load_monitor_settings(
     )
 
 
-def _resolve_path(base_dir: Path, raw_path: str) -> Path:
-    path = Path(raw_path)
-    if path.is_absolute():
-        return path.resolve()
-    return (base_dir / path).resolve()
+def _resolve_path(raw_path: str) -> Path:
+    return Path(raw_path)
 
 
 def _normalize_target_name(target_name: str) -> str:
@@ -218,13 +214,12 @@ def _resolve_selected_target_names(
 
 
 def _resolve_target(
-    config_dir: Path,
     target_name: str,
     target: MonitorTarget,
 ) -> ResolvedMonitorTarget:
-    result_json = _resolve_path(config_dir, target.result_json)
+    result_json = _resolve_path(target.result_json)
     output_csv = (
-        _resolve_path(config_dir, target.output_csv)
+        _resolve_path(target.output_csv)
         if target.output_csv is not None
         else result_json.with_name(f"{result_json.stem}_monitor.csv")
     )

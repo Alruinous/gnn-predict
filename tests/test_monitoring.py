@@ -65,10 +65,13 @@ class FakePrometheusClient:
         return queue.pop(0)
 
 
-def test_load_monitor_settings_validates_and_resolves_paths(tmp_path: Path) -> None:
+def test_load_monitor_settings_keeps_relative_paths_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
     result_json = tmp_path / "results.json"
     result_json.write_text("{}", encoding="utf-8")
-    config_path = tmp_path / "monitor.yaml"
+    config_path = Path("monitor.yaml")
     config_path.write_text(
         "\n".join(
             [
@@ -98,8 +101,41 @@ def test_load_monitor_settings_validates_and_resolves_paths(tmp_path: Path) -> N
     assert settings.query_step_seconds == 3
     assert len(settings.targets) == 1
     assert settings.targets[0].gpu_id == "1"
-    assert settings.targets[0].result_json == result_json.resolve()
-    assert settings.targets[0].output_csv == result_json.with_name("results_monitor.csv")
+    assert settings.config_path == Path("monitor.yaml")
+    assert settings.targets[0].result_json == Path("results.json")
+    assert settings.targets[0].output_csv == Path("results_monitor.csv")
+
+
+def test_load_monitor_settings_keeps_nested_config_relative_paths_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    config_path = Path("config/monitor/monitor.yaml")
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "defaults:",
+                '  prometheus_url: "http://example:9090"',
+                '  namespace: "crater-workspace"',
+                "targets:",
+                "  vit:",
+                "    enabled: true",
+                '    result_json: "res/vit/results/results.json"',
+                '    node_name: "dell-67"',
+                '    pod_name: "pod-vit"',
+                '    gpu_id: "1"',
+                '    output_csv: "csv/vit_monitor.csv"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = load_monitor_settings(config_path)
+
+    assert settings.config_path == Path("config/monitor/monitor.yaml")
+    assert settings.targets[0].result_json == Path("res/vit/results/results.json")
+    assert settings.targets[0].output_csv == Path("csv/vit_monitor.csv")
 
 
 def test_load_monitor_settings_without_target_filter_keeps_all_enabled_targets(
@@ -142,10 +178,11 @@ def test_load_monitor_settings_without_target_filter_keeps_all_enabled_targets(
 
 
 def test_load_monitor_settings_filters_targets_in_requested_order(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     absolute_result = (tmp_path / "bert.json").resolve()
-    config_path = tmp_path / "monitor.yaml"
+    config_path = Path("monitor.yaml")
     config_path.write_text(
         "\n".join(
             [
@@ -176,7 +213,7 @@ def test_load_monitor_settings_filters_targets_in_requested_order(
     )
 
     assert [target.name for target in settings.targets] == ["resnet50", "bert_large"]
-    assert settings.targets[0].result_json == (tmp_path / "resnet.json").resolve()
+    assert settings.targets[0].result_json == Path("resnet.json")
     assert settings.targets[1].result_json == absolute_result
 
 
