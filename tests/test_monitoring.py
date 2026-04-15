@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -7,6 +8,7 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
+import gnn_archs.monitoring.service as monitoring_service
 from gnn_archs.monitoring import (
     CSV_COLUMNS,
     GPU_METRIC_DEFINITIONS,
@@ -29,6 +31,8 @@ from gnn_archs.result import (
     VariantResult,
     write_result_document,
 )
+
+TEST_LOGGER = logging.getLogger(__name__)
 
 
 class FakePrometheusClient:
@@ -347,12 +351,43 @@ def test_extract_phase_records_reads_training_and_inference(tmp_path: Path) -> N
     assert [record.gpu_id for record in records] == ["1", "1"]
     assert records[0].duration_sec == 7.0
     assert records[1].duration_sec == 6.0
+    assert [record.phase_rounds for record in records] == [3, 42]
 
 
 def test_extract_phase_records_fails_when_phase_timing_missing(tmp_path: Path) -> None:
     result_json = _write_result_document(tmp_path, missing_training_timing=True)
 
     with pytest.raises(ValueError, match="training timings missing started_at_ts"):
+        extract_phase_records(
+            "bert_large",
+            result_json,
+            namespace="crater-workspace",
+            node_name="dell-67",
+            pod_name="sg-wangjh-260331-bbed6-default0-0",
+            gpu_id="1",
+        )
+
+
+@pytest.mark.parametrize(
+    ("include_training_epochs", "include_inference_iterations", "expected_message"),
+    [
+        (False, True, "training phase_rounds must be int"),
+        (True, False, "inference phase_rounds must be int"),
+    ],
+)
+def test_extract_phase_records_fails_when_phase_rounds_missing(
+    tmp_path: Path,
+    include_training_epochs: bool,
+    include_inference_iterations: bool,
+    expected_message: str,
+) -> None:
+    result_json = _write_result_document(
+        tmp_path,
+        include_training_epochs=include_training_epochs,
+        include_inference_iterations=include_inference_iterations,
+    )
+
+    with pytest.raises(AssertionError, match=expected_message):
         extract_phase_records(
             "bert_large",
             result_json,
@@ -373,7 +408,7 @@ def test_monitor_target_writes_expected_csv_columns_and_rows(tmp_path: Path) -> 
         zero_gpu_values=False,
     )
 
-    dataframe = monitor_target(settings, target, client)
+    dataframe = monitor_target(settings, target, client, TEST_LOGGER)
 
     assert list(dataframe.columns) == CSV_COLUMNS
     assert dataframe.shape[0] == 2
@@ -381,10 +416,12 @@ def test_monitor_target_writes_expected_csv_columns_and_rows(tmp_path: Path) -> 
     loaded = pd.read_csv(target.output_csv)
     assert loaded.shape[0] == 2
     assert set(loaded["phase"]) == {"training", "inference"}
+    assert loaded["phase_rounds"].tolist() == [3, 42]
     assert loaded["gpu_id"].astype(str).tolist() == ["1", "1"]
     assert set(loaded["resolved_gpu_label"].astype(str)) == {"1"}
     assert set(loaded["resolved_device_label"]) == {"nvidia1"}
     assert loaded["sample_count"].tolist() == [3, 3]
+    assert dataframe["phase_rounds"].tolist() == [3, 42]
 
 
 def test_monitor_target_offsets_cpu_queries_by_rate_window(tmp_path: Path) -> None:
@@ -396,7 +433,7 @@ def test_monitor_target_offsets_cpu_queries_by_rate_window(tmp_path: Path) -> No
         pod_name=target.pod_name,
     )
 
-    monitor_target(settings, target, client)
+    monitor_target(settings, target, client, TEST_LOGGER)
 
     training_cpu_call = client.range_calls[0]
     inference_cpu_call = client.range_calls[3]
@@ -414,7 +451,7 @@ def test_monitor_target_keeps_zero_value_samples(tmp_path: Path) -> None:
         zero_gpu_values=True,
     )
 
-    dataframe = monitor_target(settings, target, client)
+    dataframe = monitor_target(settings, target, client, TEST_LOGGER)
 
     assert dataframe["gpu_util_percent_avg"].tolist() == [0.0, 0.0]
     assert dataframe["gpu_power_watts_avg"].tolist() == [0.0, 0.0]
@@ -430,7 +467,7 @@ def test_monitor_target_fails_when_result_file_is_missing(tmp_path: Path) -> Non
     )
 
     with pytest.raises(FileNotFoundError, match="result document does not exist"):
-        monitor_target(settings, target, client)
+        monitor_target(settings, target, client, TEST_LOGGER)
 
 
 def test_monitor_target_fails_when_node_total_is_missing(tmp_path: Path) -> None:
@@ -444,7 +481,7 @@ def test_monitor_target_fails_when_node_total_is_missing(tmp_path: Path) -> None
     client.instant_responses[build_node_cpu_total_query(target.node_name)] = []
 
     with pytest.raises(ValueError, match="expected exactly one series for node CPU total"):
-        monitor_target(settings, target, client)
+        monitor_target(settings, target, client, TEST_LOGGER)
 
 
 def test_monitor_target_fails_when_metric_samples_are_missing(tmp_path: Path) -> None:
@@ -463,10 +500,10 @@ def test_monitor_target_fails_when_metric_samples_are_missing(tmp_path: Path) ->
     client.range_responses[cpu_query][0] = [{"metric": {}, "values": []}]
 
     with pytest.raises(ValueError, match="no samples returned for CPU usage"):
-        monitor_target(settings, target, client)
+        monitor_target(settings, target, client, TEST_LOGGER)
 
 
-def test_monitor_target_fails_when_phase_is_shorter_than_cpu_window(
+def test_monitor_target_clamps_cpu_queries_when_phase_is_shorter_than_cpu_window(
     tmp_path: Path,
 ) -> None:
     result_json = _write_result_document(tmp_path)
@@ -484,16 +521,21 @@ def test_monitor_target_fails_when_phase_is_shorter_than_cpu_window(
         namespace=settings.namespace,
         node_name=target.node_name,
         pod_name=target.pod_name,
+        cpu_rate_window=settings.cpu_rate_window,
     )
 
-    with pytest.raises(
-        ValueError,
-        match="is too short for cpu_rate_window=8s",
-    ):
-        monitor_target(settings, target, client)
+    monitor_target(settings, target, client, TEST_LOGGER)
+
+    training_cpu_call = client.range_calls[0]
+    inference_cpu_call = client.range_calls[3]
+    assert training_cpu_call[1:] == (107.0, 107.0, 1)
+    assert inference_cpu_call[1:] == (116.0, 116.0, 1)
 
 
-def test_monitor_target_fails_when_sample_count_is_too_small(tmp_path: Path) -> None:
+def test_monitor_target_fails_when_sample_count_is_too_small(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     result_json = _write_result_document(tmp_path)
     settings, target = _build_settings(tmp_path, result_json)
     client = _build_fake_client(
@@ -501,6 +543,7 @@ def test_monitor_target_fails_when_sample_count_is_too_small(tmp_path: Path) -> 
         node_name=target.node_name,
         pod_name=target.pod_name,
     )
+    monkeypatch.setattr(monitoring_service, "MIN_REQUIRED_PHASE_SAMPLES", 3)
     memory_query = build_pod_memory_query(target.pod_name, settings.namespace)
     client.range_responses[memory_query][0] = [
         {
@@ -513,7 +556,7 @@ def test_monitor_target_fails_when_sample_count_is_too_small(tmp_path: Path) -> 
     ]
 
     with pytest.raises(ValueError, match="has too few samples"):
-        monitor_target(settings, target, client)
+        monitor_target(settings, target, client, TEST_LOGGER)
 
 
 def test_monitor_target_fails_when_configured_gpu_has_no_series(
@@ -536,7 +579,7 @@ def test_monitor_target_fails_when_configured_gpu_has_no_series(
     client.range_responses[gpu_query][0] = []
 
     with pytest.raises(ValueError, match="expected exactly one GPU series"):
-        monitor_target(settings, target, client)
+        monitor_target(settings, target, client, TEST_LOGGER)
 
 
 def test_monitor_target_fails_when_multiple_gpu_series_are_returned(
@@ -571,7 +614,7 @@ def test_monitor_target_fails_when_multiple_gpu_series_are_returned(
     ]
 
     with pytest.raises(ValueError, match="expected exactly one GPU series"):
-        monitor_target(settings, target, client)
+        monitor_target(settings, target, client, TEST_LOGGER)
 
 
 def test_query_builders_lock_expected_cpu_and_memory_promql() -> None:
@@ -640,6 +683,8 @@ def _write_result_document(
     tmp_path: Path,
     *,
     missing_training_timing: bool = False,
+    include_training_epochs: bool = True,
+    include_inference_iterations: bool = True,
 ) -> Path:
     training_timings = (
         TimeWindow()
@@ -657,6 +702,8 @@ def _write_result_document(
         started_at_text="2026-03-31T13:27:23+00:00",
         ended_at_text="2026-03-31T13:27:29+00:00",
     )
+    training_hyperparameters = {"epochs": 3} if include_training_epochs else {}
+    inference_metrics = {"iterations": 42} if include_inference_iterations else {}
     variant = VariantResult(
         name="bert-large-cased_ic1_oc2_no_mutations_large",
         base_model_name="bert-large-cased",
@@ -665,8 +712,14 @@ def _write_result_document(
         group_total_variants_defined=1,
         variant_config={},
         mutations=[],
-        training=TrainingResult(timings=training_timings),
-        inference=InferenceResult(timings=inference_timings),
+        training=TrainingResult(
+            hyperparameters=training_hyperparameters,
+            timings=training_timings,
+        ),
+        inference=InferenceResult(
+            metrics=inference_metrics,
+            timings=inference_timings,
+        ),
         metadata={"gpu_node": "v100"},
     )
     document = ResultDocument(
@@ -686,12 +739,13 @@ def _build_fake_client(
     node_name: str,
     pod_name: str,
     gpu_id: str = "1",
+    cpu_rate_window: str = "3s",
     zero_gpu_values: bool = False,
 ) -> FakePrometheusClient:
     pod_info_query = build_pod_info_query(pod_name, namespace)
     node_cpu_query = build_node_cpu_total_query(node_name)
     node_memory_query = build_node_memory_total_query(node_name)
-    cpu_query = build_pod_cpu_query(pod_name, namespace, "3s")
+    cpu_query = build_pod_cpu_query(pod_name, namespace, cpu_rate_window)
     memory_query = build_pod_memory_query(pod_name, namespace)
     gpu_query = build_gpu_metrics_query(
         tuple(definition.prometheus_name for definition in GPU_METRIC_DEFINITIONS),

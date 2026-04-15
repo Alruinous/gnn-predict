@@ -223,8 +223,6 @@ def test_image_variant_runner_executes_training_inference_and_onnx(
     exported_model = onnx.load(result.onnx_export.path)
     assert len(exported_model.graph.initializer) > 0
     assert [value.name for value in exported_model.graph.input] == ["inputs"]
-    checkpoint_path = Path(str(result.training.metrics["checkpoint_path"]))
-    assert checkpoint_path.parent == output_layout.checkpoints_dir
     assert result.training.metrics["total_steps"] == 2
     assert result.metadata["model_kind"] == "image"
     assert result.onnx_export.graph_info["runtime_input_names"] == ["inputs"]
@@ -783,13 +781,11 @@ def test_prepare_output_layout_uses_dataset_root_directories(
     assert output_layout.onnx_models_dir == dataset_root / "onnx_models"
     assert output_layout.results_dir == dataset_root / "results"
     assert output_layout.logs_dir == dataset_root / "logs"
-    assert output_layout.checkpoints_dir == dataset_root / "checkpoints"
     for directory in (
         output_layout.root,
         output_layout.onnx_models_dir,
         output_layout.results_dir,
         output_layout.logs_dir,
-        output_layout.checkpoints_dir,
     ):
         assert directory.is_dir()
 

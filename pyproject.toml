@@ -28,6 +28,7 @@ dependencies = [
     "torch-pruning>=1.6.1",
     "transformers==4.57.1",
     "ty>=0.0.25",
+    "polars>=1.39.3",
 ]
 
 [dependency-groups]

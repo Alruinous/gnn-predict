@@ -24,3 +24,5 @@ ruff.toml
 tmp/
 
 .DS_Store
+
+csv/

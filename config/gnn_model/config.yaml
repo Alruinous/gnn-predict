@@ -1,0 +1,10 @@
+
+id_fields:
+  - variant_name
+  - phase
+
+target_fields: 
+  - duration_sec_avg # duration_sec / phase_rounds
+  - gpu_util_percent_p95
+  - gpu_sm_occupancy_percent_p95
+  - gpu_mem_used_mb_p95

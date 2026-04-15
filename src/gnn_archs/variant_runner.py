@@ -51,7 +51,6 @@ class OutputLayout:
     logs_dir: Path
     results_dir: Path
     onnx_models_dir: Path
-    checkpoints_dir: Path
 
 
 @dataclass(frozen=True)
@@ -97,14 +96,12 @@ def prepare_output_layout(output_root: Path, config_path: Path) -> OutputLayout:
         logs_dir=config_output_root / "logs",
         results_dir=config_output_root / "results",
         onnx_models_dir=config_output_root / "onnx_models",
-        checkpoints_dir=config_output_root / "checkpoints",
     )
     for directory in (
         layout.root,
         layout.logs_dir,
         layout.results_dir,
         layout.onnx_models_dir,
-        layout.checkpoints_dir,
     ):
         directory.mkdir(parents=True, exist_ok=True)
     return layout
@@ -138,7 +135,6 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
                 spec,
                 model,
                 context.device,
-                context.output_layout,
             )
             timings["training"] = training_result.timings
 
@@ -362,7 +358,6 @@ def train_model(
     spec: ResolvedVariantSpec,
     model: nn.Module,
     device: torch.device,
-    output_layout: OutputLayout,
 ) -> TrainingResult:
     if is_text_model_name(spec.base_model.name):
         if not spec.variant_config.use_fake_text_dataset:
@@ -408,9 +403,6 @@ def train_model(
             total_steps += 1
             last_loss = float(loss.detach().item())
 
-    checkpoint_path = output_layout.checkpoints_dir / f"{spec.name}.pt"
-    torch.save({"model_state_dict": model.state_dict()}, checkpoint_path)
-
     return TrainingResult(
         hyperparameters={
             "batch_size": batch_size,
@@ -424,7 +416,6 @@ def train_model(
         metrics={
             "final_loss": last_loss,
             "total_steps": total_steps,
-            "checkpoint_path": str(checkpoint_path),
         },
         timings=build_time_window(training_started_at, time.time()),
     )

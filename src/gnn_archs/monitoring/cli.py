@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         target_names = None
 
     settings = load_monitor_settings(Path(args.config), target_names=target_names)
-    written_paths = run_monitoring(settings)
+    written_paths = run_monitoring(settings, logger=logger)
     for path in written_paths:
         print(path)
     return 0
