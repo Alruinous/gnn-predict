@@ -2,7 +2,7 @@ defaults:
   prometheus_url: "http://192.168.5.60:31110"
   namespace: "crater-workspace"
   cpu_rate_window: "22s"
-  query_step_seconds: 1
+  query_step_seconds: 3
 
 targets:
   vit:
@@ -119,9 +119,9 @@ targets:
 
   beit:
     enabled: true
-    result_json: TODO
+    result_json: res/beit/results/beit_variants_v100_1776158447_results.json
     node_name: dell-67
-    pod_name: sg-wangjh-260412-3a258-default0-0
+    pod_name: sg-wangjh-260413-1d626-default0-0
     gpu_id: "0"
     output_csv: "csv/beit_monitor.csv"
 
@@ -143,8 +143,8 @@ targets:
 
   densenet:
     enabled: true
-    result_json: TODO
+    result_json: res/densenet/results/densenet_variants_v100_1776158194_results.json
     node_name: dell-67
-    pod_name: sg-wangjh-260412-663a0-default0-0
-    gpu_id: "1"
+    pod_name: sg-wangjh-260413-14599-default0-0
+    gpu_id: "2"
     output_csv: "csv/densenet_monitor.csv"
