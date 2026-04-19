@@ -15,6 +15,7 @@ test/
 .vscode/
 .idea/
 .cursor
+.omc/
 
 .ruff_cache/
 ruff.toml
