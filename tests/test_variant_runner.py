@@ -1393,3 +1393,108 @@ def test_build_variant_model_rejects_invalid_convnext_dropout_probability() -> N
         ValueError, match=r"ConvNeXtModifyDropout new_probability must be in \[0, 1\]"
     ):
         build_variant_model(invalid_variant)
+
+
+# ============== YOLO Detection 运行时 Smoke Tests ==============
+
+
+def _build_yolo_variant(
+    mutations: list[dict[str, object]],
+    *,
+    base_model_name: str = "yolo11n",
+    variant_name: str = "yolo_smoke",
+) -> object:
+    config = ArchConfig.model_validate(
+        {
+            "base_model_groups": [
+                {
+                    "base_model": {"name": base_model_name, "pretrained": False},
+                    "single_variant_define": [
+                        {
+                            "name": variant_name,
+                            "variant_config": {
+                                "target_input_channels": 3,
+                                "target_output_classes": 10,
+                                "example_input_shape": [1, 3, 640, 640],
+                                "run_training": True,
+                                "run_inference": True,
+                                "export_onnx": True,
+                                "onnx_export_mode": "full",
+                                "training_batch_sizes": [2],
+                                "training_epochs": 1,
+                                "use_fake_imagenet": True,
+                                "fake_dataset_size": 4,
+                                "inference_measurement_min_seconds": 0.1,
+                            },
+                            "mutations": mutations,
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    return expand_arch_config(config)[0]
+
+
+def test_detection_variant_runner_executes_training_inference_and_onnx(
+    tmp_path: Path,
+) -> None:
+    """YOLO 运行时全链路 smoke test：build → train → infer → export（含 m.export=True）。"""
+    config_path = tmp_path / "yolo11n_variants.yaml"
+    variant = _build_yolo_variant([], variant_name="yolo11n_runtime_smoke")
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_detection_variant_runner"),
+    )
+
+    result = run_variant(variant, context)
+
+    assert result.training is not None
+    assert result.inference is not None
+    assert result.onnx_export is not None
+    assert Path(result.onnx_export.path).exists()
+    assert Path(result.onnx_export.path).parent == output_layout.onnx_models_dir
+    exported_model = onnx.load(result.onnx_export.path)
+    assert len(exported_model.graph.node) > 0
+    assert result.metadata["model_kind"] == "detection"
+    assert result.onnx_export.graph_info["runtime_input_names"] == ["images"]
+    assert result.training.metrics["total_steps"] == 2
+
+
+def test_detection_variant_runner_with_activation_mutation(
+    tmp_path: Path,
+) -> None:
+    """YOLO YAML 级 mutation 运行时验证：ActivationOverride 能正确构建和导出。"""
+    config_path = tmp_path / "yolo11n_mutation.yaml"
+    variant = _build_yolo_variant(
+        [{"type": "ActivationOverride", "params": {"activation": "nn.ReLU"}}],
+        variant_name="yolo11n_relu_smoke",
+    )
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_detection_mutation"),
+    )
+
+    result = run_variant(variant, context)
+
+    assert result.onnx_export is not None
+    assert Path(result.onnx_export.path).exists()
+    assert result.metadata["model_kind"] == "detection"
+
+
+def test_detection_variant_rejects_unknown_mutation_type() -> None:
+    """未知 YOLO mutation 类型应抛出 ValueError，而不是静默跳过。"""
+    variant = _build_yolo_variant(
+        [{"type": "NonExistentMutation", "params": {"foo": "bar"}}],
+        variant_name="yolo_invalid_mutation",
+    )
+    with pytest.raises(ValueError, match=r"未知的 YOLO mutation 类型"):
+        build_variant_model(variant)
