@@ -66,20 +66,22 @@ def build_detection_model(spec: ResolvedVariantSpec) -> nn.Module:
     构建 YOLO 检测模型。
 
     根据 spec.mutations 判断是否需要 YAML 级变异：
-    - 无 mutation 且是标准 scale（n/s/m/l/x/t/b/c/e）：直接 YOLO(name.yaml).model
-    - 有 mutation 或自定义 scale：加载 YAML dict → 应用变异 → 写临时 YAML → 构建
+    - 无 mutation 且是标准 scale 且无自定义 nc：直接 YOLO(name.yaml).model
+    - 有 mutation / 自定义 scale / 自定义 nc：加载 YAML dict → 应用变异 → 写临时 YAML → 构建
     """
     from ultralytics import YOLO
 
     model_name = spec.base_model.name  # e.g. "yolo11n", "yolov8x", "yolo11_pico"
-    has_mutations = len(spec.mutations) > 0 and any(
-        m.type in YOLO_YAML_MUTATION_TYPES for m in spec.mutations
-    )
+    has_mutations = len(spec.mutations) > 0
 
     # 判断是否为自定义 scale（名字里有下划线，如 yolo11_pico）
     is_custom_scale = "_" in model_name
 
-    if not has_mutations and not is_custom_scale:
+    # 判断是否需要注入自定义 nc（YOLO 默认 nc=80）
+    custom_nc = spec.variant_config.target_output_classes
+    needs_custom_nc = custom_nc is not None and custom_nc != 80
+
+    if not has_mutations and not is_custom_scale and not needs_custom_nc:
         # 标准路径：直接利用 ultralytics 原生 scale 解析
         yolo = YOLO(f"{model_name}.yaml", task="detect")
         return yolo.model
@@ -89,6 +91,9 @@ def build_detection_model(spec: ResolvedVariantSpec) -> nn.Module:
 
     if is_custom_scale:
         d = _apply_custom_scale(d, model_name)
+
+    if needs_custom_nc:
+        d["nc"] = custom_nc
 
     if has_mutations:
         d = _apply_yaml_mutations(d, spec.mutations)
@@ -186,8 +191,10 @@ def _apply_yaml_mutations(
         params = mutation.params
 
         if mt not in YOLO_YAML_MUTATION_TYPES:
-            # 跳过非 YOLO mutation（兼容性：不报错，只跳过）
-            continue
+            raise ValueError(
+                f"未知的 YOLO mutation 类型 '{mt}'。"
+                f"合法类型: {sorted(YOLO_YAML_MUTATION_TYPES)}"
+            )
 
         if mt == "BackboneModuleReplace":
             _replace_module_in_section(d, "backbone", params)
