@@ -29,6 +29,27 @@ def is_text_model_name(model_name: str) -> bool:
     return any(normalized_name.startswith(prefix) for prefix in TEXT_MODEL_PREFIXES)
 
 
+# ============== 新增：Detection 模型识别 ==============
+
+DETECTION_MODEL_PREFIXES = (
+    "yolov3",
+    "yolov5",
+    "yolov6",
+    "yolov7",
+    "yolov8",
+    "yolov9",
+    "yolov10",
+    "yolo11",
+    "yoloe",
+)
+
+
+def is_detection_model_name(model_name: str) -> bool:
+    """判断是否为 YOLO 检测模型。"""
+    normalized = normalize_model_identifier(model_name)
+    return any(normalized.startswith(prefix) for prefix in DETECTION_MODEL_PREFIXES)
+
+
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

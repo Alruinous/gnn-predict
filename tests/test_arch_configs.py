@@ -6,12 +6,19 @@ from pathlib import Path
 import pytest
 import yaml
 
-from gnn_archs.config import ArchConfig, BaseModelGroup, MutationSet, is_text_model_name
+from gnn_archs.config import (
+    ArchConfig,
+    BaseModelGroup,
+    MutationSet,
+    is_detection_model_name,
+    is_text_model_name,
+)
 from gnn_archs.mutations import (
     IMAGE_MUTATION_TYPES,
     TEXT_MUTATION_TYPES,
     apply_text_config_mutations,
 )
+from gnn_archs.yolo_builder import YOLO_YAML_MUTATION_TYPES
 from gnn_archs.util.variant_expander import expand_arch_config
 from gnn_archs.variant_runner import build_bert_config
 
@@ -98,11 +105,12 @@ def test_arch_config_mutations_match_model_kind(config_path: Path) -> None:
     config = load_arch_config(config_path)
 
     for group in config.base_model_groups:
-        allowed_mutation_types = (
-            TEXT_MUTATION_TYPES
-            if is_text_model_name(group.base_model.name)
-            else IMAGE_MUTATION_TYPES
-        )
+        if is_detection_model_name(group.base_model.name):
+            allowed_mutation_types = YOLO_YAML_MUTATION_TYPES
+        elif is_text_model_name(group.base_model.name):
+            allowed_mutation_types = TEXT_MUTATION_TYPES
+        else:
+            allowed_mutation_types = IMAGE_MUTATION_TYPES
         for mutation_set in iter_group_mutation_sets(group):
             for mutation in mutation_set.mutations:
                 assert mutation.type in allowed_mutation_types

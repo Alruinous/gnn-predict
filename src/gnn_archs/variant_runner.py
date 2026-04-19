@@ -14,7 +14,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from transformers import BertConfig, BertForSequenceClassification
 
-from gnn_archs.config import is_text_model_name
+from gnn_archs.config import is_detection_model_name, is_text_model_name
 from gnn_archs.mutations import (
     IMAGE_MUTATION_TYPES,
     TEXT_MUTATION_TYPES,
@@ -111,6 +111,7 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
     run_started_at = time.time()
     timings: dict[str, TimeWindow] = {}
     is_text_model = is_text_model_name(spec.base_model.name)
+    is_detection_model = is_detection_model_name(spec.base_model.name)
     model: nn.Module | None = None
     onnx_result: OnnxExportResult | None = None
     training_result: TrainingResult | None = None
@@ -169,7 +170,7 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
             metadata={
                 "device": str(context.device),
                 "gpu_node": context.gpu_node,
-                "model_kind": "text" if is_text_model else "image",
+                "model_kind": "detection" if is_detection_model else ("text" if is_text_model else "image"),
                 "parameter_count": count_parameters(model),
                 "validation_batch_size": validation_metrics["batch_size"],
                 "validation_num_outputs": validation_metrics["num_outputs"],
@@ -207,6 +208,12 @@ def wait_for_inference_cooldown(
 
 def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
     assert spec.variant_config.target_output_classes is not None
+
+    # ---- detection (YOLO) 路径 ----
+    if is_detection_model_name(spec.base_model.name):
+        from gnn_archs.yolo_builder import build_detection_model
+
+        return build_detection_model(spec)
 
     if is_text_model_name(spec.base_model.name):
         validate_mutation_types(spec.mutations, TEXT_MUTATION_TYPES, "text")
@@ -292,6 +299,12 @@ def export_onnx_model(
     context: RunContext,
     is_text_model: bool,
 ) -> OnnxExportResult:
+    # ---- detection (YOLO) 路径 ----
+    if is_detection_model_name(spec.base_model.name):
+        from gnn_archs.yolo_builder import export_detection_onnx
+
+        return export_detection_onnx(spec, model, context)
+
     model.eval()
     export_wrapper = OnnxExportWrapper(model, is_text_model).to(context.device)
     batch = build_example_batch(spec.variant_config, model, is_text_model)
@@ -359,6 +372,12 @@ def train_model(
     model: nn.Module,
     device: torch.device,
 ) -> TrainingResult:
+    # ---- detection (YOLO) 路径 ----
+    if is_detection_model_name(spec.base_model.name):
+        from gnn_archs.yolo_builder import train_detection_model
+
+        return train_detection_model(spec, model, device)
+
     if is_text_model_name(spec.base_model.name):
         if not spec.variant_config.use_fake_text_dataset:
             raise NotImplementedError(
@@ -427,6 +446,12 @@ def run_inference(
     device: torch.device,
     is_text_model: bool,
 ) -> InferenceResult:
+    # ---- detection (YOLO) 路径 ----
+    if is_detection_model_name(spec.base_model.name):
+        from gnn_archs.yolo_builder import run_detection_inference
+
+        return run_detection_inference(spec, model, device)
+
     batch = build_example_batch(spec.variant_config, model, is_text_model)
     batch = {name: tensor.to(device) for name, tensor in batch.items()}
     measurement_min_seconds = spec.variant_config.inference_measurement_min_seconds

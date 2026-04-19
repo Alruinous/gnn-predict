@@ -1,0 +1,210 @@
+# YOLOv9 variant configurations
+# 10 base_model_groups × 3 output_classes × 20 mutation_sets = 600 variants
+
+base_model_groups:
+# ===== 5 native scales =====
+- base_model:
+    name: yolov9t
+    pretrained: false
+  combinatorial_variant_grid: &yolov9_grid
+    input_channels:
+    - 3
+    output_classes:
+    - 10
+    - 50
+    - 80
+    base_variant_config_template: &yolov9_tpl
+      example_input_shape:
+      - 1
+      - 3
+      - 640
+      - 640
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      run_training: true
+      training_epochs: 3
+      training_batch_sizes:
+      - 16
+      fake_dataset_size: 500
+      use_fake_imagenet: true
+      run_inference: true
+      inference_measurement_min_seconds: 5.0
+      pre_inference_cooldown_seconds: 3.0
+    mutation_sets: &yolov9_mutations
+      # --- baseline ---
+      - name: baseline
+        mutations: []
+      # --- backbone module replace (3) ---
+      - name: backbone_repncspelan4_to_c2f
+        mutations:
+        - type: BackboneModuleReplace
+          params:
+            from_module: RepNCSPELAN4
+            to_module: C2f
+      - name: backbone_repncspelan4_to_c3
+        mutations:
+        - type: BackboneModuleReplace
+          params:
+            from_module: RepNCSPELAN4
+            to_module: C3
+      - name: backbone_repncspelan4_to_c3k2
+        mutations:
+        - type: BackboneModuleReplace
+          params:
+            from_module: RepNCSPELAN4
+            to_module: C3k2
+      # --- head module replace (2) ---
+      - name: head_repncspelan4_to_c2f
+        mutations:
+        - type: HeadModuleReplace
+          params:
+            from_module: RepNCSPELAN4
+            to_module: C2f
+      - name: head_repncspelan4_to_c3
+        mutations:
+        - type: HeadModuleReplace
+          params:
+            from_module: RepNCSPELAN4
+            to_module: C3
+      # --- activation override (4) ---
+      - name: activation_relu
+        mutations:
+        - type: ActivationOverride
+          params:
+            activation: nn.ReLU
+      - name: activation_leaky_relu
+        mutations:
+        - type: ActivationOverride
+          params:
+            activation: nn.LeakyReLU
+      - name: activation_gelu
+        mutations:
+        - type: ActivationOverride
+          params:
+            activation: nn.GELU
+      - name: activation_mish
+        mutations:
+        - type: ActivationOverride
+          params:
+            activation: nn.Mish
+      # --- SPPF kernel replace (2) ---
+      - name: sppf_kernel_3
+        mutations:
+        - type: SPPFKernelReplace
+          params:
+            kernel_size: 3
+      - name: sppf_kernel_7
+        mutations:
+        - type: SPPFKernelReplace
+          params:
+            kernel_size: 7
+      # --- backbone depth override (2) ---
+      - name: depth_repeat_1
+        mutations:
+        - type: BackboneDepthOverride
+          params:
+            repeat_value: 1
+      - name: depth_repeat_6
+        mutations:
+        - type: BackboneDepthOverride
+          params:
+            repeat_value: 6
+      # --- channel scale (2) ---
+      - name: channel_scale_050
+        mutations:
+        - type: ChannelScale
+          params:
+            scale_factor: 0.5
+      - name: channel_scale_200
+        mutations:
+        - type: ChannelScale
+          params:
+            scale_factor: 2.0
+      # --- binary combinations (2) ---
+      - name: combo2_c2f_relu
+        mutations:
+        - type: BackboneModuleReplace
+          params:
+            from_module: RepNCSPELAN4
+            to_module: C2f
+        - type: ActivationOverride
+          params:
+            activation: nn.ReLU
+      - name: combo2_depth6_scale050
+        mutations:
+        - type: BackboneDepthOverride
+          params:
+            repeat_value: 6
+        - type: ChannelScale
+          params:
+            scale_factor: 0.5
+      # --- ternary combinations (2) ---
+      - name: combo3_c3_gelu_sppf7
+        mutations:
+        - type: BackboneModuleReplace
+          params:
+            from_module: RepNCSPELAN4
+            to_module: C3
+        - type: ActivationOverride
+          params:
+            activation: nn.GELU
+        - type: SPPFKernelReplace
+          params:
+            kernel_size: 7
+      - name: combo3_mish_depth1_scale200
+        mutations:
+        - type: ActivationOverride
+          params:
+            activation: nn.Mish
+        - type: BackboneDepthOverride
+          params:
+            repeat_value: 1
+        - type: ChannelScale
+          params:
+            scale_factor: 2.0
+
+- base_model:
+    name: yolov9s
+    pretrained: false
+  combinatorial_variant_grid: *yolov9_grid
+
+- base_model:
+    name: yolov9m
+    pretrained: false
+  combinatorial_variant_grid: *yolov9_grid
+
+- base_model:
+    name: yolov9c
+    pretrained: false
+  combinatorial_variant_grid: *yolov9_grid
+
+- base_model:
+    name: yolov9e
+    pretrained: false
+  combinatorial_variant_grid: *yolov9_grid
+
+# ===== 5 custom scales =====
+- base_model:
+    name: yolov9_pico
+    pretrained: false
+  combinatorial_variant_grid: *yolov9_grid
+
+- base_model:
+    name: yolov9_micro
+    pretrained: false
+  combinatorial_variant_grid: *yolov9_grid
+
+- base_model:
+    name: yolov9_huge
+    pretrained: false
+  combinatorial_variant_grid: *yolov9_grid
+
+- base_model:
+    name: yolov9_tiny_wide
+    pretrained: false
+  combinatorial_variant_grid: *yolov9_grid
+
+- base_model:
+    name: yolov9_deep_narrow
+    pretrained: false
+  combinatorial_variant_grid: *yolov9_grid
