@@ -9,7 +9,11 @@ import torch
 import torch.nn.functional as F
 from torch_geometric.loader import DataLoader
 
-from gnn_model.evaluation.metrics import compute_regression_metrics
+from gnn_model.evaluation.metrics import (
+    TargetScaler,
+    compute_original_scale_metrics,
+    compute_regression_metrics,
+)
 
 if TYPE_CHECKING:
     import logging
@@ -26,9 +30,9 @@ class TrainingArtifacts:
 
 
 class WeightedSmoothL1Loss(torch.nn.Module):
-    def __init__(self, weights: list[float]) -> None:
+    def __init__(self, weights: list[float], device: torch.device) -> None:
         super().__init__()
-        self.register_buffer("weights", torch.tensor(weights, dtype=torch.float32))
+        self.register_buffer("weights", torch.tensor(weights, dtype=torch.float32).to(device))
 
     def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         if predictions.shape != targets.shape:
@@ -54,8 +58,9 @@ def train_model(
         resolve_loss_weights(
             training_config.loss_weights,
             target_dim=train_data[0].y.size(-1),
-        )
-    ).to(device)
+        ),
+        device=device
+    )
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=training_config.learning_rate,
@@ -141,6 +146,7 @@ def evaluate_model(
     batch_size: int,
     device: torch.device,
     target_names: list[str],
+    target_scalers: dict[str, TargetScaler] | None = None,
 ) -> dict[str, float]:
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
     predictions, targets = collect_predictions(
@@ -148,7 +154,17 @@ def evaluate_model(
         dataloader=dataloader,
         device=device,
     )
-    return compute_regression_metrics(predictions, targets, target_names)
+    metrics = compute_regression_metrics(predictions, targets, target_names)
+    if target_scalers is not None:
+        metrics.update(
+            compute_original_scale_metrics(
+                predictions,
+                targets,
+                target_names,
+                target_scalers,
+            )
+        )
+    return metrics
 
 
 def evaluate_loss(

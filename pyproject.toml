@@ -29,6 +29,8 @@ dependencies = [
     "transformers==4.57.1",
     "ty>=0.0.25",
     "polars>=1.39.3",
+    "ray>=2.55.0",
+    "ultralytics>=8.4.39",
 ]
 
 [dependency-groups]

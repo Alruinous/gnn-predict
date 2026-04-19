@@ -5,7 +5,7 @@ import torch.nn as nn
 from torch_geometric.data import Data
 from torch_geometric.nn import global_mean_pool
 
-from gnn_model.models.fusion import GraphFusionLayer, RegressionHead
+from .fusion import GraphFusionLayer, RegressionHead
 
 
 class IntelliGraphLargeModelPredictor(nn.Module):

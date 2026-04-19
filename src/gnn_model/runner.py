@@ -8,23 +8,24 @@ from pathlib import Path
 
 import torch
 
-from gnn_model.config import (
+from .config import (
     ExperimentConfig,
-    FakeDataConfig,
     PreparedDataConfig,
+    SplitDataConfig,
     load_experiment_config,
 )
-from gnn_model.data import GraphDatasetBundle, build_fake_graph_datasets
-from gnn_model.data.constants import (
-    DEFAULT_TARGET_NAMES,
+from .data import GraphDatasetBundle, load_split_graph_datasets
+from .data.constants import (
     EDGE_FEATURE_DIM,
     GRAPH_FEATURE_DIM,
     GRAPH_METRIC_DIM,
     NODE_FEATURE_DIM,
 )
-from gnn_model.data.prepared_dataset import load_prepared_graph_datasets
-from gnn_model.models import IntelliGraphLargeModelPredictor
-from gnn_model.result import (
+from .data.prepared_dataset import load_prepared_graph_datasets
+from .data.scaler import load_target_scalers
+from .evaluation.metrics import TargetScaler
+from .models import IntelliGraphLargeModelPredictor
+from .result import (
     DatasetSummary,
     EvaluationSummary,
     ExperimentResult,
@@ -32,7 +33,7 @@ from gnn_model.result import (
     TrainingSummary,
     write_result_document,
 )
-from gnn_model.training import evaluate_model, train_model
+from .training import evaluate_model, train_model
 
 
 @dataclass(frozen=True)
@@ -53,16 +54,17 @@ def run_experiment(
     output_layout = prepare_output_layout(output_dir, config.experiment_name)
     logger = configure_logging(output_layout, config.experiment_name)
     device = resolve_device(requested_device)
-    torch.manual_seed(resolve_random_seed(config))
+    torch.manual_seed(7)
     timings: dict[str, TimeWindow] = {}
 
     experiment_started_at = time.time()
     data_started_at = time.time()
     datasets = load_dataset_bundle(config)
+    target_names = list(datasets.target_names)
     timings["data"] = build_time_window(data_started_at, time.time())
 
     model_started_at = time.time()
-    model = build_model(config)
+    model = build_model(config, target_names)
     model = model.to(device)
     timings["model_build"] = build_time_window(model_started_at, time.time())
 
@@ -84,7 +86,8 @@ def run_experiment(
         dataset=datasets.test_data,
         batch_size=config.training.batch_size,
         device=device,
-        target_names=list(DEFAULT_TARGET_NAMES),
+        target_names=target_names,
+        target_scalers=load_evaluation_target_scalers(config, target_names),
     )
     timings["evaluation"] = build_time_window(evaluation_started_at, time.time())
     timings["full"] = build_time_window(experiment_started_at, time.time())
@@ -93,7 +96,7 @@ def run_experiment(
         experiment_name=config.experiment_name,
         config_path=str(Path(config_path).resolve()),
         device=str(device),
-        target_names=list(DEFAULT_TARGET_NAMES),
+        target_names=target_names,
         dataset=DatasetSummary(
             train_count=len(datasets.train_data),
             val_count=len(datasets.val_data),
@@ -120,6 +123,7 @@ def run_experiment(
             ),
             "hidden_dim": config.model.hidden_dim,
             "num_layers": config.model.num_layers,
+            **build_data_metadata(config),
         },
     )
     result_path = (
@@ -175,37 +179,48 @@ def configure_logging(
 
 
 def load_dataset_bundle(config: ExperimentConfig) -> GraphDatasetBundle:
-    if isinstance(config.data, FakeDataConfig):
-        return build_fake_graph_datasets(
-            dataset_size=config.data.dataset_size,
-            seed=config.data.random_seed,
-            input_shape=config.data.input_shape,
-            val_ratio=config.data.val_ratio,
-            test_ratio=config.data.test_ratio,
-        )
     if isinstance(config.data, PreparedDataConfig):
-        load_prepared_graph_datasets(config.data)
+        return load_prepared_graph_datasets(config.data)
+    if isinstance(config.data, SplitDataConfig):
+        return load_split_graph_datasets(config.data)
     raise TypeError(f"unsupported data config: {type(config.data)}")
 
 
-def build_model(config: ExperimentConfig) -> IntelliGraphLargeModelPredictor:
+def build_model(
+    config: ExperimentConfig,
+    target_names: list[str],
+) -> IntelliGraphLargeModelPredictor:
     return IntelliGraphLargeModelPredictor(
         node_dim=NODE_FEATURE_DIM,
         edge_dim=EDGE_FEATURE_DIM,
         graph_dim=GRAPH_FEATURE_DIM,
         graph_metric_dim=GRAPH_METRIC_DIM,
         hidden_dim=config.model.hidden_dim,
-        targets=list(DEFAULT_TARGET_NAMES),
+        targets=target_names,
         num_heads=config.model.num_heads,
         num_layers=config.model.num_layers,
         dropout_rate=config.model.dropout_rate,
     )
 
 
-def resolve_random_seed(config: ExperimentConfig) -> int:
-    if isinstance(config.data, FakeDataConfig):
-        return config.data.random_seed
-    return 7
+def load_evaluation_target_scalers(
+    config: ExperimentConfig,
+    target_names: list[str],
+) -> dict[str, TargetScaler] | None:
+    if not isinstance(config.data, SplitDataConfig):
+        return None
+    return load_target_scalers(Path(config.data.scaler_dir), target_names)
+
+
+def build_data_metadata(config: ExperimentConfig) -> dict[str, str]:
+    if isinstance(config.data, SplitDataConfig):
+        return {
+            "data_dir": str(Path(config.data.data_dir).resolve()),
+            "scaler_dir": str(Path(config.data.scaler_dir).resolve()),
+        }
+    if isinstance(config.data, PreparedDataConfig):
+        return {"manifest_path": str(Path(config.data.manifest_path).resolve())}
+    raise TypeError(f"unsupported data config: {type(config.data)}")
 
 
 def resolve_device(requested_device: str | None) -> torch.device:

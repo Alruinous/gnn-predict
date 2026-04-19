@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -9,33 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-
-class FakeDataConfig(StrictModel):
-    kind: Literal["fake"] = "fake"
-    dataset_size: int = 12
-    val_ratio: float = 0.2
-    test_ratio: float = 0.2
-    random_seed: int = 7
-    input_shape: list[int] = Field(default_factory=lambda: [1, 3, 32, 32])
-
-    @model_validator(mode="after")
-    def validate_fake_data_config(self) -> FakeDataConfig:
-        if self.dataset_size < 3:
-            raise ValueError("fake dataset_size must be at least 3")
-        if len(self.input_shape) != 4:
-            raise ValueError(
-                "fake input_shape must be [batch, channels, height, width]"
-            )
-        if any(value <= 0 for value in self.input_shape):
-            raise ValueError("fake input_shape values must be positive")
-        if not 0 < self.val_ratio < 1:
-            raise ValueError("val_ratio must be between 0 and 1")
-        if not 0 < self.test_ratio < 1:
-            raise ValueError("test_ratio must be between 0 and 1")
-        if self.val_ratio + self.test_ratio >= 1:
-            raise ValueError("val_ratio + test_ratio must be less than 1")
-        return self
 
 
 class PreparedDataConfig(StrictModel):
@@ -49,7 +22,48 @@ class PreparedDataConfig(StrictModel):
         return self
 
 
-DataConfig = FakeDataConfig | PreparedDataConfig
+class SplitDataConfig(StrictModel):
+    kind: Literal["split"] = "split"
+    data_dir: str = "data/scaled"
+    target_names: list[str] = Field(
+        default_factory=lambda: [
+            "duration_sec_avg",
+            "gpu_util_percent_p95",
+            "gpu_sm_occupancy_percent_p95",
+            "gpu_mem_used_mb_p95",
+        ]
+    )
+    scaler_dir: str = "data/scalers"
+    split_files: dict[str, str] = Field(
+        default_factory=lambda: {
+            "train": "train.pt",
+            "val": "val.pt",
+            "test": "test.pt",
+        }
+    )
+
+    @model_validator(mode="after")
+    def validate_split_data_config(self) -> SplitDataConfig:
+        if not self.data_dir.strip():
+            raise ValueError("split data_dir must not be empty")
+        if not self.scaler_dir.strip():
+            raise ValueError("split scaler_dir must not be empty")
+        if not self.target_names:
+            raise ValueError("split target_names must not be empty")
+        if any(not target_name.strip() for target_name in self.target_names):
+            raise ValueError("split target_names must not contain empty values")
+        required_splits = {"train", "val", "test"}
+        if set(self.split_files) != required_splits:
+            raise ValueError("split split_files must contain train, val, and test")
+        if any(not value.strip() for value in self.split_files.values()):
+            raise ValueError("split split_files values must not be empty")
+        return self
+
+
+DataConfig = Annotated[
+    PreparedDataConfig | SplitDataConfig,
+    Field(discriminator="kind"),
+]
 
 
 class ModelConfig(StrictModel):
@@ -98,8 +112,8 @@ class TrainingConfig(StrictModel):
 
 
 class ExperimentConfig(StrictModel):
-    experiment_name: str = "gnn_model_fake_run"
-    data: DataConfig = Field(default_factory=FakeDataConfig)
+    experiment_name: str = "gnn_model_scaled_run"
+    data: DataConfig = Field(default_factory=SplitDataConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     training: TrainingConfig = Field(default_factory=TrainingConfig)
 
