@@ -26,4 +26,5 @@ tmp/
 
 .DS_Store
 
-csv/
+/csv/
+/output/

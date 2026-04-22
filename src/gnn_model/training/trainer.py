@@ -32,7 +32,9 @@ class TrainingArtifacts:
 class WeightedSmoothL1Loss(torch.nn.Module):
     def __init__(self, weights: list[float], device: torch.device) -> None:
         super().__init__()
-        self.register_buffer("weights", torch.tensor(weights, dtype=torch.float32).to(device))
+        self.register_buffer(
+            "weights", torch.tensor(weights, dtype=torch.float32).to(device)
+        )
 
     def forward(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         if predictions.shape != targets.shape:
@@ -40,7 +42,8 @@ class WeightedSmoothL1Loss(torch.nn.Module):
                 f"prediction shape mismatch: {predictions.shape} != {targets.shape}"
             )
         loss = F.smooth_l1_loss(predictions, targets, reduction="none")
-        return (loss * self.weights).mean()
+        weights = self.weights.to(loss.device)
+        return (loss * weights).mean()
 
 
 def train_model(
@@ -54,13 +57,11 @@ def train_model(
     logger: logging.Logger,
 ) -> TrainingArtifacts:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    criterion = WeightedSmoothL1Loss(
-        resolve_loss_weights(
-            training_config.loss_weights,
-            target_dim=train_data[0].y.size(-1),
-        ),
-        device=device
+    loss_weights = resolve_loss_weights(
+        training_config.loss_weights,
+        target_dim=train_data[0].y.size(-1),
     )
+    criterion = WeightedSmoothL1Loss(loss_weights, device=device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=training_config.learning_rate,

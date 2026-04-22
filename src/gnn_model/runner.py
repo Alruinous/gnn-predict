@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -171,7 +172,7 @@ def configure_logging(
     log_path = output_layout.logs_dir / f"run_{int(time.time())}.log"
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
     file_handler.setFormatter(formatter)
-    stream_handler = logging.StreamHandler()
+    stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
