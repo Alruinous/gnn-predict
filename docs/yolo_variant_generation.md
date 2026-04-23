@@ -17,11 +17,11 @@
 | `src/gnn_archs/config.py` | `DETECTION_MODEL_PREFIXES`、`is_detection_model_name()` |
 | `src/gnn_archs/yolo_builder.py` | 模型构建、ONNX 导出、训练、推理的 YOLO 专用实现 |
 | `src/gnn_archs/variant_runner.py` | 四处 detection 分派入口（build / export / train / infer） |
-| `config/arch/yolo11_variants.yaml` | YOLO11 变体配置（23 个 scale × 5 nc × 40 mutations = 4,600 变体） |
-| `config/arch/yolov8_variants.yaml` | YOLOv8 变体配置（13 × 5 × 40 = 2,600 变体） |
-| `config/arch/yolov5_variants.yaml` | YOLOv5 变体配置（10 × 4 × 30 = 1,200 变体） |
-| `config/arch/yolov9_variants.yaml` | YOLOv9 变体配置（10 × 3 × 20 = 600 变体） |
-| `config/arch/yolov10_variants.yaml` | YOLOv10 变体配置（10 × 3 × 15 = 450 变体） |
+| `config/arch/yolov11_variants.yaml` | YOLO11 变体配置（22 个 scale × 5 nc × 39 mutations = 4,290 变体） |
+| `config/arch/yolov8_variants.yaml` | YOLOv8 变体配置（13 × 5 × 39 = 2,535 变体） |
+| `config/arch/yolov5_variants.yaml` | YOLOv5 变体配置（10 × 4 × 29 = 1,160 变体） |
+| `config/arch/yolov9_variants.yaml` | YOLOv9 变体配置（5 × 3 × 20 = 300 变体） |
+| `config/arch/yolov10_variants.yaml` | YOLOv10 变体配置（6 × 3 × 13 = 234 变体） |
 | `tests/test_arch_configs.py` | YOLO 变体的验证和展开测试 |
 
 ## 支持的模型族
@@ -54,17 +54,16 @@ yolov3, yolov5, yolov6, yolov7, yolov8, yolov9, yolov10, yolo11, yoloe
 自定义 scale 在 `yolo_builder.py` 的 `CUSTOM_SCALES` 字典中注册，
 每个条目定义 `[depth_multiple, width_multiple, max_channels]` 三元组。
 
-当前注册的自定义 scale（18 个）：
+当前注册的自定义 scale（17 个）：
 
 | scale 名 | depth | width | max_ch | 设计意图 |
 | --- | --- | --- | --- | --- |
-| pico | 0.33 | 0.15 | 512 | 极小模型 |
-| micro | 0.33 | 0.20 | 768 | 微型模型 |
+| pico | 0.33 | 0.25 | 512 | 极小模型 |
+| micro | 0.33 | 0.25 | 768 | 微型模型 |
 | ns_1 | 0.50 | 0.31 | 1024 | nano-small 插值 1 |
 | ns_2 | 0.50 | 0.375 | 1024 | nano-small 插值 2 |
 | sm_1 | 0.50 | 0.625 | 768 | small-medium 插值 1 |
 | sm_2 | 0.50 | 0.75 | 768 | small-medium 插值 2 |
-| sm_3 | 0.50 | 0.875 | 512 | small-medium 插值 3 |
 | ml_1 | 0.625 | 1.00 | 512 | medium-large 插值 1 |
 | ml_2 | 0.75 | 1.00 | 512 | medium-large 插值 2 |
 | lx_1 | 1.00 | 1.125 | 512 | large-xlarge 插值 1 |
@@ -97,12 +96,12 @@ total_variants = Σ (每个 base_model_group 的 |output_classes| × |mutation_s
 
 | 配置文件 | 模型组数 | 输出类别数 | Mutation 集数 | 变体数 |
 | --- | --- | --- | --- | --- |
-| yolo11_variants.yaml | 23 | 5 | 40 | 4,600 |
-| yolov8_variants.yaml | 13 | 5 | 40 | 2,600 |
-| yolov5_variants.yaml | 10 | 4 | 30 | 1,200 |
-| yolov9_variants.yaml | 10 | 3 | 20 | 600 |
-| yolov10_variants.yaml | 10 | 3 | 15 | 450 |
-| **合计** | **66** | | | **9,450** |
+| yolov11_variants.yaml | 22 | 5 | 39 | 4,290 |
+| yolov8_variants.yaml | 13 | 5 | 39 | 2,535 |
+| yolov5_variants.yaml | 10 | 4 | 29 | 1,160 |
+| yolov9_variants.yaml | 5 | 3 | 20 | 300 |
+| yolov10_variants.yaml | 6 | 3 | 13 | 234 |
+| **合计** | **56** | | | **8,519** |
 
 ## YAML 级 Pre-build Mutation 类型
 
@@ -146,22 +145,27 @@ ultralytics 的解决方案是在 `Detect`/`Segment`/`Pose` 等 head 模块中�
 ### 修复实现
 
 在 `yolo_builder.py` 的 `export_detection_onnx()` 函数中，
-在 `torch.onnx.export()` **之前**遍历所有子模块设置 `export = True`：
+在 `torch.onnx.export()` **之前**遍历所有子模块临时设置 `export = True`：
 
 ```python
 # yolo_builder.py → export_detection_onnx()
 model.eval()
-
-# 关键修复：设置 Detect head 导出模式
+export_states = []
 for m in model.modules():
     if hasattr(m, "export"):
+        export_states.append((m, m.export))
         m.export = True
 
-# 之后才调用 torch.onnx.export(...)
+try:
+    torch.onnx.export(...)
+finally:
+    for module, export_state in export_states:
+        module.export = export_state
 ```
 
 使用 `hasattr(m, "export")` 而非检查特定类名，这样可以兼容 ultralytics
-后续新增的带 `export` 属性的 head 模块。
+后续新增的带 `export` 属性的 head 模块。导出结束后会恢复原始 `export`
+状态，避免影响同一模型后续训练和推理。
 
 ### 与非 YOLO 模型的隔离
 
@@ -171,7 +175,7 @@ for m in model.modules():
 variant_runner.py: export_onnx_model()
   │
   ├── if is_detection_model_name(...)  → yolo_builder.export_detection_onnx()
-  │                                      └── m.export = True（仅在此路径执行）
+  │                                      └── 临时 m.export = True（仅在此路径执行）
   │
   └── else → 原有的 OnnxExportWrapper 路径（image/text 模型）
               └── 不涉及 m.export
@@ -197,7 +201,7 @@ variant_runner.py: build_variant_model()
   │   └── yolo_builder.build_detection_model()
   │       ├── 标准 scale → YOLO(name.yaml).model
   │       └── 自定义 scale / mutation
-  │           → load YAML dict → apply scale/mutations → 写临时 YAML → YOLO(tmp.yaml).model
+  │           → load YAML dict → apply scale/mutations → DetectionModel(dict)
   │
   └── is_detection_model_name() = False
       └── 原有 timm/transformers 路径
@@ -205,8 +209,9 @@ variant_runner.py: build_variant_model()
 variant_runner.py: export_onnx_model()
   │
   ├── detection → yolo_builder.export_detection_onnx()
-  │               ├── m.export = True（关键修复）
-  │               └── torch.onnx.export(opset=14)
+  │               ├── 临时 m.export = True
+  │               ├── torch.onnx.export(opset=14)
+  │               └── 恢复原始 export 状态
   │
   └── non-detection → OnnxExportWrapper 原有路径
 

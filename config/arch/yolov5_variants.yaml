@@ -1,5 +1,5 @@
 # YOLOv5 variant configurations
-# 10 base_model_groups × 4 output_classes × 30 mutation_sets = 1,200 variants
+# 10 base_model_groups × 4 output_classes × 29 mutation_sets = 1,160 variants
 
 base_model_groups:
 # ===== 5 native scales =====
@@ -65,9 +65,9 @@ base_model_groups:
             from_module: C3
             to_module: C2f
             layers:
+            - 1
+            - 2
             - 3
-            - 4
-            - 5
       # --- head module replace (2) ---
       - name: head_c3_to_c2f
         mutations:
@@ -86,27 +86,27 @@ base_model_groups:
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.ReLU
+            activation: nn.ReLU()
       - name: activation_leaky_relu
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.LeakyReLU
+            activation: nn.LeakyReLU()
       - name: activation_gelu
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.GELU
+            activation: nn.GELU()
       - name: activation_hardswish
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.Hardswish
-      - name: activation_mish
+            activation: nn.Hardswish()
+      - name: activation_silu
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.Mish
+            activation: nn.SiLU()
       # --- SPPF kernel replace (3) ---
       - name: sppf_kernel_3
         mutations:
@@ -123,7 +123,7 @@ base_model_groups:
         - type: SPPFKernelReplace
           params:
             kernel_size: 9
-      # --- backbone depth override (4) ---
+      # --- backbone depth override (3) ---
       - name: depth_repeat_1
         mutations:
         - type: BackboneDepthOverride
@@ -174,7 +174,7 @@ base_model_groups:
             to_module: C2f
         - type: ActivationOverride
           params:
-            activation: nn.ReLU
+            activation: nn.ReLU()
       - name: combo2_c3k2_sppf7
         mutations:
         - type: BackboneModuleReplace
@@ -196,7 +196,7 @@ base_model_groups:
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.GELU
+            activation: nn.GELU()
         - type: ChannelScale
           params:
             scale_factor: 1.5
@@ -209,7 +209,7 @@ base_model_groups:
             to_module: C2f
         - type: ActivationOverride
           params:
-            activation: nn.ReLU
+            activation: nn.ReLU()
         - type: SPPFKernelReplace
           params:
             kernel_size: 7
@@ -217,7 +217,7 @@ base_model_groups:
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.LeakyReLU
+            activation: nn.LeakyReLU()
         - type: SPPFKernelReplace
           params:
             kernel_size: 9

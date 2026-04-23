@@ -1,5 +1,5 @@
 # YOLOv8 variant configurations
-# 13 base_model_groups × 5 output_classes × 40 mutation_sets = 2,600 variants
+# 13 base_model_groups × 5 output_classes × 39 mutation_sets = 2,535 variants
 
 base_model_groups:
 # ===== 5 native scales =====
@@ -66,9 +66,9 @@ base_model_groups:
             from_module: C2f
             to_module: C3
             layers:
+            - 1
+            - 2
             - 3
-            - 4
-            - 5
       - name: backbone_c2f_mixed
         mutations:
         - type: BackboneModuleReplace
@@ -78,7 +78,6 @@ base_model_groups:
             layers:
             - 0
             - 2
-            - 4
       # --- head module replace (3) ---
       - name: head_c2f_to_c3
         mutations:
@@ -106,17 +105,17 @@ base_model_groups:
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.ReLU
+            activation: nn.ReLU()
       - name: activation_leaky_relu
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.LeakyReLU
+            activation: nn.LeakyReLU()
       - name: activation_gelu
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.GELU
+            activation: nn.GELU()
       - name: activation_hardswish
         mutations:
         - type: ActivationOverride
@@ -131,7 +130,7 @@ base_model_groups:
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.ELU
+            activation: nn.ELU()
       # --- SPPF kernel replace (3) ---
       - name: sppf_kernel_3
         mutations:
@@ -148,7 +147,7 @@ base_model_groups:
         - type: SPPFKernelReplace
           params:
             kernel_size: 9
-      # --- backbone depth override (5) ---
+      # --- backbone depth override (4) ---
       - name: depth_repeat_1
         mutations:
         - type: BackboneDepthOverride
@@ -169,11 +168,11 @@ base_model_groups:
         - type: BackboneDepthOverride
           params:
             repeat_value: 6
-      - name: depth_repeat_8
-        mutations:
-        - type: BackboneDepthOverride
-          params:
-            repeat_value: 8
+      # - name: depth_repeat_8
+      #   mutations:
+      #   - type: BackboneDepthOverride
+      #     params:
+      #       repeat_value: 8
       # --- channel scale (5) ---
       - name: channel_scale_050
         mutations:
@@ -209,7 +208,7 @@ base_model_groups:
             to_module: C3
         - type: ActivationOverride
           params:
-            activation: nn.ReLU
+            activation: nn.ReLU()
       - name: combo2_c3k2_sppf7
         mutations:
         - type: BackboneModuleReplace
@@ -231,7 +230,7 @@ base_model_groups:
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.GELU
+            activation: nn.GELU()
         - type: ChannelScale
           params:
             scale_factor: 1.25
@@ -251,7 +250,7 @@ base_model_groups:
             to_module: C3
         - type: ActivationOverride
           params:
-            activation: nn.Hardswish
+            activation: nn.Hardswish()
       # --- ternary combinations (6) ---
       - name: combo3_c3_relu_sppf7
         mutations:
@@ -261,7 +260,7 @@ base_model_groups:
             to_module: C3
         - type: ActivationOverride
           params:
-            activation: nn.ReLU
+            activation: nn.ReLU()
         - type: SPPFKernelReplace
           params:
             kernel_size: 7
@@ -273,7 +272,7 @@ base_model_groups:
             to_module: C3k2
         - type: ActivationOverride
           params:
-            activation: nn.GELU
+            activation: nn.GELU()
         - type: BackboneDepthOverride
           params:
             repeat_value: 4
@@ -281,7 +280,7 @@ base_model_groups:
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.LeakyReLU
+            activation: nn.LeakyReLU()
         - type: SPPFKernelReplace
           params:
             kernel_size: 9
@@ -300,11 +299,11 @@ base_model_groups:
         - type: ChannelScale
           params:
             scale_factor: 0.5
-      - name: combo3_mish_sppf3_scale200
+      - name: combo3_silu_sppf3_scale200
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.Mish
+            activation: nn.SiLU()
         - type: SPPFKernelReplace
           params:
             kernel_size: 3
@@ -319,7 +318,7 @@ base_model_groups:
             to_module: C3k2
         - type: ActivationOverride
           params:
-            activation: nn.ELU
+            activation: nn.ELU()
         - type: BackboneDepthOverride
           params:
             repeat_value: 8

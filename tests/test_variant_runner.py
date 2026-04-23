@@ -1471,7 +1471,7 @@ def test_detection_variant_runner_with_activation_mutation(
     """YOLO YAML 级 mutation 运行时验证：ActivationOverride 能正确构建和导出。"""
     config_path = tmp_path / "yolo11n_mutation.yaml"
     variant = _build_yolo_variant(
-        [{"type": "ActivationOverride", "params": {"activation": "nn.ReLU"}}],
+        [{"type": "ActivationOverride", "params": {"activation": "nn.ReLU()"}}],
         variant_name="yolo11n_relu_smoke",
     )
     output_layout = prepare_output_layout(tmp_path / "output", config_path)

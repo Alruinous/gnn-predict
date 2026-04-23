@@ -1,5 +1,5 @@
 # YOLOv9 variant configurations
-# 10 base_model_groups × 3 output_classes × 20 mutation_sets = 600 variants
+# 5 base_model_groups × 3 output_classes × 20 mutation_sets = 300 variants
 
 base_model_groups:
 # ===== 5 native scales =====
@@ -71,22 +71,22 @@ base_model_groups:
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.ReLU
+            activation: nn.ReLU()
       - name: activation_leaky_relu
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.LeakyReLU
+            activation: nn.LeakyReLU()
       - name: activation_gelu
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.GELU
-      - name: activation_mish
+            activation: nn.GELU()
+      - name: activation_silu
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.Mish
+            activation: nn.SiLU()
       # --- SPPF kernel replace (2) ---
       - name: sppf_kernel_3
         mutations:
@@ -129,7 +129,7 @@ base_model_groups:
             to_module: C2f
         - type: ActivationOverride
           params:
-            activation: nn.ReLU
+            activation: nn.ReLU()
       - name: combo2_depth6_scale050
         mutations:
         - type: BackboneDepthOverride
@@ -147,15 +147,15 @@ base_model_groups:
             to_module: C3
         - type: ActivationOverride
           params:
-            activation: nn.GELU
+            activation: nn.GELU()
         - type: SPPFKernelReplace
           params:
             kernel_size: 7
-      - name: combo3_mish_depth1_scale200
+      - name: combo3_silu_depth1_scale200
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.Mish
+            activation: nn.SiLU()
         - type: BackboneDepthOverride
           params:
             repeat_value: 1
@@ -180,31 +180,5 @@ base_model_groups:
 
 - base_model:
     name: yolov9e
-    pretrained: false
-  combinatorial_variant_grid: *yolov9_grid
-
-# ===== 5 custom scales =====
-- base_model:
-    name: yolov9_pico
-    pretrained: false
-  combinatorial_variant_grid: *yolov9_grid
-
-- base_model:
-    name: yolov9_micro
-    pretrained: false
-  combinatorial_variant_grid: *yolov9_grid
-
-- base_model:
-    name: yolov9_huge
-    pretrained: false
-  combinatorial_variant_grid: *yolov9_grid
-
-- base_model:
-    name: yolov9_tiny_wide
-    pretrained: false
-  combinatorial_variant_grid: *yolov9_grid
-
-- base_model:
-    name: yolov9_deep_narrow
     pretrained: false
   combinatorial_variant_grid: *yolov9_grid

@@ -1,5 +1,5 @@
 # YOLOv10 variant configurations
-# 10 base_model_groups × 3 output_classes × 15 mutation_sets = 450 variants
+# 6 base_model_groups × 3 output_classes × 13 mutation_sets = 234 variants
 
 base_model_groups:
 # ===== 6 native scales =====
@@ -34,19 +34,6 @@ base_model_groups:
       # --- baseline ---
       - name: baseline
         mutations: []
-      # --- backbone module replace (2) ---
-      - name: backbone_c2fcib_to_c2f
-        mutations:
-        - type: BackboneModuleReplace
-          params:
-            from_module: C2fCIB
-            to_module: C2f
-      - name: backbone_c2fcib_to_c3
-        mutations:
-        - type: BackboneModuleReplace
-          params:
-            from_module: C2fCIB
-            to_module: C3
       # --- head module replace (1) ---
       - name: head_c2fcib_to_c2f
         mutations:
@@ -59,17 +46,17 @@ base_model_groups:
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.ReLU
+            activation: nn.ReLU()
       - name: activation_gelu
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.GELU
-      - name: activation_mish
+            activation: nn.GELU()
+      - name: activation_silu
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.Mish
+            activation: nn.SiLU()
       # --- SPPF kernel replace (2) ---
       - name: sppf_kernel_3
         mutations:
@@ -99,33 +86,33 @@ base_model_groups:
           params:
             scale_factor: 1.5
       # --- binary combinations (2) ---
-      - name: combo2_c2f_relu
+      - name: combo2_head_c2f_relu
         mutations:
-        - type: BackboneModuleReplace
+        - type: HeadModuleReplace
           params:
             from_module: C2fCIB
             to_module: C2f
         - type: ActivationOverride
           params:
-            activation: nn.ReLU
+            activation: nn.ReLU()
       - name: combo2_gelu_scale075
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.GELU
+            activation: nn.GELU()
         - type: ChannelScale
           params:
             scale_factor: 0.75
       # --- ternary combination (1) ---
-      - name: combo3_c2f_mish_sppf7
+      - name: combo3_head_c2f_silu_sppf7
         mutations:
-        - type: BackboneModuleReplace
+        - type: HeadModuleReplace
           params:
             from_module: C2fCIB
             to_module: C2f
         - type: ActivationOverride
           params:
-            activation: nn.Mish
+            activation: nn.SiLU()
         - type: SPPFKernelReplace
           params:
             kernel_size: 7
@@ -152,26 +139,5 @@ base_model_groups:
 
 - base_model:
     name: yolov10x
-    pretrained: false
-  combinatorial_variant_grid: *yolov10_grid
-
-# ===== 4 custom scales =====
-- base_model:
-    name: yolov10_pico
-    pretrained: false
-  combinatorial_variant_grid: *yolov10_grid
-
-- base_model:
-    name: yolov10_micro
-    pretrained: false
-  combinatorial_variant_grid: *yolov10_grid
-
-- base_model:
-    name: yolov10_huge
-    pretrained: false
-  combinatorial_variant_grid: *yolov10_grid
-
-- base_model:
-    name: yolov10_tiny_wide
     pretrained: false
   combinatorial_variant_grid: *yolov10_grid
