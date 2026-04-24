@@ -21,7 +21,7 @@ base_model_groups:
       use_fake_imagenet: true
       fake_dataset_size: 2000
       run_inference: true
-      pre_inference_cooldown_seconds: 3.0
+      pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 60.0
     mutations:
     - type: BEiTBlockReduction
@@ -56,7 +56,7 @@ base_model_groups:
       use_fake_imagenet: true
       fake_dataset_size: 2000
       run_inference: true
-      pre_inference_cooldown_seconds: 3.0
+      pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 60.0
     mutations:
     - type: BEiTBlockReduction
@@ -97,7 +97,7 @@ base_model_groups:
       use_fake_imagenet: true
       fake_dataset_size: 2000
       run_inference: true
-      pre_inference_cooldown_seconds: 3.0
+      pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 60.0
     mutations:
     - type: BEiTModifyMLPDimension
@@ -138,7 +138,7 @@ base_model_groups:
       - 64
       fake_dataset_size: 2000
       run_inference: true
-      pre_inference_cooldown_seconds: 3.0
+      pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 60.0
     mutation_sets:
     - name: no_mutations
@@ -1113,7 +1113,7 @@ base_model_groups:
       - 32
       fake_dataset_size: 1500
       run_inference: true
-      pre_inference_cooldown_seconds: 3.0
+      pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 60.0
     mutation_sets:
     - name: no_mutations

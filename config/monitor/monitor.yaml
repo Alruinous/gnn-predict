@@ -148,3 +148,20 @@ targets:
     pod_name: sg-wangjh-260413-14599-default0-0
     gpu_id: "2"
     output_csv: "csv/densenet_monitor.csv"
+
+  yolov5:
+    enabled: true
+    result_json: res/yolov5/results/yolov5_variants_v100_1776941514_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260423-63f24-default0-0
+    gpu_id: "0"
+    output_csv: "csv/yolov5_monitor.csv"
+
+  yolov9:
+    enabled: true
+    result_json: res/yolov9/results/yolov9_variants_v100_1776941505_results.json
+    node_name: dell-67
+    pod_name: sg-wangjh-260423-cdc10-default0-0
+    gpu_id: "2"
+    output_csv: "csv/yolov9_monitor.csv"
+  

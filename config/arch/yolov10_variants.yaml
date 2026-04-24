@@ -24,12 +24,14 @@ base_model_groups:
       run_training: true
       training_epochs: 3
       training_batch_sizes:
+      - 4
+      - 8
       - 16
       fake_dataset_size: 500
       use_fake_imagenet: true
       run_inference: true
-      inference_measurement_min_seconds: 5.0
-      pre_inference_cooldown_seconds: 3.0
+      inference_measurement_min_seconds: 60.0
+      pre_inference_cooldown_seconds: 5.0
     mutation_sets: &yolov10_mutations
       # --- baseline ---
       - name: baseline
@@ -80,11 +82,11 @@ base_model_groups:
         - type: ChannelScale
           params:
             scale_factor: 0.75
-      - name: channel_scale_150
+      - name: channel_scale_125
         mutations:
         - type: ChannelScale
           params:
-            scale_factor: 1.5
+            scale_factor: 1.25
       # --- binary combinations (2) ---
       - name: combo2_head_c2f_relu
         mutations:

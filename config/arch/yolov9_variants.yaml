@@ -24,12 +24,14 @@ base_model_groups:
       run_training: true
       training_epochs: 3
       training_batch_sizes:
+      - 4
+      - 8
       - 16
       fake_dataset_size: 500
       use_fake_imagenet: true
       run_inference: true
-      inference_measurement_min_seconds: 5.0
-      pre_inference_cooldown_seconds: 3.0
+      inference_measurement_min_seconds: 60.0
+      pre_inference_cooldown_seconds: 5.0
     mutation_sets: &yolov9_mutations
       # --- baseline ---
       - name: baseline
@@ -115,11 +117,11 @@ base_model_groups:
         - type: ChannelScale
           params:
             scale_factor: 0.5
-      - name: channel_scale_200
+      - name: channel_scale_125
         mutations:
         - type: ChannelScale
           params:
-            scale_factor: 2.0
+            scale_factor: 1.25
       # --- binary combinations (2) ---
       - name: combo2_c2f_relu
         mutations:
@@ -151,7 +153,7 @@ base_model_groups:
         - type: SPPFKernelReplace
           params:
             kernel_size: 7
-      - name: combo3_silu_depth1_scale200
+      - name: combo3_silu_depth1_scale125
         mutations:
         - type: ActivationOverride
           params:
@@ -161,7 +163,7 @@ base_model_groups:
             repeat_value: 1
         - type: ChannelScale
           params:
-            scale_factor: 2.0
+            scale_factor: 1.25
 
 - base_model:
     name: yolov9s
@@ -178,7 +180,8 @@ base_model_groups:
     pretrained: false
   combinatorial_variant_grid: *yolov9_grid
 
-- base_model:
-    name: yolov9e
-    pretrained: false
-  combinatorial_variant_grid: *yolov9_grid
+# Disabled at batch 16: OOM on V100.
+# - base_model:
+#     name: yolov9e
+#     pretrained: false
+#   combinatorial_variant_grid: *yolov9_grid

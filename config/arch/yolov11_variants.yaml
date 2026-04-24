@@ -1,5 +1,5 @@
 # YOLO11 variant configurations
-# 22 base_model_groups × 5 output_classes × 39 mutation_sets = 4,290 variants
+# 19 active base_model_groups × 5 output_classes × 38 mutation_sets = 3,610 variants
 
 base_model_groups:
 # ===== 5 native scales =====
@@ -26,12 +26,14 @@ base_model_groups:
       run_training: true
       training_epochs: 3
       training_batch_sizes:
+      - 4
+      - 8
       - 16
       fake_dataset_size: 500
       use_fake_imagenet: true
       run_inference: true
-      inference_measurement_min_seconds: 5.0
-      pre_inference_cooldown_seconds: 3.0
+      inference_measurement_min_seconds: 60.0
+      pre_inference_cooldown_seconds: 5.0
     mutation_sets: &yolo11_mutations
       # --- baseline ---
       - name: baseline
@@ -168,11 +170,11 @@ base_model_groups:
         - type: BackboneDepthOverride
           params:
             repeat_value: 6
-      - name: depth_repeat_8
-        mutations:
-        - type: BackboneDepthOverride
-          params:
-            repeat_value: 8
+      # - name: depth_repeat_8
+      #   mutations:
+      #   - type: BackboneDepthOverride
+      #     params:
+      #       repeat_value: 8
       # --- channel scale (5) ---
       - name: channel_scale_050
         mutations:
@@ -189,16 +191,17 @@ base_model_groups:
         - type: ChannelScale
           params:
             scale_factor: 1.25
-      - name: channel_scale_150
+      - name: channel_scale_115
         mutations:
         - type: ChannelScale
           params:
-            scale_factor: 1.5
-      - name: channel_scale_200
-        mutations:
-        - type: ChannelScale
-          params:
-            scale_factor: 2.0
+            scale_factor: 1.15
+      # Disabled at batch 16: OOM on V100.
+      # - name: channel_scale_200
+      #   mutations:
+      #   - type: ChannelScale
+      #     params:
+      #       scale_factor: 2.0
       # --- binary combinations (6) ---
       - name: combo2_c2f_relu
         mutations:
@@ -276,7 +279,7 @@ base_model_groups:
         - type: BackboneDepthOverride
           params:
             repeat_value: 4
-      - name: combo3_leaky_sppf9_scale150
+      - name: combo3_leaky_sppf9_scale115
         mutations:
         - type: ActivationOverride
           params:
@@ -286,7 +289,7 @@ base_model_groups:
             kernel_size: 9
         - type: ChannelScale
           params:
-            scale_factor: 1.5
+            scale_factor: 1.15
       - name: combo3_c2f_depth1_scale050
         mutations:
         - type: BackboneModuleReplace
@@ -299,17 +302,18 @@ base_model_groups:
         - type: ChannelScale
           params:
             scale_factor: 0.5
-      - name: combo3_silu_sppf3_scale200
-        mutations:
-        - type: ActivationOverride
-          params:
-            activation: nn.SiLU()
-        - type: SPPFKernelReplace
-          params:
-            kernel_size: 3
-        - type: ChannelScale
-          params:
-            scale_factor: 2.0
+      # Disabled at batch 16: OOM on V100.
+      # - name: combo3_silu_sppf3_scale200
+      #   mutations:
+      #   - type: ActivationOverride
+      #     params:
+      #       activation: nn.SiLU()
+      #   - type: SPPFKernelReplace
+      #     params:
+      #       kernel_size: 3
+      #   - type: ChannelScale
+      #     params:
+      #       scale_factor: 2.0
       - name: combo2_head_c3_elu
         mutations:
         - type: HeadModuleReplace
@@ -335,10 +339,11 @@ base_model_groups:
     pretrained: false
   combinatorial_variant_grid: *yolo11_grid
 
-- base_model:
-    name: yolo11x
-    pretrained: false
-  combinatorial_variant_grid: *yolo11_grid
+# Disabled at batch 16: OOM risk on V100.
+# - base_model:
+#     name: yolo11x
+#     pretrained: false
+#   combinatorial_variant_grid: *yolo11_grid
 
 # ===== 17 custom scales =====
 - base_model:
@@ -391,15 +396,17 @@ base_model_groups:
     pretrained: false
   combinatorial_variant_grid: *yolo11_grid
 
-- base_model:
-    name: yolo11_huge
-    pretrained: false
-  combinatorial_variant_grid: *yolo11_grid
+# Disabled at batch 16: OOM on V100.
+# - base_model:
+#     name: yolo11_huge
+#     pretrained: false
+#   combinatorial_variant_grid: *yolo11_grid
 
-- base_model:
-    name: yolo11_mega
-    pretrained: false
-  combinatorial_variant_grid: *yolo11_grid
+# Disabled at batch 16: OOM on V100.
+# - base_model:
+#     name: yolo11_mega
+#     pretrained: false
+#   combinatorial_variant_grid: *yolo11_grid
 
 - base_model:
     name: yolo11_tiny_wide

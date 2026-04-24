@@ -1,5 +1,5 @@
 # YOLOv8 variant configurations
-# 13 base_model_groups × 5 output_classes × 39 mutation_sets = 2,535 variants
+# 12 active base_model_groups × 5 output_classes × 37 mutation_sets = 2,220 variants
 
 base_model_groups:
 # ===== 5 native scales =====
@@ -26,12 +26,14 @@ base_model_groups:
       run_training: true
       training_epochs: 3
       training_batch_sizes:
+      - 4
+      - 8
       - 16
       fake_dataset_size: 500
       use_fake_imagenet: true
       run_inference: true
-      inference_measurement_min_seconds: 5.0
-      pre_inference_cooldown_seconds: 3.0
+      inference_measurement_min_seconds: 60.0
+      pre_inference_cooldown_seconds: 5.0
     mutation_sets: &yolov8_mutations
       # --- baseline ---
       - name: baseline
@@ -120,12 +122,12 @@ base_model_groups:
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.Hardswish
+            activation: nn.Hardswish()
       - name: activation_mish
         mutations:
         - type: ActivationOverride
           params:
-            activation: nn.Mish
+            activation: nn.Mish()
       - name: activation_elu
         mutations:
         - type: ActivationOverride
@@ -189,16 +191,17 @@ base_model_groups:
         - type: ChannelScale
           params:
             scale_factor: 1.25
-      - name: channel_scale_150
+      - name: channel_scale_110
         mutations:
         - type: ChannelScale
           params:
-            scale_factor: 1.5
-      - name: channel_scale_200
-        mutations:
-        - type: ChannelScale
-          params:
-            scale_factor: 2.0
+            scale_factor: 1.1
+      # Disabled at batch 16: OOM on V100.
+      # - name: channel_scale_200
+      #   mutations:
+      #   - type: ChannelScale
+      #     params:
+      #       scale_factor: 2.0
       # --- binary combinations (6) ---
       - name: combo2_c3_relu
         mutations:
@@ -276,7 +279,7 @@ base_model_groups:
         - type: BackboneDepthOverride
           params:
             repeat_value: 4
-      - name: combo3_leaky_sppf9_scale150
+      - name: combo3_leaky_sppf9_scale125
         mutations:
         - type: ActivationOverride
           params:
@@ -286,7 +289,7 @@ base_model_groups:
             kernel_size: 9
         - type: ChannelScale
           params:
-            scale_factor: 1.5
+            scale_factor: 1.25
       - name: combo3_c3_depth1_scale050
         mutations:
         - type: BackboneModuleReplace
@@ -299,7 +302,7 @@ base_model_groups:
         - type: ChannelScale
           params:
             scale_factor: 0.5
-      - name: combo3_silu_sppf3_scale200
+      - name: combo3_silu_sppf3_scale125
         mutations:
         - type: ActivationOverride
           params:
@@ -309,8 +312,8 @@ base_model_groups:
             kernel_size: 3
         - type: ChannelScale
           params:
-            scale_factor: 2.0
-      - name: combo3_head_c3k2_elu_depth8
+            scale_factor: 1.25
+      - name: combo3_head_c3k2_elu_depth4
         mutations:
         - type: HeadModuleReplace
           params:
@@ -321,7 +324,7 @@ base_model_groups:
             activation: nn.ELU()
         - type: BackboneDepthOverride
           params:
-            repeat_value: 8
+            repeat_value: 4
 
 - base_model:
     name: yolov8s
@@ -374,10 +377,11 @@ base_model_groups:
     pretrained: false
   combinatorial_variant_grid: *yolov8_grid
 
-- base_model:
-    name: yolov8_huge
-    pretrained: false
-  combinatorial_variant_grid: *yolov8_grid
+# Disabled at batch 16: OOM on V100.
+# - base_model:
+#     name: yolov8_huge
+#     pretrained: false
+#   combinatorial_variant_grid: *yolov8_grid
 
 - base_model:
     name: yolov8_tiny_wide

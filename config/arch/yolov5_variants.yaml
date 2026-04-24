@@ -1,5 +1,5 @@
 # YOLOv5 variant configurations
-# 10 base_model_groups × 4 output_classes × 29 mutation_sets = 1,160 variants
+# 9 active base_model_groups × 4 output_classes × 28 mutation_sets = 1,008 variants
 
 base_model_groups:
 # ===== 5 native scales =====
@@ -25,12 +25,14 @@ base_model_groups:
       run_training: true
       training_epochs: 3
       training_batch_sizes:
+      - 4
+      - 8
       - 16
       fake_dataset_size: 500
       use_fake_imagenet: true
       run_inference: true
-      inference_measurement_min_seconds: 5.0
-      pre_inference_cooldown_seconds: 3.0
+      inference_measurement_min_seconds: 60.0
+      pre_inference_cooldown_seconds: 5.0
     mutation_sets: &yolov5_mutations
       # --- baseline ---
       - name: baseline
@@ -155,16 +157,17 @@ base_model_groups:
         - type: ChannelScale
           params:
             scale_factor: 0.75
-      - name: channel_scale_150
+      - name: channel_scale_125
         mutations:
         - type: ChannelScale
           params:
-            scale_factor: 1.5
-      - name: channel_scale_200
-        mutations:
-        - type: ChannelScale
-          params:
-            scale_factor: 2.0
+            scale_factor: 1.25
+      # Disabled at batch 16: OOM on V100.
+      # - name: channel_scale_200
+      #   mutations:
+      #   - type: ChannelScale
+      #     params:
+      #       scale_factor: 2.0
       # --- binary combinations (4) ---
       - name: combo2_c2f_relu
         mutations:
@@ -192,14 +195,14 @@ base_model_groups:
         - type: ChannelScale
           params:
             scale_factor: 0.75
-      - name: combo2_gelu_scale150
+      - name: combo2_gelu_scale125
         mutations:
         - type: ActivationOverride
           params:
             activation: nn.GELU()
         - type: ChannelScale
           params:
-            scale_factor: 1.5
+            scale_factor: 1.25
       # --- ternary combinations (3) ---
       - name: combo3_c2f_relu_sppf7
         mutations:
@@ -213,17 +216,18 @@ base_model_groups:
         - type: SPPFKernelReplace
           params:
             kernel_size: 7
-      - name: combo3_leaky_sppf9_scale200
-        mutations:
-        - type: ActivationOverride
-          params:
-            activation: nn.LeakyReLU()
-        - type: SPPFKernelReplace
-          params:
-            kernel_size: 9
-        - type: ChannelScale
-          params:
-            scale_factor: 2.0
+      # Disabled at batch 16: OOM on V100.
+      # - name: combo3_leaky_sppf9_scale200
+      #   mutations:
+      #   - type: ActivationOverride
+      #     params:
+      #       activation: nn.LeakyReLU()
+      #   - type: SPPFKernelReplace
+      #     params:
+      #       kernel_size: 9
+      #   - type: ChannelScale
+      #     params:
+      #       scale_factor: 2.0
       - name: combo3_c3k2_depth6_scale050
         mutations:
         - type: BackboneModuleReplace
@@ -252,10 +256,10 @@ base_model_groups:
     pretrained: false
   combinatorial_variant_grid: *yolov5_grid
 
-- base_model:
-    name: yolov5x
-    pretrained: false
-  combinatorial_variant_grid: *yolov5_grid
+# - base_model:
+#     name: yolov5x
+#     pretrained: false
+#   combinatorial_variant_grid: *yolov5_grid
 
 # ===== 5 custom scales =====
 - base_model:
@@ -268,10 +272,11 @@ base_model_groups:
     pretrained: false
   combinatorial_variant_grid: *yolov5_grid
 
-- base_model:
-    name: yolov5_huge
-    pretrained: false
-  combinatorial_variant_grid: *yolov5_grid
+# Disabled at batch 16: OOM on V100.
+# - base_model:
+#     name: yolov5_huge
+#     pretrained: false
+#   combinatorial_variant_grid: *yolov5_grid
 
 - base_model:
     name: yolov5_tiny_wide
