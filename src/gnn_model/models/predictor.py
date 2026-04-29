@@ -15,7 +15,6 @@ class IntelliGraphLargeModelPredictor(nn.Module):
         node_dim: int,
         edge_dim: int,
         graph_dim: int,
-        graph_metric_dim: int,
         hidden_dim: int,
         targets: list[str],
         num_heads: int,
@@ -26,7 +25,7 @@ class IntelliGraphLargeModelPredictor(nn.Module):
         self.targets = targets
         self.node_encoder = nn.Linear(node_dim, hidden_dim)
         self.edge_encoder = nn.Linear(edge_dim, hidden_dim)
-        self.graph_encoder = nn.Linear(graph_dim + graph_metric_dim, hidden_dim)
+        self.graph_encoder = nn.Linear(graph_dim, hidden_dim)
         self.layers = nn.ModuleList(
             [
                 GraphFusionLayer(
@@ -45,34 +44,31 @@ class IntelliGraphLargeModelPredictor(nn.Module):
         )
 
     def forward(self, data: Data) -> torch.Tensor:
-        if not hasattr(data, "graph_features") or not hasattr(data, "graph_metrics"):
-            raise ValueError(
-                "graph batch must contain graph_features and graph_metrics"
-            )
-        if not hasattr(data, "edge_attr"):
-            raise ValueError("graph batch must contain edge_attr")
+        x_input = data.x
+        assert isinstance(x_input, torch.Tensor)
+        edge_index = data.edge_index
+        assert isinstance(edge_index, torch.Tensor)
+        edge_attr_input = data.edge_attr
+        assert isinstance(edge_attr_input, torch.Tensor)
+        graph_features = getattr(data, "graph_features", None)
+        assert isinstance(graph_features, torch.Tensor)
 
-        batch = getattr(
-            data,
-            "batch",
-            torch.zeros(data.x.size(0), dtype=torch.long, device=data.x.device),
+        batch_value = getattr(data, "batch", None)
+        batch = (
+            batch_value
+            if isinstance(batch_value, torch.Tensor)
+            else torch.zeros(x_input.size(0), dtype=torch.long, device=x_input.device)
         )
-        graph_features = data.graph_features
         if graph_features.dim() == 1:
             graph_features = graph_features.unsqueeze(0)
-        graph_metrics = data.graph_metrics
-        if graph_metrics.dim() == 1:
-            graph_metrics = graph_metrics.unsqueeze(0)
 
-        x = self.node_encoder(data.x.float())
-        edge_attr = self.edge_encoder(data.edge_attr.float())
-        graph_state = self.graph_encoder(
-            torch.cat([graph_features.float(), graph_metrics.float()], dim=-1)
-        )
+        x = self.node_encoder(x_input.float())
+        edge_attr = self.edge_encoder(edge_attr_input.float())
+        graph_state = self.graph_encoder(graph_features.float())
         for layer in self.layers:
             x, edge_attr, graph_state = layer(
                 x,
-                data.edge_index,
+                edge_index,
                 edge_attr,
                 graph_state,
                 batch,

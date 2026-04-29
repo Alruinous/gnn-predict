@@ -10,7 +10,6 @@ from gnn_model.config import SplitDataConfig
 from gnn_model.data.constants import (
     EDGE_FEATURE_DIM,
     GRAPH_FEATURE_DIM,
-    GRAPH_METRIC_DIM,
     NODE_FEATURE_DIM,
 )
 
@@ -68,19 +67,22 @@ def load_graph_split(path: Path, *, target_dim: int) -> list[Data]:
 def validate_graph_data(graph: object, *, target_dim: int, split_path: Path) -> None:
     if not isinstance(graph, Data):
         raise TypeError(f"split contains non-Data object: {split_path}")
-    if graph.x.dim() != 2 or graph.x.size(1) != NODE_FEATURE_DIM:
+    x = graph.x
+    if not isinstance(x, torch.Tensor):
         raise ValueError(f"node feature dim mismatch in {split_path}")
-    if (
-        not hasattr(graph, "edge_attr")
-        or graph.edge_attr is None
-        or graph.edge_attr.size(1) != EDGE_FEATURE_DIM
-    ):
+    if x.dim() != 2 or x.size(1) != NODE_FEATURE_DIM:
+        raise ValueError(f"node feature dim mismatch in {split_path}")
+    edge_attr = graph.edge_attr
+    if not isinstance(edge_attr, torch.Tensor) or edge_attr.size(1) != EDGE_FEATURE_DIM:
         raise ValueError(f"edge feature dim mismatch in {split_path}")
-    if graph.graph_features.shape != (1, GRAPH_FEATURE_DIM):
+    graph_features = getattr(graph, "graph_features", None)
+    if (
+        not isinstance(graph_features, torch.Tensor)
+        or graph_features.shape != (1, GRAPH_FEATURE_DIM)
+    ):
         raise ValueError(f"graph feature dim mismatch in {split_path}")
-    if graph.graph_metrics.shape != (1, GRAPH_METRIC_DIM):
-        raise ValueError(f"graph metric dim mismatch in {split_path}")
-    if graph.y.shape != (1, target_dim):
+    y = graph.y
+    if not isinstance(y, torch.Tensor) or y.shape != (1, target_dim):
         raise ValueError(f"target dim mismatch in {split_path}")
 
 

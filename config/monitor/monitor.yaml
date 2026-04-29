@@ -96,9 +96,9 @@ targets:
   yolov8:
     enabled: false
     result_json: "/home/wangjh/gnn-schedule/gen_archs/yolo/yolo_validation_results_1114/a100/yolov8_20251114_122840_results.json"
-    node_name: "inspur-gpu-04"
-    pod_name: "jpt-wangjh-251114-dae5d-default0-0"
-    gpu_id: "0"
+    node_name: "dell-67"
+    pod_name: "sg-wangjh-260424-9dea3-default0-0"
+    gpu_id: "1"
     output_csv: "csv/yolov8_monitor.csv"
 
   bert:
@@ -151,17 +151,17 @@ targets:
 
   yolov5:
     enabled: true
-    result_json: res/yolov5/results/yolov5_variants_v100_1776941514_results.json
+    result_json: res/yolov5/results/yolov5_variants_v100_1777029544_results.json
     node_name: dell-68
-    pod_name: sg-wangjh-260423-63f24-default0-0
+    pod_name: sg-wangjh-260424-695f9-default0-0
     gpu_id: "0"
     output_csv: "csv/yolov5_monitor.csv"
 
   yolov9:
     enabled: true
-    result_json: res/yolov9/results/yolov9_variants_v100_1776941505_results.json
+    result_json: res/yolov9/results/yolov9_variants_v100_1777029534_results.json
     node_name: dell-67
-    pod_name: sg-wangjh-260423-cdc10-default0-0
-    gpu_id: "2"
+    pod_name: sg-wangjh-260424-ba324-default0-0
+    gpu_id: "0"
     output_csv: "csv/yolov9_monitor.csv"
   

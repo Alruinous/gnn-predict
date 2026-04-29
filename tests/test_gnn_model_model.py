@@ -6,7 +6,6 @@ from torch_geometric.loader import DataLoader
 from gnn_model.data.constants import (
     EDGE_FEATURE_DIM,
     GRAPH_FEATURE_DIM,
-    GRAPH_METRIC_DIM,
     NODE_FEATURE_DIM,
 )
 from gnn_model.models import IntelliGraphLargeModelPredictor
@@ -20,7 +19,6 @@ def test_intelligraph_large_model_predictor_forward_is_finite() -> None:
         node_dim=NODE_FEATURE_DIM,
         edge_dim=EDGE_FEATURE_DIM,
         graph_dim=GRAPH_FEATURE_DIM,
-        graph_metric_dim=GRAPH_METRIC_DIM,
         hidden_dim=64,
         targets=list(TARGET_NAMES),
         num_heads=4,

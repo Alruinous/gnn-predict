@@ -8,12 +8,11 @@ from pathlib import Path
 import pytest
 import torch
 
-from common.onnx_initializer import write_randomized_onnx_model
 from gnn_model.config import PreparedDataConfig, SplitDataConfig
 from gnn_model.data.constants import (
     EDGE_FEATURE_DIM,
     GRAPH_FEATURE_DIM,
-    GRAPH_METRIC_DIM,
+    GRAPH_FEATURE_NAMES,
     NODE_FEATURE_DIM,
 )
 from gnn_model.data.dataset import load_split_graph_datasets
@@ -38,29 +37,31 @@ from gnn_model_test_utils import (
 
 def test_build_graph_data_from_onnx_returns_expected_shapes(tmp_path: Path) -> None:
     architecture_only_path = tmp_path / "toy_architecture.onnx"
-    initialized_path = tmp_path / "toy_initialized.onnx"
 
     export_architecture_only_onnx(
         build_toy_model(0),
         architecture_only_path,
         (1, 3, 32, 32),
     )
-    write_randomized_onnx_model(
-        architecture_only_path,
-        initialized_path,
-        runtime_input_names=["inputs"],
-        seed=11,
-    )
 
-    data = build_graph_data_from_onnx(initialized_path, batch_size=8, gpu_name="v100")
+    data = build_graph_data_from_onnx(
+        architecture_only_path,
+        batch_size=8,
+        gpu_name="v100",
+        phase="inference",
+        sample_count=3,
+    )
 
     assert data.x.shape[1] == NODE_FEATURE_DIM
     assert data.edge_attr.shape[1] == EDGE_FEATURE_DIM
     assert data.graph_features.shape == (1, GRAPH_FEATURE_DIM)
-    assert data.graph_features[0, -1].item() == 8.0
-    assert data.graph_metrics.shape == (1, GRAPH_METRIC_DIM)
+    assert data.graph_features[0, 0].item() == 1.0
+    assert data.graph_features[0, 1].item() == 8.0
+    assert data.graph_features[0, 2].item() == 3.0
+    profile_macs_index = GRAPH_FEATURE_NAMES.index("profile_total_macs")
+    assert data.graph_features[0, profile_macs_index] > 0
+    assert not hasattr(data, "graph_metrics")
     assert data.edge_index.shape[0] == 2
-    assert data.node_op_token_id.shape[0] == data.x.shape[0]
 
 
 def test_load_split_graph_datasets_reads_split_directory(tmp_path: Path) -> None:
@@ -198,6 +199,8 @@ def test_build_prepared_dataset_writes_manifest_and_loads(tmp_path: Path) -> Non
     )
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == "2.0.0"
+    assert manifest["feature_source"] == "onnx_tool_profile"
     assert manifest["target_names"] == list(TARGET_FIELDS)
     assert "extract_config_path" not in manifest
     assert manifest["sample_count"] == 3
@@ -258,18 +261,10 @@ def write_variant_onnx_files(
     onnx_dir = res_root / target_name / "onnx_models"
     onnx_dir.mkdir(parents=True)
     first_path = onnx_dir / f"{variant_names[0]}.onnx"
-    architecture_only_path = onnx_dir / "architecture.onnx"
     export_architecture_only_onnx(
         build_toy_model(0),
-        architecture_only_path,
+        first_path,
         (1, 3, 32, 32),
     )
-    write_randomized_onnx_model(
-        architecture_only_path,
-        first_path,
-        runtime_input_names=["inputs"],
-        seed=17,
-    )
-    architecture_only_path.unlink()
     for variant_name in variant_names[1:]:
         shutil.copyfile(first_path, onnx_dir / f"{variant_name}.onnx")

@@ -1,9 +1,29 @@
 from __future__ import annotations
 
-GRAPH_METRIC_NAMES = (
-    "estimated_latency_sec",
-    "graph_memory_bytes",
-    "total_flops",
+GRAPH_PROFILE_FEATURE_NAMES = (
+    "profile_total_macs",
+    "profile_total_flops",
+    "profile_memory_bytes",
+    "profile_params",
+)
+
+NODE_FEATURE_NAMES = (
+    "profile_macs",
+    "profile_memory_bytes",
+    "profile_params",
+    "input_count",
+    "output_count",
+    "attr_count",
+    "in_degree",
+    "out_degree",
+)
+
+EDGE_FEATURE_NAMES = (
+    "tensor_bytes",
+    "tensor_rank",
+    "tensor_element_count",
+    "source_out_degree",
+    "target_in_degree",
 )
 
 GPU_SPEC_FIELDS = (
@@ -18,6 +38,17 @@ GPU_SPEC_FIELDS = (
     "tdp_watts",
     "nvlink_bandwidth_gbs",
     "pcie_lanes",
+)
+
+GRAPH_FEATURE_NAMES = (
+    "phase_token_id",
+    "batch_size",
+    "sample_count",
+    *GPU_SPEC_FIELDS,
+    "parameter_input_count",
+    "parameter_input_element_count",
+    "parameter_input_bytes",
+    *GRAPH_PROFILE_FEATURE_NAMES,
 )
 
 GPU_SPECS = {
@@ -49,24 +80,11 @@ GPU_SPECS = {
     ),
 }
 
-COMMON_OP_TYPES = (
-    "Conv",
-    "Relu",
-    "Gemm",
-    "MatMul",
-    "BatchNormalization",
-    "Add",
-    "Mul",
-    "MaxPool",
-    "AveragePool",
-    "Reshape",
-    "Transpose",
-    "Concat",
-)
+PHASE_TO_INDEX = {
+    "training": 0,
+    "inference": 1,
+}
 
-OP_TYPE_TO_INDEX = {op_type: index for index, op_type in enumerate(COMMON_OP_TYPES)}
-
-NODE_FEATURE_DIM = len(COMMON_OP_TYPES) + 1 + 9
-EDGE_FEATURE_DIM = 8
-GRAPH_FEATURE_DIM = 12 + len(GPU_SPEC_FIELDS) + 1
-GRAPH_METRIC_DIM = len(GRAPH_METRIC_NAMES)
+NODE_FEATURE_DIM = len(NODE_FEATURE_NAMES)
+EDGE_FEATURE_DIM = len(EDGE_FEATURE_NAMES)
+GRAPH_FEATURE_DIM = len(GRAPH_FEATURE_NAMES)

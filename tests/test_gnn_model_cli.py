@@ -8,7 +8,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from common.onnx_initializer import write_randomized_onnx_model
 from gnn_model.data.extract import TARGET_FIELDS
 from gnn_model_test_utils import (
     TARGET_NAMES,
@@ -93,6 +92,8 @@ def test_gnn_model_cli_extract_writes_manifest(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
     manifest_path = output_dir / "manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "2.0.0"
+    assert payload["feature_source"] == "onnx_tool_profile"
     assert payload["sample_count"] == 3
     assert payload["target_names"] == list(TARGET_FIELDS)
     assert "extract_config_path" not in payload
@@ -141,18 +142,10 @@ def write_variant_onnx_files(
     onnx_dir = res_root / target_name / "onnx_models"
     onnx_dir.mkdir(parents=True)
     first_path = onnx_dir / f"{variant_names[0]}.onnx"
-    architecture_only_path = onnx_dir / "architecture.onnx"
     export_architecture_only_onnx(
         build_toy_model(0),
-        architecture_only_path,
+        first_path,
         (1, 3, 32, 32),
     )
-    write_randomized_onnx_model(
-        architecture_only_path,
-        first_path,
-        runtime_input_names=["inputs"],
-        seed=19,
-    )
-    architecture_only_path.unlink()
     for variant_name in variant_names[1:]:
         shutil.copyfile(first_path, onnx_dir / f"{variant_name}.onnx")

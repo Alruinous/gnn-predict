@@ -215,10 +215,10 @@ def build_model_record_info(
 ) -> ModelRecordInfo:
     phase = str(record["phase"]).strip()
     assert phase in {"training", "inference"}
-    batch_size = int(record["batch_size"])
+    batch_size = parse_int_value(record["batch_size"])
     assert batch_size > 0
     gpu_name = normalize_gpu_name(record["gpu_node"])
-    target = tuple(float(record[field]) for field in TARGET_FIELDS)
+    target = tuple(parse_float_value(record[field]) for field in TARGET_FIELDS)
     assert all(math.isfinite(value) for value in target)
     metadata = {field: record[field] for field in METADATA_FIELDS}
     return ModelRecordInfo(
@@ -250,6 +250,31 @@ def normalize_gpu_name(value: object) -> str:
     raise AssertionError(f"unsupported gpu_node: {value}")
 
 
+def parse_int_value(value: object) -> int:
+    if isinstance(value, bool):
+        raise TypeError("boolean values are not valid integers")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError(f"integer value must be whole: {value}")
+        return int(value)
+    if isinstance(value, str):
+        parsed = float(value)
+        if not parsed.is_integer():
+            raise ValueError(f"integer value must be whole: {value}")
+        return int(parsed)
+    raise TypeError(f"unsupported integer value type: {type(value)}")
+
+
+def parse_float_value(value: object) -> float:
+    if isinstance(value, bool):
+        raise TypeError("boolean values are not valid floats")
+    if isinstance(value, (int, float, str)):
+        return float(value)
+    raise TypeError(f"unsupported float value type: {type(value)}")
+
+
 def extract_feature_target(info: ModelRecordInfo) -> Data:
     from gnn_model.data.onnx_graph import build_graph_data_from_onnx
 
@@ -258,6 +283,8 @@ def extract_feature_target(info: ModelRecordInfo) -> Data:
         info.model_path,
         batch_size=info.batch_size,
         gpu_name=info.gpu_name,
+        phase=info.phase,
+        sample_count=parse_int_value(info.metadata["sample_count"]),
     )
     data.y = torch.tensor(info.target, dtype=torch.float32).unsqueeze(0)
     data.source_csv = str(info.csv_path)
@@ -309,7 +336,8 @@ def build_manifest(
     seed: int,
 ) -> dict[str, Any]:
     return {
-        "schema_version": "1.0.0",
+        "schema_version": "2.0.0",
+        "feature_source": "onnx_tool_profile",
         "csv_dir": str(Path(csv_dir).resolve()),
         "id_fields": list(ID_FIELDS),
         "target_names": list(TARGET_FIELDS),

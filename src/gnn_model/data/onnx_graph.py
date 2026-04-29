@@ -1,51 +1,23 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import onnx
+import onnx_tool
 import torch
-from onnx import numpy_helper
 from torch_geometric.data import Data
 
+from common.onnx_initializer import load_runtime_input_names
 from gnn_model.data.constants import (
-    COMMON_OP_TYPES,
     EDGE_FEATURE_DIM,
     GPU_SPECS,
     GRAPH_FEATURE_DIM,
-    GRAPH_METRIC_DIM,
     NODE_FEATURE_DIM,
-    OP_TYPE_TO_INDEX,
+    PHASE_TO_INDEX,
 )
-
-
-@dataclass(frozen=True)
-class TensorStats:
-    shape: tuple[int, ...]
-    elem_type: int
-    element_count: int
-    byte_size: int
-
-    @property
-    def rank(self) -> int:
-        return len(self.shape)
-
-
-@dataclass(frozen=True)
-class NodeStats:
-    op_type: str
-    parameter_count: int
-    parameter_bytes: int
-    input_count: int
-    output_count: int
-    attr_count: int
-    input_rank: float
-    output_rank: float
-    input_elements: int
-    output_elements: int
-    estimated_flops: float
 
 
 def build_graph_data_from_onnx(
@@ -53,270 +25,289 @@ def build_graph_data_from_onnx(
     *,
     batch_size: int = 1,
     gpu_name: str = "v100",
+    phase: str = "training",
+    sample_count: int = 1,
 ) -> Data:
     assert batch_size > 0
+    assert sample_count > 0
     model_path = Path(onnx_path)
-    inferred_model = onnx.shape_inference.infer_shapes(onnx.load(model_path))
-    nodes = list(inferred_model.graph.node)
-    if not nodes:
-        raise ValueError(f"ONNX graph must contain at least one node: {model_path}")
+    model = onnx.load(model_path)
+    runtime_input_names = load_runtime_input_names(model)
+    parameter_input_stats = collect_parameter_input_stats(
+        model,
+        runtime_input_names=runtime_input_names,
+    )
+    runtime_inputs = build_runtime_inputs(
+        model,
+        runtime_input_names=runtime_input_names,
+        batch_size=batch_size,
+    )
 
-    tensor_stats = collect_tensor_stats(inferred_model)
-    initializer_arrays = {
-        initializer.name: numpy_helper.to_array(initializer)
-        for initializer in inferred_model.graph.initializer
+    tool_model = onnx_tool.loadmodel(str(model_path))
+    graph = tool_model.graph
+    graph.shape_infer(runtime_inputs)
+    graph.profile()
+
+    node_names = list(graph.nodemap.keys())
+    assert node_names, model_path
+
+    node_name_to_index = {name: index for index, name in enumerate(node_names)}
+    output_name_to_node_name = {
+        output_name: node_name
+        for node_name, info in graph.nodemap.items()
+        for output_name in info.output
+        if output_name
     }
-    producer_by_output = build_producer_index(nodes)
-    node_stats = [
-        build_node_stats(node, tensor_stats, initializer_arrays) for node in nodes
+    raw_edges = build_raw_edges(graph, node_name_to_index, output_name_to_node_name)
+
+    in_degree, out_degree = build_node_degrees(len(node_names), raw_edges)
+    node_features = [
+        build_node_feature_vector(
+            graph.nodemap[node_name],
+            in_degree=in_degree[node_name_to_index[node_name]],
+            out_degree=out_degree[node_name_to_index[node_name]],
+        )
+        for node_name in node_names
     ]
-    raw_edges = build_raw_edges(nodes, producer_by_output)
-    if not raw_edges:
-        raw_edges = [(index, index, "") for index in range(len(nodes))]
-
-    in_degree = [0] * len(nodes)
-    out_degree = [0] * len(nodes)
-    for source_index, target_index, _ in raw_edges:
-        out_degree[source_index] += 1
-        in_degree[target_index] += 1
-
-    node_features = [build_node_feature_vector(stats) for stats in node_stats]
     edge_features = [
         build_edge_feature_vector(
+            graph,
             tensor_name,
             source_index,
             target_index,
-            tensor_stats,
             in_degree,
             out_degree,
         )
         for source_index, target_index, tensor_name in raw_edges
     ]
     graph_features = build_graph_feature_vector(
-        inferred_model,
-        node_stats,
-        raw_edges,
-        initializer_arrays,
+        phase=phase,
         batch_size=batch_size,
+        sample_count=sample_count,
         gpu_name=gpu_name,
+        parameter_input_stats=parameter_input_stats,
+        graph=graph,
     )
-    graph_metrics = build_graph_metric_vector(node_stats, tensor_stats, nodes)
-    edge_index = torch.tensor(
-        [[source_index, target_index] for source_index, target_index, _ in raw_edges],
-        dtype=torch.long,
-    ).t().contiguous()
+
+    edge_index = (
+        torch.tensor(
+            [
+                [source_index, target_index]
+                for source_index, target_index, _ in raw_edges
+            ],
+            dtype=torch.long,
+        )
+        .t()
+        .contiguous()
+        if raw_edges
+        else torch.empty((2, 0), dtype=torch.long)
+    )
+    edge_attr = (
+        torch.tensor(edge_features, dtype=torch.float32)
+        if edge_features
+        else torch.empty((0, EDGE_FEATURE_DIM), dtype=torch.float32)
+    )
 
     return Data(
         x=torch.tensor(node_features, dtype=torch.float32),
         edge_index=edge_index,
-        edge_attr=torch.tensor(edge_features, dtype=torch.float32),
+        edge_attr=edge_attr,
         graph_features=torch.tensor(graph_features, dtype=torch.float32).unsqueeze(0),
-        graph_metrics=torch.tensor(graph_metrics, dtype=torch.float32).unsqueeze(0),
-        node_op_token_id=torch.tensor(
-            [
-                OP_TYPE_TO_INDEX.get(stats.op_type, len(COMMON_OP_TYPES))
-                for stats in node_stats
-            ],
-            dtype=torch.long,
-        ),
         onnx_path=str(model_path),
     )
 
 
-def collect_tensor_stats(model: onnx.ModelProto) -> dict[str, TensorStats]:
-    tensor_stats: dict[str, TensorStats] = {}
-    value_infos = [
-        *model.graph.input,
-        *model.graph.value_info,
-        *model.graph.output,
+def collect_parameter_input_stats(
+    model: onnx.ModelProto,
+    *,
+    runtime_input_names: list[str],
+) -> dict[str, float]:
+    runtime_input_name_set = set(runtime_input_names)
+    parameter_inputs = [
+        value for value in model.graph.input if value.name not in runtime_input_name_set
     ]
-    for value_info in value_infos:
-        if not value_info.name or value_info.name in tensor_stats:
-            continue
-        tensor_type = value_info.type.tensor_type
-        if not tensor_type.HasField("shape"):
-            continue
-        shape = tuple(
-            resolve_dimension_value(dimension)
-            for dimension in tensor_type.shape.dim
-        )
-        element_count = count_elements(shape)
-        dtype = onnx.helper.tensor_dtype_to_np_dtype(tensor_type.elem_type)
-        byte_size = int(element_count * np_dtype_nbytes(dtype))
-        tensor_stats[value_info.name] = TensorStats(
-            shape=shape,
-            elem_type=tensor_type.elem_type,
-            element_count=element_count,
-            byte_size=byte_size,
-        )
-    return tensor_stats
+    element_count = 0
+    byte_count = 0
+    for value in parameter_inputs:
+        shape = resolve_static_tensor_shape(value)
+        dtype = resolve_tensor_np_dtype(value)
+        elements = count_elements(shape)
+        element_count += elements
+        byte_count += elements * np.dtype(dtype).itemsize
+    return {
+        "parameter_input_count": float(len(parameter_inputs)),
+        "parameter_input_element_count": float(element_count),
+        "parameter_input_bytes": float(byte_count),
+    }
 
 
-def build_producer_index(nodes: list[onnx.NodeProto]) -> dict[str, int]:
-    producer_by_output: dict[str, int] = {}
-    for index, node in enumerate(nodes):
-        for output_name in node.output:
-            if output_name:
-                producer_by_output[output_name] = index
-    return producer_by_output
+def build_runtime_inputs(
+    model: onnx.ModelProto,
+    *,
+    runtime_input_names: list[str],
+    batch_size: int,
+) -> dict[str, np.ndarray]:
+    graph_inputs = {value.name: value for value in model.graph.input}
+    assert set(runtime_input_names) <= set(graph_inputs)
+    return {
+        name: np.zeros(
+            resolve_runtime_tensor_shape(graph_inputs[name], batch_size=batch_size),
+            dtype=resolve_tensor_np_dtype(graph_inputs[name]),
+        )
+        for name in runtime_input_names
+    }
 
 
 def build_raw_edges(
-    nodes: list[onnx.NodeProto],
-    producer_by_output: dict[str, int],
+    graph: Any,
+    node_name_to_index: dict[str, int],
+    output_name_to_node_name: dict[str, str],
 ) -> list[tuple[int, int, str]]:
     edges: list[tuple[int, int, str]] = []
-    for target_index, node in enumerate(nodes):
+    for target_name, info in graph.nodemap.items():
+        target_index = node_name_to_index[target_name]
         edges.extend(
-            (producer_by_output[input_name], target_index, input_name)
-            for input_name in node.input
-            if input_name and input_name in producer_by_output
+            (
+                node_name_to_index[output_name_to_node_name[input_name]],
+                target_index,
+                input_name,
+            )
+            for input_name in info.input
+            if input_name in output_name_to_node_name
         )
     return edges
 
 
-def build_node_stats(
-    node: onnx.NodeProto,
-    tensor_stats: dict[str, TensorStats],
-    initializer_arrays: dict[str, object],
-) -> NodeStats:
-    input_stats = [tensor_stats[name] for name in node.input if name in tensor_stats]
-    output_stats = [tensor_stats[name] for name in node.output if name in tensor_stats]
-    parameter_arrays = [
-        initializer_arrays[name] for name in node.input if name in initializer_arrays
-    ]
-    parameter_count = int(sum(array.size for array in parameter_arrays))
-    parameter_bytes = int(sum(array.nbytes for array in parameter_arrays))
-    input_elements = int(sum(stats.element_count for stats in input_stats))
-    output_elements = int(sum(stats.element_count for stats in output_stats))
-    input_rank = average([stats.rank for stats in input_stats])
-    output_rank = average([stats.rank for stats in output_stats])
-    estimated_flops = estimate_node_flops(
-        node.op_type,
-        input_elements,
-        output_elements,
-        parameter_count,
-    )
-    return NodeStats(
-        op_type=normalize_op_type(node.op_type),
-        parameter_count=parameter_count,
-        parameter_bytes=parameter_bytes,
-        input_count=len(node.input),
-        output_count=len(node.output),
-        attr_count=len(node.attribute),
-        input_rank=input_rank,
-        output_rank=output_rank,
-        input_elements=input_elements,
-        output_elements=output_elements,
-        estimated_flops=estimated_flops,
-    )
+def build_node_degrees(
+    node_count: int,
+    raw_edges: list[tuple[int, int, str]],
+) -> tuple[list[int], list[int]]:
+    in_degree = [0] * node_count
+    out_degree = [0] * node_count
+    for source_index, target_index, _ in raw_edges:
+        out_degree[source_index] += 1
+        in_degree[target_index] += 1
+    return in_degree, out_degree
 
 
-def build_node_feature_vector(stats: NodeStats) -> list[float]:
-    op_features = [0.0] * (len(COMMON_OP_TYPES) + 1)
-    op_index = OP_TYPE_TO_INDEX.get(stats.op_type, len(COMMON_OP_TYPES))
-    op_features[op_index] = 1.0
-    numeric_features = [
-        log_scale(stats.parameter_count, 8.0),
-        log_scale(stats.estimated_flops, 10.0),
-        clamp_ratio(stats.input_count, 8.0),
-        clamp_ratio(stats.output_count, 8.0),
-        clamp_ratio(stats.attr_count, 16.0),
-        clamp_ratio(stats.input_rank, 8.0),
-        clamp_ratio(stats.output_rank, 8.0),
-        log_scale(stats.input_elements, 8.0),
-        log_scale(stats.output_elements, 8.0),
+def build_node_feature_vector(
+    node_info: Any,
+    *,
+    in_degree: int,
+    out_degree: int,
+) -> list[float]:
+    feature_vector = [
+        float(sum_profile_values(node_info.macs)),
+        float(node_info.memory),
+        float(node_info.params),
+        float(len(node_info.input)),
+        float(len(node_info.output)),
+        float(len(node_info.attr)),
+        float(in_degree),
+        float(out_degree),
     ]
-    feature_vector = op_features + numeric_features
-    if len(feature_vector) != NODE_FEATURE_DIM:
-        raise ValueError(
-            f"node feature dim mismatch: {len(feature_vector)} != {NODE_FEATURE_DIM}"
-        )
+    assert len(feature_vector) == NODE_FEATURE_DIM
     return feature_vector
 
 
 def build_edge_feature_vector(
+    graph: Any,
     tensor_name: str,
     source_index: int,
     target_index: int,
-    tensor_stats: dict[str, TensorStats],
     in_degree: list[int],
     out_degree: list[int],
 ) -> list[float]:
-    stats = tensor_stats.get(
-        tensor_name,
-        TensorStats(
-            shape=(),
-            elem_type=onnx.TensorProto.FLOAT,
-            element_count=1,
-            byte_size=4,
-        ),
-    )
+    tensor_info = graph.tensormap[tensor_name]
+    shape = resolve_profile_tensor_shape(tensor_info)
+    element_count = count_elements(shape)
+    byte_count = element_count * resolve_profile_tensor_itemsize(tensor_info)
     feature_vector = [
-        log_scale(stats.element_count, 8.0),
-        clamp_ratio(stats.rank, 8.0),
-        log_scale(stats.byte_size, 10.0),
-        clamp_ratio(out_degree[source_index], 8.0),
-        clamp_ratio(in_degree[target_index], 8.0),
-        1.0 if source_index == target_index else 0.0,
-        1.0 if stats.rank > 0 else 0.0,
-        1.0 if stats.elem_type == onnx.TensorProto.FLOAT else 0.0,
+        float(byte_count),
+        float(len(shape)),
+        float(element_count),
+        float(out_degree[source_index]),
+        float(in_degree[target_index]),
     ]
-    if len(feature_vector) != EDGE_FEATURE_DIM:
-        raise ValueError(
-            f"edge feature dim mismatch: {len(feature_vector)} != {EDGE_FEATURE_DIM}"
-        )
+    assert len(feature_vector) == EDGE_FEATURE_DIM
     return feature_vector
 
 
 def build_graph_feature_vector(
-    model: onnx.ModelProto,
-    node_stats: list[NodeStats],
-    raw_edges: list[tuple[int, int, str]],
-    initializer_arrays: dict[str, object],
     *,
+    phase: str,
     batch_size: int,
+    sample_count: int,
     gpu_name: str,
+    parameter_input_stats: dict[str, float],
+    graph: Any,
 ) -> list[float]:
-    node_count = len(node_stats)
-    edge_count = len(raw_edges)
-    max_edges = max(node_count * max(node_count - 1, 1), 1)
-    density = edge_count / max_edges
-    avg_in_degree = average([stats.input_count for stats in node_stats])
-    avg_out_degree = average([stats.output_count for stats in node_stats])
-    op_diversity = len({stats.op_type for stats in node_stats}) / max(node_count, 1)
-    initializer_count = len(initializer_arrays)
-    initializer_bytes = int(sum(array.nbytes for array in initializer_arrays.values()))
-    avg_attr_count = average([stats.attr_count for stats in node_stats])
-    avg_rank = average([stats.output_rank for stats in node_stats])
-    runtime_input_count = len(model.graph.input)
-    output_count = len(model.graph.output)
+    normalized_phase = phase.strip().lower()
+    assert normalized_phase in PHASE_TO_INDEX, phase
+    normalized_gpu_name = normalize_gpu_name(gpu_name)
+    assert normalized_gpu_name in GPU_SPECS, gpu_name
+    total_macs = float(sum_profile_values(graph.macs))
     feature_vector = [
-        log_scale(node_count, 4.0),
-        log_scale(edge_count, 4.0),
-        max(0.0, min(1.0, density)),
-        clamp_ratio(avg_in_degree, 8.0),
-        clamp_ratio(avg_out_degree, 8.0),
-        max(0.0, min(1.0, op_diversity)),
-        log_scale(initializer_count, 4.0),
-        log_scale(initializer_bytes, 10.0),
-        clamp_ratio(runtime_input_count, 8.0),
-        clamp_ratio(output_count, 8.0),
-        clamp_ratio(avg_attr_count, 8.0),
-        clamp_ratio(avg_rank, 8.0),
-        *build_system_feature_vector(batch_size=batch_size, gpu_name=gpu_name),
+        float(PHASE_TO_INDEX[normalized_phase]),
+        float(batch_size),
+        float(sample_count),
+        *GPU_SPECS[normalized_gpu_name],
+        parameter_input_stats["parameter_input_count"],
+        parameter_input_stats["parameter_input_element_count"],
+        parameter_input_stats["parameter_input_bytes"],
+        total_macs,
+        total_macs * 2.0,
+        float(graph.memory),
+        float(graph.params),
     ]
-    if len(feature_vector) != GRAPH_FEATURE_DIM:
-        raise ValueError(
-            f"graph feature dim mismatch: {len(feature_vector)} != {GRAPH_FEATURE_DIM}"
-        )
+    assert len(feature_vector) == GRAPH_FEATURE_DIM
     return feature_vector
 
 
-def build_system_feature_vector(*, batch_size: int, gpu_name: str) -> list[float]:
-    normalized_gpu_name = normalize_gpu_name(gpu_name)
-    assert normalized_gpu_name in GPU_SPECS, gpu_name
-    return [*GPU_SPECS[normalized_gpu_name], float(batch_size)]
+def resolve_static_tensor_shape(value: onnx.ValueInfoProto) -> tuple[int, ...]:
+    shape: list[int] = []
+    for dimension in value.type.tensor_type.shape.dim:
+        assert dimension.HasField("dim_value") and dimension.dim_value > 0, value.name
+        shape.append(int(dimension.dim_value))
+    return tuple(shape)
+
+
+def resolve_runtime_tensor_shape(
+    value: onnx.ValueInfoProto,
+    *,
+    batch_size: int,
+) -> tuple[int, ...]:
+    shape: list[int] = []
+    for index, dimension in enumerate(value.type.tensor_type.shape.dim):
+        if dimension.HasField("dim_value") and dimension.dim_value > 0:
+            shape.append(int(dimension.dim_value))
+        else:
+            assert index == 0, value.name
+            shape.append(batch_size)
+    return tuple(shape)
+
+
+def resolve_tensor_np_dtype(value: onnx.ValueInfoProto) -> np.dtype:
+    elem_type = value.type.tensor_type.elem_type
+    assert elem_type != onnx.TensorProto.UNDEFINED, value.name
+    return np.dtype(onnx.helper.tensor_dtype_to_np_dtype(elem_type))
+
+
+def resolve_profile_tensor_shape(tensor_info: object) -> tuple[int, ...]:
+    shape = getattr(tensor_info, "shape", None)
+    assert shape is not None
+    if isinstance(shape, int):
+        assert shape > 0, shape
+        return (shape,)
+    parsed_shape = tuple(int(dimension) for dimension in shape)
+    assert all(dimension > 0 for dimension in parsed_shape), shape
+    return parsed_shape
+
+
+def resolve_profile_tensor_itemsize(tensor_info: object) -> int:
+    dtype = getattr(tensor_info, "dtype", None)
+    assert dtype is not None, type(tensor_info)
+    return int(np.dtype(dtype).itemsize)
 
 
 def normalize_gpu_name(value: object) -> str:
@@ -328,92 +319,18 @@ def normalize_gpu_name(value: object) -> str:
     raise AssertionError(f"unsupported gpu_name: {value}")
 
 
-def build_graph_metric_vector(
-    node_stats: list[NodeStats],
-    tensor_stats: dict[str, TensorStats],
-    nodes: list[onnx.NodeProto],
-) -> list[float]:
-    total_flops = float(sum(stats.estimated_flops for stats in node_stats))
-    activation_bytes = int(
-        sum(
-            tensor_stats[name].byte_size
-            for node in nodes
-            for name in node.output
-            if name in tensor_stats
-        )
-    )
-    parameter_bytes = int(sum(stats.parameter_bytes for stats in node_stats))
-    estimated_latency_sec = (total_flops / 5e8) + (
-        (activation_bytes + parameter_bytes) / 2e8
-    )
-    graph_memory_bytes = float(activation_bytes + parameter_bytes)
-    metrics = [
-        max(estimated_latency_sec, 1e-6),
-        graph_memory_bytes,
-        max(total_flops, 1.0),
-    ]
-    if len(metrics) != GRAPH_METRIC_DIM:
-        raise ValueError(
-            f"graph metric dim mismatch: {len(metrics)} != {GRAPH_METRIC_DIM}"
-        )
-    return metrics
-
-
-def estimate_node_flops(
-    op_type: str,
-    input_elements: int,
-    output_elements: int,
-    parameter_count: int,
-) -> float:
-    normalized_type = normalize_op_type(op_type)
-    if normalized_type == "Conv":
-        return float(max(output_elements, 1) * max(parameter_count, 1))
-    if normalized_type in {"Gemm", "MatMul"}:
-        return float(max(input_elements, 1) * max(output_elements, 1))
-    if normalized_type in {
-        "Relu",
-        "Add",
-        "Mul",
-        "BatchNormalization",
-        "AveragePool",
-        "MaxPool",
-    }:
-        return float(max(output_elements, 1))
-    return float(max(input_elements + output_elements + parameter_count, 1))
-
-
-def normalize_op_type(op_type: str) -> str:
-    normalized = op_type.strip()
-    if normalized in OP_TYPE_TO_INDEX:
-        return normalized
-    return normalized or "Unknown"
-
-
-def resolve_dimension_value(dimension: onnx.TensorShapeProto.Dimension) -> int:
-    if dimension.HasField("dim_value") and dimension.dim_value > 0:
-        return int(dimension.dim_value)
-    return 1
-
-
 def count_elements(shape: tuple[int, ...]) -> int:
     if not shape:
         return 1
-    return max(math.prod(shape), 1)
+    return math.prod(shape)
 
 
-def np_dtype_nbytes(dtype: object) -> int:
-    return int(np.dtype(dtype).itemsize)
-
-
-def average(values: list[int | float]) -> float:
-    if not values:
-        return 0.0
-    return float(sum(values) / len(values))
-
-
-def log_scale(value: int | float, denominator: float) -> float:
-    return max(0.0, min(1.0, math.log10(max(float(value), 1.0)) / denominator))
-
-
-def clamp_ratio(value: int | float, denominator: float) -> float:
-    return max(0.0, min(1.0, float(value) / denominator))
+def sum_profile_values(values: object) -> float:
+    if isinstance(values, (list, tuple)):
+        total = 0.0
+        for value in values:
+            assert isinstance(value, (int, float, np.number)), type(value)
+            total += float(value)
+        return total
+    assert isinstance(values, (int, float, np.number)), type(values)
+    return float(values)

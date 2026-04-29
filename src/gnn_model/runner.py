@@ -19,7 +19,6 @@ from .data import GraphDatasetBundle, load_split_graph_datasets
 from .data.constants import (
     EDGE_FEATURE_DIM,
     GRAPH_FEATURE_DIM,
-    GRAPH_METRIC_DIM,
     NODE_FEATURE_DIM,
 )
 from .data.prepared_dataset import load_prepared_graph_datasets
@@ -195,7 +194,6 @@ def build_model(
         node_dim=NODE_FEATURE_DIM,
         edge_dim=EDGE_FEATURE_DIM,
         graph_dim=GRAPH_FEATURE_DIM,
-        graph_metric_dim=GRAPH_METRIC_DIM,
         hidden_dim=config.model.hidden_dim,
         targets=target_names,
         num_heads=config.model.num_heads,

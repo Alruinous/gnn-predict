@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import torch
 import torch.nn.functional as F
+from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 
 from gnn_model.evaluation.metrics import (
@@ -42,24 +43,28 @@ class WeightedSmoothL1Loss(torch.nn.Module):
                 f"prediction shape mismatch: {predictions.shape} != {targets.shape}"
             )
         loss = F.smooth_l1_loss(predictions, targets, reduction="none")
-        weights = self.weights.to(loss.device)
+        weights = self.weights
+        assert isinstance(weights, torch.Tensor)
+        weights = weights.to(loss.device)
         return (loss * weights).mean()
 
 
 def train_model(
     *,
     model: torch.nn.Module,
-    train_data: list[object],
-    val_data: list[object],
+    train_data: list[Data],
+    val_data: list[Data],
     training_config: TrainingConfig,
     checkpoint_dir: Path,
     device: torch.device,
     logger: logging.Logger,
 ) -> TrainingArtifacts:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    first_target = train_data[0].y
+    assert isinstance(first_target, torch.Tensor)
     loss_weights = resolve_loss_weights(
         training_config.loss_weights,
-        target_dim=train_data[0].y.size(-1),
+        target_dim=first_target.size(-1),
     )
     criterion = WeightedSmoothL1Loss(loss_weights, device=device)
     optimizer = torch.optim.AdamW(
@@ -143,7 +148,7 @@ def train_model(
 def evaluate_model(
     *,
     model: torch.nn.Module,
-    dataset: list[object],
+    dataset: list[Data],
     batch_size: int,
     device: torch.device,
     target_names: list[str],

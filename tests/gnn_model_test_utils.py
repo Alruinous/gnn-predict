@@ -20,7 +20,6 @@ from common.onnx_initializer import (
 from gnn_model.data.constants import (
     EDGE_FEATURE_DIM,
     GRAPH_FEATURE_DIM,
-    GRAPH_METRIC_DIM,
     NODE_FEATURE_DIM,
 )
 from gnn_model.data.dataset import SPLIT_FILE_NAMES
@@ -107,14 +106,12 @@ def build_synthetic_graph(
         EDGE_FEATURE_DIM,
     )
     graph_features = torch.full((1, GRAPH_FEATURE_DIM), float(sample_index + 1))
-    graph_metrics = torch.full((1, GRAPH_METRIC_DIM), float(sample_index + 2))
     y = torch.arange(target_dim, dtype=torch.float32).unsqueeze(0) + sample_index
     data = Data(
         x=x / 100.0,
         edge_index=edge_index,
         edge_attr=edge_attr / 100.0,
         graph_features=graph_features / 10.0,
-        graph_metrics=graph_metrics / 10.0,
         y=y,
     )
     data.variant_name = f"synthetic_{sample_index}"
