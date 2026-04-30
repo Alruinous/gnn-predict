@@ -164,4 +164,12 @@ targets:
     pod_name: sg-wangjh-260424-ba324-default0-0
     gpu_id: "0"
     output_csv: "csv/yolov9_monitor.csv"
+
+  yolov11:
+    enabled: true
+    result_json: res/yolov11/results/yolov11_variants_v100_1777029532_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260424-c6e8f-default0-0
+    gpu_id: "2"
+    output_csv: "csv/yolov11_monitor.csv"
   

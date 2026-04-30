@@ -64,6 +64,90 @@ def test_build_graph_data_from_onnx_returns_expected_shapes(tmp_path: Path) -> N
     assert data.edge_index.shape[0] == 2
 
 
+def test_build_graph_data_from_onnx_supports_softplus(tmp_path: Path) -> None:
+    class SoftplusModel(torch.nn.Module):
+        def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+            return torch.nn.functional.softplus(inputs)
+
+    architecture_only_path = tmp_path / "softplus_architecture.onnx"
+    export_architecture_only_onnx(
+        SoftplusModel(),
+        architecture_only_path,
+        (1, 4),
+    )
+
+    data = build_graph_data_from_onnx(
+        architecture_only_path,
+        batch_size=2,
+        gpu_name="v100",
+        phase="training",
+        sample_count=1,
+    )
+
+    profile_macs_index = GRAPH_FEATURE_NAMES.index("profile_total_macs")
+    assert data.x.shape == (1, NODE_FEATURE_DIM)
+    assert data.edge_attr.shape[1] == EDGE_FEATURE_DIM
+    assert data.graph_features.shape == (1, GRAPH_FEATURE_DIM)
+    assert data.graph_features[0, profile_macs_index] > 0
+    assert data.x[0, 0] > 0
+
+
+def test_build_graph_data_from_onnx_supports_elu(tmp_path: Path) -> None:
+    class EluModel(torch.nn.Module):
+        def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+            return torch.nn.functional.elu(inputs)
+
+    architecture_only_path = tmp_path / "elu_architecture.onnx"
+    export_architecture_only_onnx(
+        EluModel(),
+        architecture_only_path,
+        (1, 4),
+    )
+
+    data = build_graph_data_from_onnx(
+        architecture_only_path,
+        batch_size=2,
+        gpu_name="v100",
+        phase="training",
+        sample_count=1,
+    )
+
+    profile_macs_index = GRAPH_FEATURE_NAMES.index("profile_total_macs")
+    assert data.x.shape == (1, NODE_FEATURE_DIM)
+    assert data.edge_attr.shape[1] == EDGE_FEATURE_DIM
+    assert data.graph_features.shape == (1, GRAPH_FEATURE_DIM)
+    assert data.graph_features[0, profile_macs_index] > 0
+    assert data.x[0, 0] > 0
+
+
+def test_build_graph_data_from_onnx_supports_selu(tmp_path: Path) -> None:
+    class SeluModel(torch.nn.Module):
+        def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+            return torch.nn.functional.selu(inputs)
+
+    architecture_only_path = tmp_path / "selu_architecture.onnx"
+    export_architecture_only_onnx(
+        SeluModel(),
+        architecture_only_path,
+        (1, 4),
+    )
+
+    data = build_graph_data_from_onnx(
+        architecture_only_path,
+        batch_size=2,
+        gpu_name="v100",
+        phase="training",
+        sample_count=1,
+    )
+
+    profile_macs_index = GRAPH_FEATURE_NAMES.index("profile_total_macs")
+    assert data.x.shape == (1, NODE_FEATURE_DIM)
+    assert data.edge_attr.shape[1] == EDGE_FEATURE_DIM
+    assert data.graph_features.shape == (1, GRAPH_FEATURE_DIM)
+    assert data.graph_features[0, profile_macs_index] > 0
+    assert data.x[0, 0] > 0
+
+
 def test_load_split_graph_datasets_reads_split_directory(tmp_path: Path) -> None:
     data_dir = write_split_dataset(tmp_path / "scaled")
 

@@ -8,6 +8,8 @@ import numpy as np
 import onnx
 import onnx_tool
 import torch
+from onnx_tool.node import ADD_MACS, CMP_MACS, EXP_MACS, LOG_MACS, MUL_MACS, PWNode
+from onnx_tool.utils import NODE_REGISTRY
 from torch_geometric.data import Data
 
 from common.onnx_initializer import load_runtime_input_names
@@ -43,6 +45,7 @@ def build_graph_data_from_onnx(
         batch_size=batch_size,
     )
 
+    register_onnx_tool_extensions()
     tool_model = onnx_tool.loadmodel(str(model_path))
     graph = tool_model.graph
     graph.shape_infer(runtime_inputs)
@@ -115,6 +118,48 @@ def build_graph_data_from_onnx(
         graph_features=torch.tensor(graph_features, dtype=torch.float32).unsqueeze(0),
         onnx_path=str(model_path),
     )
+
+
+def register_onnx_tool_extensions() -> None:
+    for node_class in (SoftplusNode, EluNode, SeluNode):
+        if NODE_REGISTRY.get(node_class.__name__) is None:
+            NODE_REGISTRY.register(node_class)
+
+
+class SoftplusNode(PWNode):
+    def __init__(self, node_proto: onnx.NodeProto) -> None:
+        super().__init__(node_proto)
+        self.op_mac = EXP_MACS + ADD_MACS + LOG_MACS
+        self.ratio = 1
+
+    def value_infer(self, intensors: list[Any], outtensors: list[Any]) -> None:
+        outtensors[0].update_tensor(np.logaddexp(intensors[0].get_numpy(), 0))
+
+
+class EluNode(PWNode):
+    def __init__(self, node_proto: onnx.NodeProto) -> None:
+        super().__init__(node_proto)
+        self.op_mac = CMP_MACS + EXP_MACS + ADD_MACS + MUL_MACS
+        self.ratio = 1
+        self.add_default_value("alpha", 1.0)
+
+    def value_infer(self, intensors: list[Any], outtensors: list[Any]) -> None:
+        x = intensors[0].get_numpy()
+        outtensors[0].update_tensor(np.where(x >= 0, x, self.alpha * np.expm1(x)))
+
+
+class SeluNode(PWNode):
+    def __init__(self, node_proto: onnx.NodeProto) -> None:
+        super().__init__(node_proto)
+        self.op_mac = CMP_MACS + EXP_MACS + ADD_MACS + MUL_MACS * 2
+        self.ratio = 1
+        self.add_default_value("alpha", 1.6732631921768188)
+        self.add_default_value("gamma", 1.0507010221481323)
+
+    def value_infer(self, intensors: list[Any], outtensors: list[Any]) -> None:
+        x = intensors[0].get_numpy()
+        negative = self.gamma * self.alpha * np.expm1(x)
+        outtensors[0].update_tensor(np.where(x > 0, self.gamma * x, negative))
 
 
 def collect_parameter_input_stats(

@@ -20,6 +20,8 @@ from gnn_model.data.dataset import SPLIT_FILE_NAMES, resolve_split_counts
 ID_FIELDS = ("variant_name", "phase")
 TARGET_FIELDS = (
     "duration_sec_avg",
+    "cpu_cores_p95",
+    "memory_gb_p95",
     "gpu_util_percent_p95",
     "gpu_sm_occupancy_percent_p95",
     "gpu_mem_used_mb_p95",
