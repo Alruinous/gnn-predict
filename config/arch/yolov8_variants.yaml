@@ -21,10 +21,10 @@ base_model_groups:
       - 3
       - 640
       - 640
-      export_onnx: true
+      export_onnx: false
       onnx_export_mode: architecture_only
       run_training: true
-      training_epochs: 3
+      training_epochs: 10
       training_batch_sizes:
       - 4
       - 8

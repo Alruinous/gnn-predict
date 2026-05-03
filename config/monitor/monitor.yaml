@@ -2,15 +2,15 @@ defaults:
   prometheus_url: "http://192.168.5.60:31110"
   namespace: "crater-workspace"
   cpu_rate_window: "22s"
-  query_step_seconds: 3
+  query_step_seconds: 1
 
 targets:
   vit:
     enabled: true
-    result_json: res/vit/results/vit_variants_v100_1776056636_results.json
+    result_json: res/vit/results/vit_variants_v100_1777702814_results.json
     node_name: dell-68
-    pod_name: sg-wangjh-260413-330a0-default0-0
-    gpu_id: "0"
+    pod_name: sg-wangjh-260501-fd03a-default0-0
+    gpu_id: "2"
     output_csv: csv/vit_monitor.csv
 
   vgg11:
@@ -31,17 +31,17 @@ targets:
 
   mobilenet:
     enabled: true
-    result_json: res/mobilenet/results/mobilenet_variants_v100_1776104108_results.json
+    result_json: res/mobilenet/results/mobilenet_variants_v100_1777663858_results.json
     node_name: dell-68
-    pod_name: sg-wangjh-260413-ff1b4-default0-0
-    gpu_id: "0"
+    pod_name: sg-wangjh-260501-63f6c-default0-0
+    gpu_id: "2"
     output_csv: "csv/mobilenet_monitor.csv"
 
   vgg16:
     enabled: true
-    result_json: res/vgg16/results/vgg16_variants_v100_1776056636_results.json
+    result_json: res/vgg16/results/vgg16_variants_v100_1777605342_results.json
     node_name: dell-68
-    pod_name: sg-wangjh-260413-4dfd5-default0-0
+    pod_name: sg-wangjh-260501-96343-default0-0
     gpu_id: "1"
     output_csv: "csv/vgg16_monitor.csv"
 
@@ -79,9 +79,9 @@ targets:
 
   resnet:
     enabled: true
-    result_json: res/resnet/results/resnet_variants_v100_1776056619_results.json
+    result_json: res/resnet/results/resnet_variants_v100_1777605359_results.json
     node_name: dell-67
-    pod_name: sg-wangjh-260413-87158-default0-0
+    pod_name: sg-wangjh-260501-ee080-default0-0
     gpu_id: "0"
     output_csv: "csv/resnet_monitor.csv"
 
@@ -94,10 +94,10 @@ targets:
     output_csv: csv/resnet152_monitor.csv
 
   yolov8:
-    enabled: false
-    result_json: "/home/wangjh/gnn-schedule/gen_archs/yolo/yolo_validation_results_1114/a100/yolov8_20251114_122840_results.json"
+    enabled: true
+    result_json: res/yolov8/results/yolov8_variants_v100_1777297814_results.json
     node_name: "dell-67"
-    pod_name: "sg-wangjh-260424-9dea3-default0-0"
+    pod_name: "sg-wangjh-260427-2b036-default0-0"
     gpu_id: "1"
     output_csv: "csv/yolov8_monitor.csv"
 
@@ -119,10 +119,10 @@ targets:
 
   beit:
     enabled: true
-    result_json: res/beit/results/beit_variants_v100_1776158447_results.json
+    result_json: res/beit/results/beit_variants_v100_1777692920_results.json
     node_name: dell-67
-    pod_name: sg-wangjh-260413-1d626-default0-0
-    gpu_id: "0"
+    pod_name: sg-wangjh-260501-d8db3-default0-0
+    gpu_id: "3"
     output_csv: "csv/beit_monitor.csv"
 
   beit_base_patch16_224:
