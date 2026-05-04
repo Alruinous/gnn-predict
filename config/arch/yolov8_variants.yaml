@@ -24,7 +24,7 @@ base_model_groups:
       export_onnx: false
       onnx_export_mode: architecture_only
       run_training: true
-      training_epochs: 10
+      training_epochs: 300
       training_batch_sizes:
       - 4
       - 8

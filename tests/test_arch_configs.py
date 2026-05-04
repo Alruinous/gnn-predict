@@ -26,10 +26,9 @@ from gnn_archs.variant_runner import build_bert_config
 ROOT = Path(__file__).resolve().parents[1]
 ARCH_CONFIG_DIR = ROOT / "config" / "arch"
 ARCH_CONFIG_PATHS = sorted(ARCH_CONFIG_DIR.glob("*.yaml"), key=lambda path: path.name)
-BERT_TEXT_CONFIG_PATHS = [
-    ARCH_CONFIG_DIR / "bert_variants.yaml",
-    ARCH_CONFIG_DIR / "bert_large_variants.yaml",
-]
+BERT_TEXT_CONFIG_PATHS = sorted(
+    ARCH_CONFIG_DIR.glob("bert*_variants*.yaml"), key=lambda path: path.name
+)
 
 
 def load_arch_config(config_path: Path) -> ArchConfig:

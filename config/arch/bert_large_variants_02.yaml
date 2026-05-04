@@ -1,0 +1,115 @@
+base_model_groups:
+- base_model:
+    name: bert-large-uncased
+    pretrained: true
+  combinatorial_variant_grid:
+    input_channels:
+    - 1
+    output_classes:
+    - 5
+    - 50
+    - 500
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 128
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      max_sequence_length: 128
+      use_fake_text_dataset: true
+      run_training: true
+      training_epochs: 30
+      training_batch_sizes:
+      - 8
+      - 16
+      - 32
+      - 64
+      fake_dataset_size: 16
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 60.0
+    mutation_sets:
+    - name: profile_20l_960h_15a_3840i
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 20
+      - type: HiddenSizeModification
+        params:
+          hidden_size: 960
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 15
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 3840
+    - name: profile_18l_896h_14a_3584i
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 18
+      - type: HiddenSizeModification
+        params:
+          hidden_size: 896
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 14
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 3584
+    - name: profile_16l_832h_13a_3328i
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 16
+      - type: HiddenSizeModification
+        params:
+          hidden_size: 832
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 13
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 3328
+    - name: profile_14l_768h_12a_3072i
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 14
+      - type: HiddenSizeModification
+        params:
+          hidden_size: 768
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 12
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 3072
+    - name: profile_12l_704h_11a_2816i
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 12
+      - type: HiddenSizeModification
+        params:
+          hidden_size: 704
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 11
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 2816
+    - name: profile_10l_640h_10a_2560i
+      mutations:
+      - type: TransformerLayerReduction
+        params:
+          target_layers: 10
+      - type: HiddenSizeModification
+        params:
+          hidden_size: 640
+      - type: AttentionHeadsModification
+        params:
+          num_heads: 10
+      - type: IntermediateSizeModification
+        params:
+          intermediate_size: 2560
