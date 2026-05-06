@@ -9,6 +9,7 @@ import torch
 import yaml
 from ultralytics.nn.tasks import yaml_model_load
 
+import gnn_archs.yolo_builder as yolo_builder_module
 from gnn_archs.config import ArchConfig
 from gnn_archs.util.variant_expander import expand_arch_config
 from gnn_archs.variant_runner import (
@@ -252,8 +253,7 @@ def test_train_detection_model_uses_fixed_train_output_contract(
         variant_config_overrides={
             "example_input_shape": [1, 3, 8, 8],
             "training_batch_sizes": [2],
-            "training_epochs": 1,
-            "fake_dataset_size": 4,
+            "training_measurement_min_seconds": 1e-9,
         },
     )
     model = _FixedTrainDetectionModel()
@@ -270,8 +270,31 @@ def test_train_detection_model_uses_fixed_train_output_contract(
 
     result = train_detection_model(variant, model, torch.device("cpu"))
 
+    assert result.metrics["total_steps"] == 1
+    assert generated_shapes == [(2, 3, 8, 8)]
+
+
+def test_train_detection_model_records_elapsed_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    variant = _build_yolo_variant(
+        [],
+        variant_config_overrides={
+            "example_input_shape": [1, 3, 8, 8],
+            "training_batch_sizes": [2],
+            "training_measurement_min_seconds": 5.0,
+        },
+    )
+    model = _FixedTrainDetectionModel()
+    time_values = iter([100.0, 102.0, 106.0])
+    monkeypatch.setattr(yolo_builder_module.time, "time", lambda: next(time_values))
+
+    result = train_detection_model(variant, model, torch.device("cpu"))
+
+    assert result.hyperparameters["measurement_min_seconds"] == 5.0
     assert result.metrics["total_steps"] == 2
-    assert generated_shapes == [(2, 3, 8, 8), (2, 3, 8, 8)]
+    assert result.timings.started_at_ts == 100.0
+    assert result.timings.ended_at_ts == 106.0
 
 
 def test_run_detection_inference_uses_fixed_eval_output_contract() -> None:

@@ -7,9 +7,10 @@ __pycache__/
 .pytest_cache/
 
 
-/data/
+data/
 res/
 test/
+/bak
 
 .agents/
 .vscode/
@@ -21,6 +22,9 @@ test/
 ruff.toml
 
 *.log
+*.zip
+*.rar
+*.tar.gz
 
 tmp/
 
@@ -28,3 +32,4 @@ tmp/
 
 /csv/
 /output/
+perfseer/

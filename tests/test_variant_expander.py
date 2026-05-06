@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from gnn_archs.config import ArchConfig, is_text_model_name
@@ -87,6 +88,10 @@ def test_expand_group_variants_generates_grid_and_fc_variants() -> None:
         variant.variant_config.inference_measurement_min_seconds == 5.0
         for variant in variants
     )
+    assert all(
+        variant.variant_config.training_measurement_min_seconds == 5.0
+        for variant in variants
+    )
 
 
 def test_expand_group_variants_keeps_text_input_shape_flat() -> None:
@@ -133,6 +138,54 @@ def test_expand_group_variants_keeps_text_input_shape_flat() -> None:
         variant.variant_config.example_input_shape == [1, 128] for variant in variants
     )
     assert all(variant.variant_config.target_input_channels == 1 for variant in variants)
+
+
+def test_variant_config_rejects_training_epochs_field() -> None:
+    with pytest.raises(ValueError, match="training_epochs"):
+        ArchConfig.model_validate(
+            {
+                "base_model_groups": [
+                    {
+                        "base_model": {"name": "resnet18", "pretrained": True},
+                        "single_variant_define": [
+                            {
+                                "name": "old_training_field",
+                                "variant_config": {
+                                    "target_input_channels": 3,
+                                    "target_output_classes": 10,
+                                    "example_input_shape": [1, 3, 224, 224],
+                                    "training_epochs": 3,
+                                },
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+
+def test_variant_config_rejects_fake_dataset_size_field() -> None:
+    with pytest.raises(ValueError, match="fake_dataset_size"):
+        ArchConfig.model_validate(
+            {
+                "base_model_groups": [
+                    {
+                        "base_model": {"name": "resnet18", "pretrained": True},
+                        "single_variant_define": [
+                            {
+                                "name": "old_dataset_field",
+                                "variant_config": {
+                                    "target_input_channels": 3,
+                                    "target_output_classes": 10,
+                                    "example_input_shape": [1, 3, 224, 224],
+                                    "fake_dataset_size": 4,
+                                },
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
 
 
 def test_is_text_model_name_uses_normalized_prefixes() -> None:

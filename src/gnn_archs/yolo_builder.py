@@ -335,53 +335,57 @@ def train_detection_model(
     """Run synthetic training for detection models."""
     batch_size = spec.variant_config.training_batch_sizes[0]
     _, channels, height, width = spec.variant_config.example_input_shape
-    dataset_size = spec.variant_config.fake_dataset_size
     generator = torch.Generator(device=device).manual_seed(42)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    measurement_min_seconds = spec.variant_config.training_measurement_min_seconds
     total_steps = 0
     last_loss = 0.0
+
+    if device.type == "cuda" and torch.cuda.is_available():
+        torch.cuda.synchronize(device)
     training_started_at = time.time()
+    training_ended_at = training_started_at
 
     model.train()
-    for _epoch in range(spec.variant_config.training_epochs):
-        for batch_start in range(0, dataset_size, batch_size):
-            current_batch_size = min(batch_size, dataset_size - batch_start)
-            optimizer.zero_grad(set_to_none=True)
-            img_batch = torch.randn(
-                (current_batch_size, channels, height, width),
-                generator=generator,
-                device=device,
-            )
-            outputs = model(img_batch)
-            if not isinstance(outputs, dict):
-                raise TypeError(
-                    f"unexpected YOLO training output type: {type(outputs)}"
-                )
-            boxes = outputs.get("boxes")
-            scores = outputs.get("scores")
-            if not isinstance(boxes, torch.Tensor) or not isinstance(
-                scores, torch.Tensor
-            ):
-                raise TypeError("YOLO training output must contain boxes and scores")
+    while (
+        total_steps == 0
+        or training_ended_at - training_started_at < measurement_min_seconds
+    ):
+        optimizer.zero_grad(set_to_none=True)
+        img_batch = torch.randn(
+            (batch_size, channels, height, width),
+            generator=generator,
+            device=device,
+        )
+        outputs = model(img_batch)
+        if not isinstance(outputs, dict):
+            raise TypeError(f"unexpected YOLO training output type: {type(outputs)}")
+        boxes = outputs.get("boxes")
+        scores = outputs.get("scores")
+        if not isinstance(boxes, torch.Tensor) or not isinstance(scores, torch.Tensor):
+            raise TypeError("YOLO training output must contain boxes and scores")
 
-            loss = boxes.sum() + scores.sum()
-            loss.backward()
-            optimizer.step()
+        loss = boxes.sum() + scores.sum()
+        loss.backward()
+        optimizer.step()
 
-            total_steps += 1
-            last_loss = float(loss.detach().item())
-
-    training_ended_at = time.time()
+        total_steps += 1
+        last_loss = float(loss.detach().item())
+        if device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize(device)
+        training_ended_at = time.time()
 
     return TrainingResult(
         hyperparameters={
             "batch_size": batch_size,
-            "epochs": spec.variant_config.training_epochs,
-            "dataset_size": dataset_size,
+            "measurement_min_seconds": measurement_min_seconds,
         },
         optimizer={"name": "AdamW", "lr": 1e-3},
-        metrics={"final_loss": last_loss, "total_steps": total_steps},
+        metrics={
+            "final_loss": last_loss,
+            "total_steps": total_steps,
+        },
         timings=_build_time_window(training_started_at, training_ended_at),
     )
 

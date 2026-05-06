@@ -15,19 +15,18 @@ base_model_groups:
       - 3
       - 299
       - 299
-      export_onnx: false
+      export_onnx: true
       onnx_export_mode: architecture_only
       use_fake_imagenet: true
       run_training: true
-      training_epochs: 3
+      training_measurement_min_seconds: 30.0
       training_batch_sizes:
       - 16
       - 32
       - 64
-      fake_dataset_size: 8000
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 60.0
+      inference_measurement_min_seconds: 40.0
     mutation_sets:
     - name: no_mutations
       mutations: []
@@ -153,80 +152,68 @@ base_model_groups:
       mutations:
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: SiLU
+          target_func_name: relu
+          new_func_name: swish
     - name: gelu_activation
       mutations:
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: GELU
+          target_func_name: relu
+          new_func_name: gelu
     - name: leaky_relu_activation
       mutations:
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: LeakyReLU
+          target_func_name: relu
+          new_func_name: leaky_relu
     - name: kernel_replacement_3x3_to_1x1
       mutations:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
     - name: kernel_replacement_mixed
       mutations:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_4a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 5
           - 5
+          padding: 2
     - name: aggressive_kernel_replacement
       mutations:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2b_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_4a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
     - name: efficient_inception_v1
       mutations:
       - type: ChannelPruning
@@ -239,8 +226,8 @@ base_model_groups:
           ratio: 0.25
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: SiLU
+          target_func_name: relu
+          new_func_name: swish
     - name: efficient_inception_v2
       mutations:
       - type: ChannelPruning
@@ -254,12 +241,10 @@ base_model_groups:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
     - name: mobile_inception
       mutations:
       - type: ChannelPruning
@@ -281,16 +266,14 @@ base_model_groups:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: SiLU
+          target_func_name: relu
+          new_func_name: swish
     - name: ultra_efficient_inception
       mutations:
       - type: ChannelPruning
@@ -320,25 +303,21 @@ base_model_groups:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2b_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: SiLU
+          target_func_name: relu
+          new_func_name: swish
     - name: inception_e_lightweight
       mutations:
       - type: ChannelPruning
@@ -433,26 +412,26 @@ base_model_groups:
       mutations:
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: SiLU
+          target_func_name: relu
+          new_func_name: mish
     - name: elu_activation
       mutations:
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: ELU
+          target_func_name: relu
+          new_func_name: elu
     - name: prelu_activation
       mutations:
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: PReLU
+          target_func_name: relu
+          new_func_name: prelu
     - name: hardswish_activation
       mutations:
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: SiLU
+          target_func_name: relu
+          new_func_name: hardswish
     - name: mixed_activation_strategy
       mutations:
       - type: ChannelPruning
@@ -461,28 +440,24 @@ base_model_groups:
           ratio: 0.25
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: GELU
+          target_func_name: relu
+          new_func_name: gelu
     - name: depthwise_simulation
       mutations:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2b_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_4a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ChannelPruning
         params:
           layer_name: Conv2d_2b_3x3.conv
@@ -492,81 +467,69 @@ base_model_groups:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_4a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 5
           - 5
+          padding: 2
     - name: large_kernel_experiment
       mutations:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 7
           - 7
+          padding: 3
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_4a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 7
           - 7
+          padding: 3
     - name: asymmetric_kernels
       mutations:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 3
+          padding:
+          - 0
+          - 1
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2b_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 3
           - 1
+          padding:
+          - 1
+          - 0
     - name: mixed_kernel_strategy
       mutations:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_4a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 5
           - 5
+          padding: 2
       - type: ChannelPruning
         params:
           layer_name: Conv2d_2a_3x3.conv
@@ -592,16 +555,14 @@ base_model_groups:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: SiLU
+          target_func_name: relu
+          new_func_name: swish
     - name: efficient_transformer_like
       mutations:
       - type: ChannelPruning
@@ -622,8 +583,8 @@ base_model_groups:
           ratio: 0.4
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: GELU
+          target_func_name: relu
+          new_func_name: gelu
     - name: mobilenet_inspired
       mutations:
       - type: ChannelPruning
@@ -645,25 +606,21 @@ base_model_groups:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2b_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: SiLU
+          target_func_name: relu
+          new_func_name: swish
     - name: resnet_inspired_skip
       mutations:
       - type: ChannelPruning
@@ -688,8 +645,8 @@ base_model_groups:
           ratio: 0.25
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: ELU
+          target_func_name: relu
+          new_func_name: elu
     - name: extreme_efficiency
       mutations:
       - type: ChannelPruning
@@ -727,31 +684,162 @@ base_model_groups:
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_2b_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ConvKernelReplacement
         params:
           layer_name: Conv2d_4a_3x3.conv
-          old_kernel_size:
-          - 3
-          - 3
-          new_kernel_size:
+          new_kernel:
           - 1
           - 1
+          padding: 0
       - type: ActivationSwap
         params:
-          old_activation: ReLU
-          new_activation: SiLU
+          target_func_name: relu
+          new_func_name: swish
+    - name: reduction_block_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6a.branch3x3.conv
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7a.branch3x3_2.conv
+          ratio: 0.2
+    - name: inception_a_spatial_branch_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5c.branch5x5_2.conv
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5c.branch3x3dbl_2.conv
+          ratio: 0.25
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_5c.branch3x3dbl_3.conv
+          ratio: 0.25
+    - name: inception_c_factorized_7x7_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6c.branch7x7_2.conv
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6c.branch7x7_3.conv
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_6c.branch7x7dbl_5.conv
+          ratio: 0.2
+    - name: inception_e_split_branch_pruning
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7b.branch3x3_2a.conv
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7b.branch3x3_2b.conv
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7b.branch3x3dbl_3a.conv
+          ratio: 0.2
+      - type: ChannelPruning
+        params:
+          layer_name: Mixed_7b.branch3x3dbl_3b.conv
+          ratio: 0.2
+    - name: factorized_kernel_7x7_to_5x5
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Mixed_6c.branch7x7_2.conv
+          new_kernel:
+          - 1
+          - 5
+          padding:
+          - 0
+          - 2
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Mixed_6c.branch7x7_3.conv
+          new_kernel:
+          - 5
+          - 1
+          padding:
+          - 2
+          - 0
+    - name: head_dropout_20
+      mutations:
+      - type: ModifyDropout
+        params:
+          layer_name: head_drop
+          new_p: 0.2
+    - name: fc_bottleneck_512
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 512
+          dropout_rates:
+          - 0.2
+          activations:
+          - relu
+    - name: global_l1_prune_15
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.15
+          pruning_method: l1
+    - name: fc_intermediate_1024
+      mutations:
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 1024
+          dropout_rate: 0.2
+          activation: relu
+    - name: fc_expand_4096
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 4096
+          dropout_rates:
+          - 0.2
+          activations:
+          - relu
+    - name: fc_expand_4096_1024
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 4096
+          - 1024
+          dropout_rates:
+          - 0.2
+          - 0.2
+          activations:
+          - relu
+          - relu
+    - name: inception_a_5x5_to_7x7
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: Mixed_5c.branch5x5_2.conv
+          new_kernel:
+          - 7
+          - 7
+          padding: 3

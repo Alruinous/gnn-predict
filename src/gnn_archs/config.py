@@ -29,8 +29,6 @@ def is_text_model_name(model_name: str) -> bool:
     return any(normalized_name.startswith(prefix) for prefix in TEXT_MODEL_PREFIXES)
 
 
-# ============== 新增：Detection 模型识别 ==============
-
 DETECTION_MODEL_PREFIXES = (
     "yolov3",
     "yolov5",
@@ -91,9 +89,8 @@ class VariantConfig(StrictModel):
     export_onnx: bool = False
     onnx_export_mode: Literal["full", "architecture_only"] = "full"
     training_batch_sizes: list[int] = Field(default_factory=lambda: [32])
-    training_epochs: int = 1
+    training_measurement_min_seconds: float = 5.0
     use_fake_imagenet: bool = False
-    fake_dataset_size: int = 1000
     use_fake_text_dataset: bool = False
     use_real_text_dataset: bool = False
     max_sequence_length: int = 128
@@ -127,10 +124,8 @@ class VariantConfig(StrictModel):
             if value is not None and value <= 0:
                 raise ValueError(f"{field_name} must be positive when provided")
 
-        if self.training_epochs <= 0:
-            raise ValueError("training_epochs must be positive")
-        if self.fake_dataset_size <= 0:
-            raise ValueError("fake_dataset_size must be positive")
+        if self.training_measurement_min_seconds <= 0:
+            raise ValueError("training_measurement_min_seconds must be positive")
         if self.max_sequence_length <= 0:
             raise ValueError("max_sequence_length must be positive")
         if self.pre_inference_cooldown_seconds < 0:

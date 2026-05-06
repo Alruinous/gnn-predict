@@ -17,12 +17,11 @@ base_model_groups:
       run_training: true
       training_batch_sizes:
       - 8
-      training_epochs: 3
+      training_measurement_min_seconds: 30.0
       use_fake_imagenet: true
-      fake_dataset_size: 2000
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 60.0
+      inference_measurement_min_seconds: 40.0
     mutations:
     - type: BEiTBlockReduction
       params:
@@ -52,12 +51,11 @@ base_model_groups:
       run_training: true
       training_batch_sizes:
       - 8
-      training_epochs: 3
+      training_measurement_min_seconds: 30.0
       use_fake_imagenet: true
-      fake_dataset_size: 2000
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 60.0
+      inference_measurement_min_seconds: 40.0
     mutations:
     - type: BEiTBlockReduction
       params:
@@ -93,12 +91,11 @@ base_model_groups:
       run_training: true
       training_batch_sizes:
       - 16
-      training_epochs: 3
+      training_measurement_min_seconds: 30.0
       use_fake_imagenet: true
-      fake_dataset_size: 2000
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 60.0
+      inference_measurement_min_seconds: 40.0
     mutations:
     - type: BEiTModifyMLPDimension
       params:
@@ -131,15 +128,14 @@ base_model_groups:
       onnx_export_mode: architecture_only
       use_fake_imagenet: true
       run_training: true
-      training_epochs: 3
+      training_measurement_min_seconds: 30.0
       training_batch_sizes:
       - 8
       - 32
       - 64
-      fake_dataset_size: 2000
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 60.0
+      inference_measurement_min_seconds: 40.0
     mutation_sets:
     - name: no_mutations
       mutations: []
@@ -1106,15 +1102,14 @@ base_model_groups:
       onnx_export_mode: architecture_only
       use_fake_imagenet: true
       run_training: true
-      training_epochs: 3
+      training_measurement_min_seconds: 30.0
       training_batch_sizes:
       - 4
       - 16
       - 32
-      fake_dataset_size: 1500
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 60.0
+      inference_measurement_min_seconds: 40.0
     mutation_sets:
     - name: no_mutations
       mutations: []

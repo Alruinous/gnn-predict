@@ -24,13 +24,14 @@ from gnn_archs.util.variant_expander import expand_arch_config
 from gnn_archs.variant_runner import (
     RunContext,
     build_example_batch,
-    build_training_dataset,
+    build_training_batch,
     build_variant_model,
     count_parameters,
     derive_config_output_name,
     prepare_output_layout,
     run_inference,
     run_variant,
+    train_model,
 )
 
 
@@ -97,7 +98,6 @@ def build_text_variant(
                                 "export_onnx": False,
                                 "use_fake_text_dataset": True,
                                 "max_sequence_length": resolved_input_shape[1],
-                                "fake_dataset_size": 4,
                             },
                             "mutations": mutations,
                         }
@@ -176,9 +176,8 @@ def test_image_variant_runner_executes_training_inference_and_onnx(
                                 "run_inference": True,
                                 "export_onnx": True,
                                 "training_batch_sizes": [2],
-                                "training_epochs": 1,
+                                "training_measurement_min_seconds": 1e-9,
                                 "use_fake_imagenet": True,
-                                "fake_dataset_size": 4,
                             },
                             "mutations": [
                                 {
@@ -223,10 +222,45 @@ def test_image_variant_runner_executes_training_inference_and_onnx(
     exported_model = onnx.load(result.onnx_export.path)
     assert len(exported_model.graph.initializer) > 0
     assert [value.name for value in exported_model.graph.input] == ["inputs"]
-    assert result.training.metrics["total_steps"] == 2
+    assert result.training.metrics["total_steps"] == 1
     assert result.metadata["model_kind"] == "image"
     assert result.onnx_export.graph_info["runtime_input_names"] == ["inputs"]
     assert result.onnx_export.graph_info["parameter_input_names"] == []
+
+
+def test_train_model_records_elapsed_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    variant = build_image_variant(
+        [],
+        variant_name="timed_training_variant",
+        example_input_shape=[1, 3, 8, 8],
+    ).model_copy(
+        update={
+            "variant_config": build_image_variant(
+                [],
+                variant_name="timed_training_config",
+                example_input_shape=[1, 3, 8, 8],
+            ).variant_config.model_copy(
+                update={
+                    "run_training": True,
+                    "training_measurement_min_seconds": 5.0,
+                    "training_batch_sizes": [2],
+                    "use_fake_imagenet": True,
+                }
+            )
+        }
+    )
+    model = torch.nn.Sequential(torch.nn.Flatten(), torch.nn.Linear(3 * 8 * 8, 4))
+    time_values = iter([100.0, 102.0, 106.0])
+    monkeypatch.setattr(variant_runner_module.time, "time", lambda: next(time_values))
+
+    result = train_model(variant, model, torch.device("cpu"))
+
+    assert result.hyperparameters["measurement_min_seconds"] == 5.0
+    assert result.metrics["total_steps"] == 2
+    assert result.timings.started_at_ts == 100.0
+    assert result.timings.ended_at_ts == 106.0
 
 
 def test_image_variant_runner_can_export_architecture_only_onnx(
@@ -362,10 +396,9 @@ def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
                                 "run_inference": True,
                                 "export_onnx": False,
                                 "training_batch_sizes": [2],
-                                "training_epochs": 1,
+                                "training_measurement_min_seconds": 1e-9,
                                 "use_fake_text_dataset": True,
                                 "max_sequence_length": 8,
-                                "fake_dataset_size": 4,
                             },
                             "mutations": [
                                 {
@@ -586,27 +619,40 @@ def test_cleanup_workload_boundary_clears_cuda_cache_when_available(
     assert cuda_calls == [("sync", "cuda:0"), ("empty_cache", None)]
 
 
-def test_build_training_dataset_keeps_fake_tensors_on_cpu() -> None:
+def test_build_training_batch_keeps_fake_tensors_on_cpu() -> None:
     image_variant = build_image_variant(
         [],
         variant_name="image_cpu_dataset",
         example_input_shape=[1, 3, 16, 16],
     )
     image_model = build_variant_model(image_variant)
-    image_dataset = build_training_dataset(image_variant, image_model)
-    image_inputs, image_labels = image_dataset.tensors
+    image_inputs, image_labels = build_training_batch(
+        spec=image_variant,
+        model=image_model,
+        batch_size=2,
+        generator=torch.Generator().manual_seed(42),
+    )
 
     assert image_inputs.device.type == "cpu"
     assert image_labels.device.type == "cpu"
+    assert image_inputs.shape == (2, 3, 16, 16)
+    assert image_labels.shape == (2,)
 
-    text_variant = build_text_variant([], variant_name="text_cpu_dataset")
+    text_variant = build_text_variant([], variant_name="text_cpu_batch")
     text_model = build_variant_model(text_variant)
-    text_dataset = build_training_dataset(text_variant, text_model)
-    text_input_ids, text_attention_mask, text_labels = text_dataset.tensors
+    text_input_ids, text_attention_mask, text_labels = build_training_batch(
+        spec=text_variant,
+        model=text_model,
+        batch_size=2,
+        generator=torch.Generator().manual_seed(42),
+    )
 
     assert text_input_ids.device.type == "cpu"
     assert text_attention_mask.device.type == "cpu"
     assert text_labels.device.type == "cpu"
+    assert text_input_ids.shape == (2, 8)
+    assert text_attention_mask.shape == (2, 8)
+    assert text_labels.shape == (2,)
 
 
 def test_build_example_batch_keeps_runtime_inputs_on_cpu() -> None:
@@ -1395,9 +1441,6 @@ def test_build_variant_model_rejects_invalid_convnext_dropout_probability() -> N
         build_variant_model(invalid_variant)
 
 
-# ============== YOLO Detection 运行时 Smoke Tests ==============
-
-
 def _build_yolo_variant(
     mutations: list[dict[str, object]],
     *,
@@ -1421,9 +1464,8 @@ def _build_yolo_variant(
                                 "export_onnx": True,
                                 "onnx_export_mode": "full",
                                 "training_batch_sizes": [2],
-                                "training_epochs": 1,
+                                "training_measurement_min_seconds": 1e-9,
                                 "use_fake_imagenet": True,
-                                "fake_dataset_size": 4,
                                 "inference_measurement_min_seconds": 0.1,
                             },
                             "mutations": mutations,
@@ -1462,7 +1504,7 @@ def test_detection_variant_runner_executes_training_inference_and_onnx(
     assert len(exported_model.graph.node) > 0
     assert result.metadata["model_kind"] == "detection"
     assert result.onnx_export.graph_info["runtime_input_names"] == ["images"]
-    assert result.training.metrics["total_steps"] == 2
+    assert result.training.metrics["total_steps"] == 1
 
 
 def test_detection_variant_runner_with_activation_mutation(

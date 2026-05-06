@@ -18,12 +18,18 @@ GRID_TEMPLATE_KEYS = {
     "export_onnx",
     "onnx_export_mode",
     "training_batch_sizes",
-    "training_epochs",
+    "training_measurement_min_seconds",
     "use_fake_imagenet",
-    "fake_dataset_size",
     "use_fake_text_dataset",
     "use_real_text_dataset",
     "max_sequence_length",
+}
+ALLOWED_GRID_KEYS = {
+    "input_channels",
+    "output_classes",
+    "base_variant_config_template",
+    "mutation_sets",
+    *GRID_TEMPLATE_KEYS,
 }
 
 
@@ -77,6 +83,12 @@ def migrate_single_variant_definition(raw_variant: dict[str, Any]) -> dict[str, 
 
 
 def migrate_combinatorial_grid(raw_grid: dict[str, Any]) -> dict[str, Any]:
+    unknown_keys = set(raw_grid) - ALLOWED_GRID_KEYS
+    if unknown_keys:
+        raise ValueError(
+            f"unsupported combinatorial_variant_grid keys: {sorted(unknown_keys)}"
+        )
+
     template = deepcopy(raw_grid.get("base_variant_config_template", {}))
     for key in GRID_TEMPLATE_KEYS:
         if key in raw_grid:
@@ -103,6 +115,8 @@ def migrate_combinatorial_grid(raw_grid: dict[str, Any]) -> dict[str, Any]:
 
 def migrate_variant_config(raw_config: dict[str, Any]) -> dict[str, Any]:
     config = deepcopy(raw_config)
+    if "fake_dataset_size" in config:
+        raise ValueError("unsupported variant_config key: fake_dataset_size")
 
     if "run_workload" in config and "run_inference" not in config:
         config["run_inference"] = config["run_workload"]
@@ -113,11 +127,6 @@ def migrate_variant_config(raw_config: dict[str, Any]) -> dict[str, Any]:
     if "training_batch_sizes" in config:
         config["training_batch_sizes"] = normalize_batch_sizes(
             config["training_batch_sizes"]
-        )
-    if "fake_dataset_size" in config:
-        config["fake_dataset_size"] = normalize_scalar_value(
-            key="fake_dataset_size",
-            value=config["fake_dataset_size"],
         )
 
     if "run_training" not in config:
@@ -169,11 +178,3 @@ def normalize_batch_sizes(value: int | list[int]) -> list[int]:
     if isinstance(value, list) and all(isinstance(item, int) for item in value):
         return value
     raise ValueError(f"training_batch_sizes must be an int or a list of ints: {value}")
-
-
-def normalize_scalar_value(key: str, value: Any) -> int:
-    if isinstance(value, int):
-        return value
-    if isinstance(value, list) and len(value) == 1 and isinstance(value[0], int):
-        return value[0]
-    raise ValueError(f"{key} must be an int or a single-item int list: {value}")

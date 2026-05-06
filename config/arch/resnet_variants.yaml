@@ -25,12 +25,11 @@ base_model_groups:
       - 160
       - 256
       - 320
-      training_epochs: 3
+      training_measurement_min_seconds: 30.0
       use_fake_imagenet: true
-      fake_dataset_size: 10000
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 60.0
+      inference_measurement_min_seconds: 40.0
     mutations:
     - type: ChannelPruning
       params:
@@ -62,12 +61,11 @@ base_model_groups:
       - 160
       - 256
       - 320
-      training_epochs: 3
+      training_measurement_min_seconds: 30.0
       use_fake_imagenet: true
-      fake_dataset_size: 10000
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 60.0
+      inference_measurement_min_seconds: 40.0
     mutations:
     - type: ChannelPruning
       params:
@@ -95,12 +93,11 @@ base_model_groups:
       - 160
       - 256
       - 320
-      training_epochs: 3
+      training_measurement_min_seconds: 30.0
       use_fake_imagenet: true
-      fake_dataset_size: 10000
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 60.0
+      inference_measurement_min_seconds: 40.0
     mutations:
     - type: GlobalChannelPruning
       params:
@@ -127,7 +124,7 @@ base_model_groups:
       - 224
       use_fake_imagenet: true
       run_training: true
-      training_epochs: 3
+      training_measurement_min_seconds: 30.0
       training_batch_sizes:
       - 16
       - 32
@@ -138,10 +135,9 @@ base_model_groups:
       - 160
       - 256
       - 320
-      fake_dataset_size: 10000
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 60.0
+      inference_measurement_min_seconds: 40.0
     mutation_sets:
     - name: no_mutations
       mutations: []

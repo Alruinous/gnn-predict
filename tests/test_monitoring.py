@@ -369,7 +369,11 @@ def test_extract_phase_records_fails_when_phase_timing_missing(tmp_path: Path) -
 
 
 @pytest.mark.parametrize(
-    ("include_training_epochs", "include_inference_iterations", "expected_message"),
+    (
+        "include_training_total_steps",
+        "include_inference_iterations",
+        "expected_message",
+    ),
     [
         (False, True, "training phase_rounds must be int"),
         (True, False, "inference phase_rounds must be int"),
@@ -377,13 +381,13 @@ def test_extract_phase_records_fails_when_phase_timing_missing(tmp_path: Path) -
 )
 def test_extract_phase_records_fails_when_phase_rounds_missing(
     tmp_path: Path,
-    include_training_epochs: bool,
+    include_training_total_steps: bool,
     include_inference_iterations: bool,
     expected_message: str,
 ) -> None:
     result_json = _write_result_document(
         tmp_path,
-        include_training_epochs=include_training_epochs,
+        include_training_total_steps=include_training_total_steps,
         include_inference_iterations=include_inference_iterations,
     )
 
@@ -683,7 +687,7 @@ def _write_result_document(
     tmp_path: Path,
     *,
     missing_training_timing: bool = False,
-    include_training_epochs: bool = True,
+    include_training_total_steps: bool = True,
     include_inference_iterations: bool = True,
 ) -> Path:
     training_timings = (
@@ -702,8 +706,10 @@ def _write_result_document(
         started_at_text="2026-03-31T13:27:23+00:00",
         ended_at_text="2026-03-31T13:27:29+00:00",
     )
-    training_hyperparameters = {"epochs": 3} if include_training_epochs else {}
-    inference_metrics = {"iterations": 42} if include_inference_iterations else {}
+    training_metrics = {"total_steps": 3} if include_training_total_steps else {}
+    inference_metrics = {"batch_size": 8}
+    if include_inference_iterations:
+        inference_metrics["iterations"] = 42
     variant = VariantResult(
         name="bert-large-cased_ic1_oc2_no_mutations_large",
         base_model_name="bert-large-cased",
@@ -713,7 +719,8 @@ def _write_result_document(
         variant_config={},
         mutations=[],
         training=TrainingResult(
-            hyperparameters=training_hyperparameters,
+            hyperparameters={"batch_size": 8},
+            metrics=training_metrics,
             timings=training_timings,
         ),
         inference=InferenceResult(

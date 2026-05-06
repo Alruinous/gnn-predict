@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from gnn_archs.config import ArchConfig
@@ -21,8 +22,9 @@ def test_migrated_resnet_config_matches_new_schema() -> None:
 
     assert template.run_training is True
     assert template.run_inference is True
-    assert template.pre_inference_cooldown_seconds == 3.0
-    assert template.inference_measurement_min_seconds == 5.0
+    assert template.pre_inference_cooldown_seconds == 5.0
+    assert template.inference_measurement_min_seconds == 60.0
+    assert template.training_measurement_min_seconds == 30.0
     assert template.export_onnx is False
     assert template.onnx_export_mode == "architecture_only"
     assert template.target_input_channels is None
@@ -89,6 +91,7 @@ def test_legacy_grid_phase_isolation_settings_are_migrated_into_template() -> No
                     "run_inference": True,
                     "pre_inference_cooldown_seconds": 4.0,
                     "inference_measurement_min_seconds": 6.0,
+                    "training_measurement_min_seconds": 7.0,
                     "base_variant_config_template": {
                         "example_input_shape": [1, 3, 224, 224],
                     },
@@ -105,3 +108,50 @@ def test_legacy_grid_phase_isolation_settings_are_migrated_into_template() -> No
 
     assert template["pre_inference_cooldown_seconds"] == 4.0
     assert template["inference_measurement_min_seconds"] == 6.0
+    assert template["training_measurement_min_seconds"] == 7.0
+
+
+def test_legacy_training_epochs_is_rejected() -> None:
+    legacy_config = {
+        "base_model_groups": [
+            {
+                "base_model": {"name": "resnet18", "pretrained": True},
+                "combinatorial_variant_grid": {
+                    "input_channels": [3],
+                    "output_classes": [10],
+                    "training_epochs": 3,
+                    "base_variant_config_template": {
+                        "example_input_shape": [1, 3, 224, 224],
+                    },
+                    "mutation_sets": [{"name": "no_mutations", "mutations": []}],
+                },
+            }
+        ]
+    }
+
+    with pytest.raises(ValueError, match="training_epochs"):
+        migrate_arch_config_dict(legacy_config)
+
+
+def test_legacy_fake_dataset_size_is_rejected() -> None:
+    legacy_config = {
+        "base_model_groups": [
+            {
+                "base_model": {"name": "resnet18", "pretrained": True},
+                "single_variant_define": [
+                    {
+                        "name": "sample_variant",
+                        "variant_config": {
+                            "target_input_channels": 3,
+                            "target_output_classes": 10,
+                            "example_input_shape": [1, 3, 224, 224],
+                            "fake_dataset_size": 4,
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+
+    with pytest.raises(ValueError, match="fake_dataset_size"):
+        migrate_arch_config_dict(legacy_config)

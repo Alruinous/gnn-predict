@@ -1,9 +1,11 @@
-from typing import Optional
+from __future__ import annotations
+
 import logging
+
 
 def get_logger(
     name: str,
-    file: Optional[str] = None,
+    file: str | None = None,
 ) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)

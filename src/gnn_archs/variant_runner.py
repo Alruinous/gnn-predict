@@ -11,7 +11,6 @@ import onnx
 import timm
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
 from transformers import BertConfig, BertForSequenceClassification
 
 from gnn_archs.config import is_detection_model_name, is_text_model_name
@@ -170,7 +169,11 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
             metadata={
                 "device": str(context.device),
                 "gpu_node": context.gpu_node,
-                "model_kind": "detection" if is_detection_model else ("text" if is_text_model else "image"),
+                "model_kind": (
+                    "detection"
+                    if is_detection_model
+                    else ("text" if is_text_model else "image")
+                ),
                 "parameter_count": count_parameters(model),
                 "validation_batch_size": validation_metrics["batch_size"],
                 "validation_num_outputs": validation_metrics["num_outputs"],
@@ -209,7 +212,6 @@ def wait_for_inference_cooldown(
 def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
     assert spec.variant_config.target_output_classes is not None
 
-    # ---- detection (YOLO) 路径 ----
     if is_detection_model_name(spec.base_model.name):
         from gnn_archs.yolo_builder import build_detection_model
 
@@ -299,7 +301,6 @@ def export_onnx_model(
     context: RunContext,
     is_text_model: bool,
 ) -> OnnxExportResult:
-    # ---- detection (YOLO) 路径 ----
     if is_detection_model_name(spec.base_model.name):
         from gnn_archs.yolo_builder import export_detection_onnx
 
@@ -372,7 +373,6 @@ def train_model(
     model: nn.Module,
     device: torch.device,
 ) -> TrainingResult:
-    # ---- detection (YOLO) 路径 ----
     if is_detection_model_name(spec.base_model.name):
         from gnn_archs.yolo_builder import train_detection_model
 
@@ -386,47 +386,58 @@ def train_model(
     elif not spec.variant_config.use_fake_imagenet:
         raise NotImplementedError("real image dataset preparation is not migrated yet")
 
+    is_text_model = is_text_model_name(spec.base_model.name)
     batch_size = spec.variant_config.training_batch_sizes[0]
-    dataset = build_training_dataset(spec, model)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    generator = torch.Generator().manual_seed(42)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     criterion = nn.CrossEntropyLoss()
 
+    measurement_min_seconds = spec.variant_config.training_measurement_min_seconds
     total_steps = 0
     last_loss = 0.0
+
+    synchronize_device(device)
     training_started_at = time.time()
+    training_ended_at = training_started_at
 
     model.train()
-    for _epoch_index in range(spec.variant_config.training_epochs):
-        for batch in dataloader:
-            optimizer.zero_grad(set_to_none=True)
+    while (
+        total_steps == 0
+        or training_ended_at - training_started_at < measurement_min_seconds
+    ):
+        batch = build_training_batch(
+            spec=spec,
+            model=model,
+            batch_size=batch_size,
+            generator=generator,
+        )
+        optimizer.zero_grad(set_to_none=True)
 
-            if is_text_model_name(spec.base_model.name):
-                input_ids, attention_mask, labels = [
-                    tensor.to(device) for tensor in batch
-                ]
-                outputs = model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    labels=labels,
-                )
-                loss = outputs.loss
-            else:
-                inputs, labels = [tensor.to(device) for tensor in batch]
-                logits = extract_logits(model(inputs))
-                loss = criterion(logits, labels)
+        if is_text_model:
+            input_ids, attention_mask, labels = [tensor.to(device) for tensor in batch]
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels,
+            )
+            loss = outputs.loss
+        else:
+            inputs, labels = [tensor.to(device) for tensor in batch]
+            logits = extract_logits(model(inputs))
+            loss = criterion(logits, labels)
 
-            loss.backward()
-            optimizer.step()
+        loss.backward()
+        optimizer.step()
 
-            total_steps += 1
-            last_loss = float(loss.detach().item())
+        total_steps += 1
+        last_loss = float(loss.detach().item())
+        synchronize_device(device)
+        training_ended_at = time.time()
 
     return TrainingResult(
         hyperparameters={
             "batch_size": batch_size,
-            "epochs": spec.variant_config.training_epochs,
-            "dataset_size": len(dataset),
+            "measurement_min_seconds": measurement_min_seconds,
         },
         optimizer={
             "name": "AdamW",
@@ -436,7 +447,7 @@ def train_model(
             "final_loss": last_loss,
             "total_steps": total_steps,
         },
-        timings=build_time_window(training_started_at, time.time()),
+        timings=build_time_window(training_started_at, training_ended_at),
     )
 
 
@@ -446,7 +457,6 @@ def run_inference(
     device: torch.device,
     is_text_model: bool,
 ) -> InferenceResult:
-    # ---- detection (YOLO) 路径 ----
     if is_detection_model_name(spec.base_model.name):
         from gnn_archs.yolo_builder import run_detection_inference
 
@@ -487,43 +497,35 @@ def run_inference(
     )
 
 
-def build_training_dataset(
+def build_training_batch(
     spec: ResolvedVariantSpec,
     model: nn.Module,
-) -> TensorDataset:
-    dataset_size = spec.variant_config.fake_dataset_size
-    generator = torch.Generator().manual_seed(42)
-
+    batch_size: int,
+    generator: torch.Generator,
+) -> tuple[torch.Tensor, ...]:
+    output_classes = spec.variant_config.target_output_classes
+    assert output_classes is not None
     if is_text_model_name(spec.base_model.name):
         sequence_length = spec.variant_config.example_input_shape[1]
         vocab_size = int(model.config.vocab_size)  # type: ignore[attr-defined]
-        labels = torch.randint(
-            0,
-            spec.variant_config.target_output_classes,
-            (dataset_size,),
-            generator=generator,
-        )
-        return TensorDataset(
+        return (
             torch.randint(
                 0,
                 vocab_size,
-                (dataset_size, sequence_length),
+                (batch_size, sequence_length),
                 generator=generator,
             ),
-            torch.ones(
-                (dataset_size, sequence_length),
-                dtype=torch.long,
-            ),
-            labels,
+            torch.ones((batch_size, sequence_length), dtype=torch.long),
+            torch.randint(0, output_classes, (batch_size,), generator=generator),
         )
 
     _, channels, height, width = spec.variant_config.example_input_shape
-    return TensorDataset(
-        torch.randn((dataset_size, channels, height, width), generator=generator),
+    return (
+        torch.randn((batch_size, channels, height, width), generator=generator),
         torch.randint(
             0,
-            spec.variant_config.target_output_classes,
-            (dataset_size,),
+            output_classes,
+            (batch_size,),
             generator=generator,
         ),
     )

@@ -283,7 +283,7 @@ def _build_phase_record(
     if phase == "training":
         training = variant.training
         assert training is not None
-        phase_rounds = training.hyperparameters.get("epochs")
+        phase_rounds = training.metrics.get("total_steps")
     else:
         assert phase == "inference", phase
         inference = variant.inference
