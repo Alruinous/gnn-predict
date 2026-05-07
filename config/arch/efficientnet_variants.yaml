@@ -1,0 +1,238 @@
+base_model_groups:
+- base_model:
+    name: efficientnet_b0
+    pretrained: true
+  combinatorial_variant_grid: &efficientnet_grid
+    input_channels:
+    - 3
+    output_classes:
+    - 10
+    - 100
+    - 1000
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      use_fake_imagenet: true
+      run_training: true
+      training_measurement_min_seconds: 40.0
+      training_batch_sizes:
+      - 16
+      - 32
+      - 64
+      - 128
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+    mutation_sets:
+    - name: no_mutations
+      mutations: []
+    - name: head_fc_512_relu
+      mutations:
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 512
+          dropout_rate: 0.1
+          activation: relu
+    - name: head_fc_1024_silu
+      mutations:
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 1024
+          dropout_rate: 0.1
+          activation: silu
+    - name: fc_512
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 512
+          dropout_rates:
+          - 0.1
+          activations:
+          - relu
+    - name: fc_1024_256
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 1024
+          - 256
+          dropout_rates:
+          - 0.1
+          - 0.0
+          activations:
+          - silu
+          - relu
+    - name: fc_2048_512
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 2048
+          - 512
+          dropout_rates:
+          - 0.1
+          - 0.0
+          activations:
+          - silu
+          - relu
+    - name: stem_kernel_1x1
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv_stem
+          new_kernel:
+          - 1
+          - 1
+          padding: 0
+    - name: stem_kernel_5x5
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv_stem
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+    - name: stem_depthwise
+      mutations:
+      - type: ConvToDepthwiseSeparable
+        params:
+          layer_name: conv_stem
+    - name: head_kernel_3x3
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv_head
+          new_kernel:
+          - 3
+          - 3
+          padding: 1
+    - name: head_grouped_g8
+      mutations:
+      - type: ConvToGroupedConv
+        params:
+          layer_name: conv_head
+          groups: 8
+    - name: block1_dw_5x5
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: blocks.1.0.conv_dw
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+    - name: block2_dw_5x5
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: blocks.2.0.conv_dw
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+    - name: activation_relu
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: silu
+          replace_activation: relu
+    - name: activation_gelu
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: silu
+          replace_activation: gelu
+    - name: activation_hardswish
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: silu
+          replace_activation: hardswish
+    - name: activation_mish
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: silu
+          replace_activation: mish
+    - name: prune_stem
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: conv_stem
+          ratio: 0.125
+    - name: prune_head
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: conv_head
+          ratio: 0.05
+    - name: prune_block1_pw
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: blocks.1.0.conv_pw
+          ratio: 0.05
+    - name: global_stem_head_0p03
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.03
+          layers_to_target:
+          - conv_stem
+          - conv_head
+          ignored_layers: []
+    - name: global_stem_head_0p05
+      mutations:
+      - type: GlobalChannelPruning
+        params:
+          pruning_ratio: 0.05
+          layers_to_target:
+          - conv_stem
+          - conv_head
+          ignored_layers: []
+    - name: mixed_stem5_relu
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: conv_stem
+          new_kernel:
+          - 5
+          - 5
+          padding: 2
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: silu
+          replace_activation: relu
+    - name: mixed_fc512_prune_head
+      mutations:
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 512
+          dropout_rate: 0.1
+          activation: relu
+      - type: ChannelPruning
+        params:
+          layer_name: conv_head
+          ratio: 0.05
+
+- base_model:
+    name: efficientnet_b1
+    pretrained: true
+  combinatorial_variant_grid: *efficientnet_grid
+
+- base_model:
+    name: efficientnet_b2
+    pretrained: true
+  combinatorial_variant_grid: *efficientnet_grid
+
+- base_model:
+    name: efficientnet_b3
+    pretrained: true
+  combinatorial_variant_grid: *efficientnet_grid

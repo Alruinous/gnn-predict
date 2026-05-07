@@ -19,7 +19,7 @@ base_model_groups:
       - 8
       - 16
       - 32
-      training_measurement_min_seconds: 30.0
+      training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       use_real_text_dataset: true
       run_inference: true
@@ -59,7 +59,7 @@ base_model_groups:
       - 8
       - 16
       - 32
-      training_measurement_min_seconds: 30.0
+      training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       use_real_text_dataset: true
       run_inference: true
@@ -102,7 +102,7 @@ base_model_groups:
       - 8
       - 16
       - 32
-      training_measurement_min_seconds: 30.0
+      training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       use_real_text_dataset: true
       run_inference: true
@@ -142,7 +142,7 @@ base_model_groups:
       use_real_text_dataset: true
       use_fake_imagenet: false
       run_training: true
-      training_measurement_min_seconds: 30.0
+      training_measurement_min_seconds: 40.0
       training_batch_sizes:
       - 8
       - 16

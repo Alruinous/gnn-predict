@@ -220,4 +220,28 @@ targets:
     pod_name: sg-wangjh-260424-c6e8f-default0-0
     gpu_id: "2"
     output_csv: "csv/yolov11_monitor.csv"
+    
+  efficientnet:
+    enabled: true
+    result_json: res/efficientnet/results/efficientnet_variants_v100_1778089073_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260507-db3e7-default0-0
+    gpu_id: "2"
+    output_csv: "csv/efficientnet_monitor.csv"
+
+  inception:
+    enabled: true
+    result_json: res/inception_v3/results/inception_v3_variants_v100_1778076764_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260506-cc69d-default0-0
+    gpu_id: "2"
+    output_csv: "csv/inception_monitor.csv"
+    
+  swin:
+    enabled: true
+    result_json: res/swin/results/swin_variants_v100_1778111018_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260507-4f4fe-default0-0
+    gpu_id: "2"
+    output_csv: "csv/swin_monitor.csv"
   

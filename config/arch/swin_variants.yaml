@@ -1,0 +1,214 @@
+base_model_groups:
+- base_model:
+    name: swin_tiny_patch4_window7_224
+    pretrained: true
+  combinatorial_variant_grid: &swin_grid
+    input_channels:
+    - 3
+    output_classes:
+    - 10
+    - 100
+    - 1000
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 3
+      - 224
+      - 224
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      use_fake_imagenet: true
+      run_training: true
+      training_measurement_min_seconds: 40.0
+      training_batch_sizes:
+      - 16
+      - 32
+      - 48
+      - 64
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+    mutation_sets:
+    - name: no_mutations
+      mutations: []
+    - name: head_fc_512
+      mutations:
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 512
+          dropout_rate: 0.1
+          activation: gelu
+    - name: head_fc_1024
+      mutations:
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 1024
+          dropout_rate: 0.1
+          activation: gelu
+    - name: fc_512
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 512
+          dropout_rates:
+          - 0.1
+          activations:
+          - gelu
+    - name: fc_1024_256
+      mutations:
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 1024
+          - 256
+          dropout_rates:
+          - 0.1
+          - 0.0
+          activations:
+          - gelu
+          - relu
+    - name: patch_kernel_2x2
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: patch_embed.proj
+          new_kernel:
+          - 2
+          - 2
+          padding: 0
+    - name: patch_kernel_6x6
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: patch_embed.proj
+          new_kernel:
+          - 6
+          - 6
+          padding: 1
+    - name: activation_relu
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: gelu
+          replace_activation: relu
+    - name: activation_silu
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: gelu
+          replace_activation: silu
+    - name: stage0_attn_dropout
+      mutations:
+      - type: ModifyDropout
+        params:
+          layer_name: layers.0.blocks.0.attn.attn_drop
+          new_p: 0.1
+      - type: ModifyDropout
+        params:
+          layer_name: layers.0.blocks.0.attn.proj_drop
+          new_p: 0.1
+      - type: ModifyDropout
+        params:
+          layer_name: layers.0.blocks.1.attn.attn_drop
+          new_p: 0.1
+      - type: ModifyDropout
+        params:
+          layer_name: layers.0.blocks.1.attn.proj_drop
+          new_p: 0.1
+    - name: stage0_mlp_dropout
+      mutations:
+      - type: ModifyDropout
+        params:
+          layer_name: layers.0.blocks.0.mlp.drop1
+          new_p: 0.1
+      - type: ModifyDropout
+        params:
+          layer_name: layers.0.blocks.0.mlp.drop2
+          new_p: 0.1
+      - type: ModifyDropout
+        params:
+          layer_name: layers.0.blocks.1.mlp.drop1
+          new_p: 0.1
+      - type: ModifyDropout
+        params:
+          layer_name: layers.0.blocks.1.mlp.drop2
+          new_p: 0.1
+    - name: stage2_mlp_dropout
+      mutations:
+      - type: ModifyDropout
+        params:
+          layer_name: layers.2.blocks.0.mlp.drop1
+          new_p: 0.1
+      - type: ModifyDropout
+        params:
+          layer_name: layers.2.blocks.0.mlp.drop2
+          new_p: 0.1
+    - name: mlp_fc1_prune_stage0
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layers.0.blocks.0.mlp.fc1
+          ratio: 0.05
+    - name: mlp_fc1_prune_stage2
+      mutations:
+      - type: ChannelPruning
+        params:
+          layer_name: layers.2.blocks.0.mlp.fc1
+          ratio: 0.05
+    - name: mixed_patch2_relu
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: patch_embed.proj
+          new_kernel:
+          - 2
+          - 2
+          padding: 0
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: gelu
+          replace_activation: relu
+    - name: mixed_fc512_stage0_drop
+      mutations:
+      - type: AddIntermediateFCLayer
+        params:
+          hidden_size: 512
+          dropout_rate: 0.1
+          activation: gelu
+      - type: ModifyDropout
+        params:
+          layer_name: layers.0.blocks.0.mlp.drop1
+          new_p: 0.1
+    - name: mixed_activation_stage2_prune
+      mutations:
+      - type: ActivationFunctionSwap
+        params:
+          target_activation: gelu
+          replace_activation: relu
+      - type: ChannelPruning
+        params:
+          layer_name: layers.2.blocks.0.mlp.fc1
+          ratio: 0.05
+    - name: mixed_patch6_fc512
+      mutations:
+      - type: ConvKernelReplacement
+        params:
+          layer_name: patch_embed.proj
+          new_kernel:
+          - 6
+          - 6
+          padding: 1
+      - type: ReplaceFCStructure
+        params:
+          fc_structure:
+          - 512
+          dropout_rates:
+          - 0.1
+          activations:
+          - gelu
+
+- base_model:
+    name: swin_small_patch4_window7_224
+    pretrained: true
+  combinatorial_variant_grid: *swin_grid

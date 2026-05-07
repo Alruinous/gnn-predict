@@ -156,6 +156,138 @@ def build_convnext_variant(
     )
 
 
+@pytest.mark.parametrize(
+    ("base_model_name", "mutation_name", "mutations"),
+    [
+        ("efficientnet_b0", "baseline", []),
+        (
+            "efficientnet_b0",
+            "fc",
+            [
+                {
+                    "type": "AddIntermediateFCLayer",
+                    "params": {
+                        "hidden_size": 512,
+                        "dropout_rate": 0.1,
+                        "activation": "relu",
+                    },
+                }
+            ],
+        ),
+        (
+            "efficientnet_b0",
+            "kernel",
+            [
+                {
+                    "type": "ConvKernelReplacement",
+                    "params": {
+                        "layer_name": "conv_stem",
+                        "new_kernel": [5, 5],
+                        "padding": 2,
+                    },
+                }
+            ],
+        ),
+        (
+            "efficientnet_b0",
+            "activation",
+            [
+                {
+                    "type": "ActivationFunctionSwap",
+                    "params": {
+                        "target_activation": "silu",
+                        "replace_activation": "relu",
+                    },
+                }
+            ],
+        ),
+        (
+            "efficientnet_b0",
+            "pruning",
+            [
+                {
+                    "type": "ChannelPruning",
+                    "params": {"layer_name": "conv_stem", "ratio": 0.125},
+                }
+            ],
+        ),
+        ("swin_tiny_patch4_window7_224", "baseline", []),
+        (
+            "swin_tiny_patch4_window7_224",
+            "fc",
+            [
+                {
+                    "type": "AddIntermediateFCLayer",
+                    "params": {
+                        "hidden_size": 512,
+                        "dropout_rate": 0.1,
+                        "activation": "gelu",
+                    },
+                }
+            ],
+        ),
+        (
+            "swin_tiny_patch4_window7_224",
+            "kernel",
+            [
+                {
+                    "type": "ConvKernelReplacement",
+                    "params": {
+                        "layer_name": "patch_embed.proj",
+                        "new_kernel": [2, 2],
+                        "padding": 0,
+                    },
+                }
+            ],
+        ),
+        (
+            "swin_tiny_patch4_window7_224",
+            "activation",
+            [
+                {
+                    "type": "ActivationFunctionSwap",
+                    "params": {
+                        "target_activation": "gelu",
+                        "replace_activation": "relu",
+                    },
+                }
+            ],
+        ),
+        (
+            "swin_tiny_patch4_window7_224",
+            "pruning",
+            [
+                {
+                    "type": "ChannelPruning",
+                    "params": {
+                        "layer_name": "layers.0.blocks.0.mlp.fc1",
+                        "ratio": 0.05,
+                    },
+                }
+            ],
+        ),
+    ],
+)
+def test_build_variant_model_supports_new_timm_model_configs(
+    base_model_name: str,
+    mutation_name: str,
+    mutations: list[dict[str, object]],
+) -> None:
+    variant = build_image_variant(
+        mutations,
+        base_model_name=base_model_name,
+        variant_name=f"{base_model_name}_{mutation_name}_smoke",
+        example_input_shape=[1, 3, 224, 224],
+    )
+
+    model = build_variant_model(variant)
+
+    model.eval()
+    with torch.no_grad():
+        logits = model(torch.randn(1, 3, 224, 224))
+    assert tuple(logits.shape) == (1, 4)
+
+
 def test_image_variant_runner_executes_training_inference_and_onnx(
     tmp_path: Path,
 ) -> None:

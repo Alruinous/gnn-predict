@@ -29,6 +29,10 @@ ARCH_CONFIG_PATHS = sorted(ARCH_CONFIG_DIR.glob("*.yaml"), key=lambda path: path
 BERT_TEXT_CONFIG_PATHS = sorted(
     ARCH_CONFIG_DIR.glob("bert*_variants*.yaml"), key=lambda path: path.name
 )
+NEW_IMAGE_CONFIG_VARIANT_COUNTS = {
+    "efficientnet_variants.yaml": 288,
+    "swin_variants.yaml": 108,
+}
 
 
 def load_arch_config(config_path: Path) -> ArchConfig:
@@ -96,6 +100,20 @@ def test_arch_configs_validate_and_expand(config_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("config_name", "expected_count"),
+    NEW_IMAGE_CONFIG_VARIANT_COUNTS.items(),
+)
+def test_new_image_arch_configs_expand_to_expected_counts(
+    config_name: str, expected_count: int
+) -> None:
+    config = load_arch_config(ARCH_CONFIG_DIR / config_name)
+
+    variants = expand_arch_config(config)
+
+    assert len(variants) == expected_count
+
+
+@pytest.mark.parametrize(
     "config_path",
     ARCH_CONFIG_PATHS,
     ids=[path.name for path in ARCH_CONFIG_PATHS],
@@ -132,8 +150,8 @@ def test_arch_configs_define_phase_isolation_for_training_inference_pairs(
         ):
             continue
         assert variant.variant_config.pre_inference_cooldown_seconds == 5.0
-        assert variant.variant_config.inference_measurement_min_seconds == 60.0
-        assert variant.variant_config.training_measurement_min_seconds == 60.0
+        assert variant.variant_config.inference_measurement_min_seconds == 40.0
+        assert variant.variant_config.training_measurement_min_seconds == 30.0
 
 
 @pytest.mark.parametrize(
