@@ -223,10 +223,10 @@ targets:
     
   efficientnet:
     enabled: true
-    result_json: res/efficientnet/results/efficientnet_variants_v100_1778089073_results.json
+    result_json: res/efficientnet/results/efficientnet_variants_v100_1778141196_results.json
     node_name: dell-68
-    pod_name: sg-wangjh-260507-db3e7-default0-0
-    gpu_id: "2"
+    pod_name: sg-wangjh-260507-ef09f-default0-0
+    gpu_id: "0"
     output_csv: "csv/efficientnet_monitor.csv"
 
   inception:
@@ -239,9 +239,9 @@ targets:
     
   swin:
     enabled: true
-    result_json: res/swin/results/swin_variants_v100_1778111018_results.json
+    result_json: res/swin/results/swin_variants_v100_1778131253_results.json
     node_name: dell-68
-    pod_name: sg-wangjh-260507-4f4fe-default0-0
-    gpu_id: "2"
+    pod_name: sg-wangjh-260507-b8bc4-default0-0
+    gpu_id: "0"
     output_csv: "csv/swin_monitor.csv"
   
