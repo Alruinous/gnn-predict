@@ -1,0 +1,3 @@
+[submodule "paper/acm-atc2026-sagepilot"]
+	path = paper/acm-atc2026-sagepilot
+	url = https://github.com/Jinghao-coding/acm-atc2026-sagepilot.git
