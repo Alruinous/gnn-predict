@@ -13,7 +13,11 @@ import torch
 import torch.nn as nn
 from transformers import BertConfig, BertForSequenceClassification
 
-from gnn_archs.config import is_detection_model_name, is_text_model_name
+from gnn_archs.config import (
+    is_detection_model_name,
+    is_text_model_name,
+    normalize_model_identifier,
+)
 from gnn_archs.mutations import (
     IMAGE_MUTATION_TYPES,
     TEXT_MUTATION_TYPES,
@@ -216,6 +220,11 @@ def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
         from gnn_archs.yolo_builder import build_detection_model
 
         return build_detection_model(spec)
+
+    if normalize_model_identifier(spec.base_model.name) == "gpt2":
+        from gnn_archs.gpt2_builder import build_gpt2_variant_model
+
+        return build_gpt2_variant_model(spec)
 
     if is_text_model_name(spec.base_model.name):
         validate_mutation_types(spec.mutations, TEXT_MUTATION_TYPES, "text")

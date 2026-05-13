@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import shutil
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,11 @@ from gnn_model.data.extract import (
     process_csv,
     resolve_onnx_path,
 )
-from gnn_model.data.onnx_graph import build_graph_data_from_onnx
+from gnn_model.data.onnx_graph import (
+    build_graph_data_from_onnx,
+    count_elements,
+    resolve_profile_tensor_shape,
+)
 from gnn_model.data.prepared_dataset import load_prepared_graph_datasets
 from gnn_model_test_utils import (
     TARGET_NAMES,
@@ -62,6 +67,16 @@ def test_build_graph_data_from_onnx_returns_expected_shapes(tmp_path: Path) -> N
     assert data.graph_features[0, profile_macs_index] > 0
     assert not hasattr(data, "graph_metrics")
     assert data.edge_index.shape[0] == 2
+
+
+def test_resolve_profile_tensor_shape_keeps_scalar_and_zero_length_shapes() -> None:
+    scalar_shape = resolve_profile_tensor_shape(SimpleNamespace(shape=()))
+    zero_length_shape = resolve_profile_tensor_shape(SimpleNamespace(shape=(0,)))
+
+    assert scalar_shape == ()
+    assert count_elements(scalar_shape) == 1
+    assert zero_length_shape == (0,)
+    assert count_elements(zero_length_shape) == 0
 
 
 def test_build_graph_data_from_onnx_supports_softplus(tmp_path: Path) -> None:

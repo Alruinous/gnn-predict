@@ -78,6 +78,23 @@ class MutationSet(StrictModel):
         return normalized_value
 
 
+class Gpt2ConfigOverride(StrictModel):
+    vocab_size: int
+    n_positions: int
+    n_embd: int
+    n_layer: int
+    n_head: int
+    n_inner: int | None = None
+    activation_function: str = "gelu_new"
+    resid_pdrop: float = 0.1
+    embd_pdrop: float = 0.1
+    attn_pdrop: float = 0.1
+    layer_norm_epsilon: float = 1e-5
+    initializer_range: float = 0.02
+    scale_attn_by_inverse_layer_idx: bool = False
+    reorder_and_upcast_attn: bool = False
+
+
 class VariantConfig(StrictModel):
     target_input_channels: int | None = None
     target_output_classes: int | None = None
@@ -94,6 +111,7 @@ class VariantConfig(StrictModel):
     use_fake_text_dataset: bool = False
     use_real_text_dataset: bool = False
     max_sequence_length: int = 128
+    gpt2_config: Gpt2ConfigOverride | None = None
 
     @field_validator("training_batch_sizes", mode="before")
     @classmethod

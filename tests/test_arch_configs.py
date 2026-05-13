@@ -33,6 +33,9 @@ NEW_IMAGE_CONFIG_VARIANT_COUNTS = {
     "efficientnet_variants.yaml": 288,
     "swin_variants.yaml": 108,
 }
+GPT2_CONFIG_VARIANT_COUNTS = {
+    "gpt2_variants.yaml": 240,
+}
 
 
 def load_arch_config(config_path: Path) -> ArchConfig:
@@ -111,6 +114,41 @@ def test_new_image_arch_configs_expand_to_expected_counts(
     variants = expand_arch_config(config)
 
     assert len(variants) == expected_count
+
+
+@pytest.mark.parametrize(
+    ("config_name", "expected_count"),
+    GPT2_CONFIG_VARIANT_COUNTS.items(),
+)
+def test_gpt2_arch_configs_expand_to_expected_counts(
+    config_name: str, expected_count: int
+) -> None:
+    config = load_arch_config(ARCH_CONFIG_DIR / config_name)
+
+    variants = expand_arch_config(config)
+
+    assert len(variants) == expected_count
+    assert all(variant.variant_config.gpt2_config is not None for variant in variants)
+    assert all(not variant.mutations for variant in variants)
+
+
+def test_gpt2_batch_sweep_variants_define_batch_in_name_and_config() -> None:
+    config = load_arch_config(ARCH_CONFIG_DIR / "gpt2_variants.yaml")
+
+    batch_variants = [
+        variant for variant in expand_arch_config(config) if "_bs" in variant.name
+    ]
+    batch_sizes = {
+        int(variant.name.rsplit("_bs", maxsplit=1)[1]) for variant in batch_variants
+    }
+
+    assert len(batch_variants) == 24
+    assert batch_sizes == {1, 2, 4, 8}
+    assert all(
+        variant.variant_config.example_input_shape[0]
+        == variant.variant_config.training_batch_sizes[0]
+        for variant in batch_variants
+    )
 
 
 @pytest.mark.parametrize(

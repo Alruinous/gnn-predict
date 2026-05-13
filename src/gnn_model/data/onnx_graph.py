@@ -342,10 +342,10 @@ def resolve_profile_tensor_shape(tensor_info: object) -> tuple[int, ...]:
     shape = getattr(tensor_info, "shape", None)
     assert shape is not None
     if isinstance(shape, int):
-        assert shape > 0, shape
+        assert shape >= 0, shape
         return (shape,)
     parsed_shape = tuple(int(dimension) for dimension in shape)
-    assert all(dimension > 0 for dimension in parsed_shape), shape
+    assert all(dimension >= 0 for dimension in parsed_shape), shape
     return parsed_shape
 
 

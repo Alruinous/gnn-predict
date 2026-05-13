@@ -10,7 +10,8 @@ import pytest
 import torch
 
 import gnn_archs.variant_runner as variant_runner_module
-from gnn_archs.config import ArchConfig
+from gnn_archs.config import ArchConfig, ResolvedVariantSpec
+from gnn_archs.gpt2_builder import Gpt2ForGnnArchsSequenceClassification
 from gnn_archs.mutations import SqueezeExcitationBlock
 from gnn_archs.result import (
     InferenceResult,
@@ -100,6 +101,63 @@ def build_text_variant(
                                 "max_sequence_length": resolved_input_shape[1],
                             },
                             "mutations": mutations,
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    return expand_arch_config(config)[0]
+
+
+def build_gpt2_config_override(**overrides: object) -> dict[str, object]:
+    config: dict[str, object] = {
+        "vocab_size": 32,
+        "n_positions": 16,
+        "n_embd": 32,
+        "n_layer": 2,
+        "n_head": 4,
+        "n_inner": 64,
+        "resid_pdrop": 0.0,
+        "embd_pdrop": 0.0,
+        "attn_pdrop": 0.0,
+    }
+    config.update(overrides)
+    return config
+
+
+def build_gpt2_variant(
+    *,
+    variant_name: str = "gpt2_runtime_smoke",
+    variant_config_overrides: dict[str, object] | None = None,
+    mutations: list[dict[str, object]] | None = None,
+) -> ResolvedVariantSpec:
+    variant_config = {
+        "target_input_channels": 1,
+        "target_output_classes": 3,
+        "example_input_shape": [2, 8],
+        "max_sequence_length": 8,
+        "run_training": False,
+        "run_inference": False,
+        "export_onnx": False,
+        "training_batch_sizes": [2],
+        "training_measurement_min_seconds": 1e-9,
+        "use_fake_text_dataset": True,
+        "gpt2_config": build_gpt2_config_override(),
+    }
+    if variant_config_overrides is not None:
+        variant_config.update(variant_config_overrides)
+
+    config = ArchConfig.model_validate(
+        {
+            "base_model_groups": [
+                {
+                    "base_model": {"name": "gpt2", "pretrained": False},
+                    "single_variant_define": [
+                        {
+                            "name": variant_name,
+                            "variant_config": variant_config,
+                            "mutations": mutations or [],
                         }
                     ],
                 }
@@ -508,6 +566,142 @@ def test_randomized_architecture_only_onnx_runs_with_runtime_inputs_only(
     assert [value.name for value in session.get_inputs()] == ["inputs"]
     outputs = session.run(None, {"inputs": torch.randn(1, 3, 32, 32).numpy()})
     assert outputs[0].shape == (1, 4)
+
+
+def test_build_variant_model_builds_gpt2_model() -> None:
+    variant = build_gpt2_variant()
+
+    model = build_variant_model(variant)
+    batch = build_example_batch(variant.variant_config, model, is_text_model=True)
+    outputs = model(**batch)
+
+    assert isinstance(model, Gpt2ForGnnArchsSequenceClassification)
+    assert model.config.n_embd == 32
+    assert model.config.pad_token_id == 0
+    assert outputs.logits.shape == (2, 3)
+
+
+@pytest.mark.parametrize(
+    ("variant_config_overrides", "match"),
+    [
+        ({"gpt2_config": None}, "variant_config.gpt2_config"),
+        (
+            {"gpt2_config": build_gpt2_config_override(n_embd=30, n_head=8)},
+            "divisible",
+        ),
+        (
+            {"gpt2_config": build_gpt2_config_override(n_positions=4)},
+            "n_positions",
+        ),
+        (
+            {"gpt2_config": build_gpt2_config_override(resid_pdrop=1.0)},
+            "resid_pdrop",
+        ),
+    ],
+)
+def test_build_variant_model_rejects_invalid_gpt2_config(
+    variant_config_overrides: dict[str, object],
+    match: str,
+) -> None:
+    variant = build_gpt2_variant(variant_config_overrides=variant_config_overrides)
+
+    with pytest.raises(ValueError, match=match):
+        build_variant_model(variant)
+
+
+def test_build_variant_model_rejects_gpt2_mutations() -> None:
+    variant = build_gpt2_variant(
+        mutations=[
+            {
+                "type": "HiddenSizeModification",
+                "params": {"hidden_size": 64},
+            }
+        ]
+    )
+
+    with pytest.raises(ValueError, match="do not support mutations"):
+        build_variant_model(variant)
+
+
+def test_gpt2_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
+    config_path = tmp_path / "gpt2_variants.yaml"
+    variant = build_gpt2_variant(
+        variant_config_overrides={
+            "run_training": True,
+            "run_inference": True,
+            "pre_inference_cooldown_seconds": 0.0,
+            "inference_measurement_min_seconds": 1e-9,
+        }
+    )
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_gpt2_variant_runner"),
+    )
+
+    result = run_variant(variant, context)
+
+    assert result.training is not None
+    assert result.inference is not None
+    assert result.metadata["model_kind"] == "text"
+    assert result.metadata["validation_num_outputs"] == 3
+
+
+def test_gpt2_architecture_only_onnx_randomizes_to_runtime_inputs(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "gpt2_variants.yaml"
+    variant = build_gpt2_variant(
+        variant_name="gpt2_architecture_only",
+        variant_config_overrides={
+            "export_onnx": True,
+            "onnx_export_mode": "architecture_only",
+        },
+    )
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_gpt2_architecture_only"),
+    )
+
+    result = run_variant(variant, context)
+    assert result.onnx_export is not None
+    assert result.onnx_export.graph_info["runtime_input_names"] == [
+        "input_ids",
+        "attention_mask",
+    ]
+    assert result.onnx_export.graph_info["initializer_names"] == []
+    assert result.onnx_export.graph_info["parameter_input_names"]
+
+    randomized_path = output_layout.onnx_models_dir / "gpt2_randomized.onnx"
+    write_randomized_onnx_model(
+        Path(result.onnx_export.path),
+        randomized_path,
+        seed=0,
+    )
+
+    session = ort.InferenceSession(
+        str(randomized_path),
+        providers=["CPUExecutionProvider"],
+    )
+    assert [value.name for value in session.get_inputs()] == [
+        "input_ids",
+        "attention_mask",
+    ]
+    outputs = session.run(
+        None,
+        {
+            "input_ids": torch.randint(0, 32, (2, 8), dtype=torch.long).numpy(),
+            "attention_mask": torch.ones((2, 8), dtype=torch.long).numpy(),
+        },
+    )
+    assert outputs[0].shape == (2, 3)
 
 
 def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:

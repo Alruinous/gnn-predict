@@ -244,4 +244,12 @@ targets:
     pod_name: sg-wangjh-260507-b8bc4-default0-0
     gpu_id: "0"
     output_csv: "csv/swin_monitor.csv"
+
+  gpt2:
+    enabled: true
+    result_json: res/gpt2/results/gpt2_variants_v100_1778610833_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260513-9484c-default0-0
+    gpu_id: "1"
+    output_csv: "csv/gpt2_monitor.csv"
   
