@@ -31,6 +31,7 @@ dependencies = [
     "polars>=1.39.3",
     "ray>=2.55.0",
     "ultralytics>=8.4.39",
+    "pip>=26.1.1",
 ]
 
 [dependency-groups]

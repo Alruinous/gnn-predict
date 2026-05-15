@@ -95,6 +95,23 @@ class Gpt2ConfigOverride(StrictModel):
     reorder_and_upcast_attn: bool = False
 
 
+class T5ConfigOverride(StrictModel):
+    vocab_size: int
+    d_model: int
+    d_ff: int
+    num_layers: int
+    num_decoder_layers: int
+    num_heads: int
+    d_kv: int | None = None
+    relative_attention_num_buckets: int = 32
+    relative_attention_max_distance: int = 128
+    dropout_rate: float = 0.0
+    classifier_dropout: float = 0.0
+    layer_norm_epsilon: float = 1e-6
+    initializer_factor: float = 1.0
+    feed_forward_proj: str = "relu"
+
+
 class VariantConfig(StrictModel):
     target_input_channels: int | None = None
     target_output_classes: int | None = None
@@ -112,6 +129,7 @@ class VariantConfig(StrictModel):
     use_real_text_dataset: bool = False
     max_sequence_length: int = 128
     gpt2_config: Gpt2ConfigOverride | None = None
+    t5_config: T5ConfigOverride | None = None
 
     @field_validator("training_batch_sizes", mode="before")
     @classmethod

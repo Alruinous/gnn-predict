@@ -226,6 +226,11 @@ def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
 
         return build_gpt2_variant_model(spec)
 
+    if normalize_model_identifier(spec.base_model.name) == "t5":
+        from gnn_archs.t5_builder import build_t5_variant_model
+
+        return build_t5_variant_model(spec)
+
     if is_text_model_name(spec.base_model.name):
         validate_mutation_types(spec.mutations, TEXT_MUTATION_TYPES, "text")
         config = build_bert_config(
@@ -359,7 +364,7 @@ def export_onnx_model(
         name for name in graph_input_names if name not in input_names
     ]
     initializer_names = [value.name for value in onnx_model.graph.initializer]
-    graph_info = {
+    graph_info: dict[str, int | float | str | list[str]] = {
         "node_count": len(onnx_model.graph.node),
         "input_names": graph_input_names,
         "output_names": [value.name for value in onnx_model.graph.output],
@@ -516,14 +521,8 @@ def build_training_batch(
     assert output_classes is not None
     if is_text_model_name(spec.base_model.name):
         sequence_length = spec.variant_config.example_input_shape[1]
-        vocab_size = int(model.config.vocab_size)  # type: ignore[attr-defined]
         return (
-            torch.randint(
-                0,
-                vocab_size,
-                (batch_size, sequence_length),
-                generator=generator,
-            ),
+            build_text_input_ids(model, batch_size, sequence_length, generator),
             torch.ones((batch_size, sequence_length), dtype=torch.long),
             torch.randint(0, output_classes, (batch_size,), generator=generator),
         )
@@ -549,19 +548,22 @@ def build_example_batch(
 
     if is_text_model:
         batch_size, sequence_length = variant_config.example_input_shape
-        max_position_embeddings = int(model.config.max_position_embeddings)  # type: ignore[attr-defined]
-        if sequence_length > max_position_embeddings:
-            raise ValueError(
-                "example_input_shape sequence length exceeds "
-                "the model max_position_embeddings"
+        if not is_t5_model(model):
+            max_position_embeddings = get_model_config_int(
+                model,
+                "max_position_embeddings",
             )
-        vocab_size = int(model.config.vocab_size)  # type: ignore[attr-defined]
+            if sequence_length > max_position_embeddings:
+                raise ValueError(
+                    "example_input_shape sequence length exceeds "
+                    "the model max_position_embeddings"
+                )
         return {
-            "input_ids": torch.randint(
-                0,
-                vocab_size,
-                (batch_size, sequence_length),
-                generator=generator,
+            "input_ids": build_text_input_ids(
+                model,
+                batch_size,
+                sequence_length,
+                generator,
             ),
             "attention_mask": torch.ones(
                 (batch_size, sequence_length),
@@ -576,6 +578,65 @@ def build_example_batch(
             generator=generator,
         )
     }
+
+
+def is_t5_model(model: nn.Module) -> bool:
+    return getattr(getattr(model, "config", None), "model_type", None) == "t5"
+
+
+def build_text_input_ids(
+    model: nn.Module,
+    batch_size: int,
+    sequence_length: int,
+    generator: torch.Generator,
+) -> torch.Tensor:
+    vocab_size = get_model_config_int(model, "vocab_size")
+    if is_t5_model(model):
+        return build_t5_input_ids(batch_size, sequence_length, vocab_size, generator)
+    return build_bert_like_text_input_ids(
+        batch_size,
+        sequence_length,
+        vocab_size,
+        generator,
+    )
+
+
+def get_model_config_int(model: nn.Module, field_name: str) -> int:
+    config = getattr(model, "config", None)
+    value = getattr(config, field_name, None)
+    if not isinstance(value, int):
+        raise ValueError(f"model config {field_name} must be an integer")
+    return value
+
+
+def build_bert_like_text_input_ids(
+    batch_size: int,
+    sequence_length: int,
+    vocab_size: int,
+    generator: torch.Generator,
+) -> torch.Tensor:
+    return torch.randint(
+        0,
+        vocab_size,
+        (batch_size, sequence_length),
+        generator=generator,
+    )
+
+
+def build_t5_input_ids(
+    batch_size: int,
+    sequence_length: int,
+    vocab_size: int,
+    generator: torch.Generator,
+) -> torch.Tensor:
+    input_ids = torch.randint(
+        2,
+        vocab_size,
+        (batch_size, sequence_length),
+        generator=generator,
+    )
+    input_ids[:, -1] = 1
+    return input_ids
 
 
 def forward_model(

@@ -36,6 +36,9 @@ NEW_IMAGE_CONFIG_VARIANT_COUNTS = {
 GPT2_CONFIG_VARIANT_COUNTS = {
     "gpt2_variants.yaml": 240,
 }
+T5_CONFIG_VARIANT_COUNTS = {
+    "t5_variants.yaml": 16,
+}
 
 
 def load_arch_config(config_path: Path) -> ArchConfig:
@@ -132,6 +135,22 @@ def test_gpt2_arch_configs_expand_to_expected_counts(
     assert all(not variant.mutations for variant in variants)
 
 
+@pytest.mark.parametrize(
+    ("config_name", "expected_count"),
+    T5_CONFIG_VARIANT_COUNTS.items(),
+)
+def test_t5_arch_configs_expand_to_expected_counts(
+    config_name: str, expected_count: int
+) -> None:
+    config = load_arch_config(ARCH_CONFIG_DIR / config_name)
+
+    variants = expand_arch_config(config)
+
+    assert len(variants) == expected_count
+    assert all(variant.variant_config.t5_config is not None for variant in variants)
+    assert all(not variant.mutations for variant in variants)
+
+
 def test_gpt2_batch_sweep_variants_define_batch_in_name_and_config() -> None:
     config = load_arch_config(ARCH_CONFIG_DIR / "gpt2_variants.yaml")
 
@@ -189,7 +208,7 @@ def test_arch_configs_define_phase_isolation_for_training_inference_pairs(
             continue
         assert variant.variant_config.pre_inference_cooldown_seconds == 5.0
         assert variant.variant_config.inference_measurement_min_seconds == 40.0
-        assert variant.variant_config.training_measurement_min_seconds == 30.0
+        assert variant.variant_config.training_measurement_min_seconds == 40.0
 
 
 @pytest.mark.parametrize(

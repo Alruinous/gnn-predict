@@ -4,10 +4,12 @@ import json
 import logging
 from pathlib import Path
 
+import numpy as np
 import onnx
 import onnxruntime as ort
 import pytest
 import torch
+from transformers import T5ForSequenceClassification
 
 import gnn_archs.variant_runner as variant_runner_module
 from gnn_archs.config import ArchConfig, ResolvedVariantSpec
@@ -165,6 +167,71 @@ def build_gpt2_variant(
         }
     )
     return expand_arch_config(config)[0]
+
+
+def build_t5_config_override(**overrides: object) -> dict[str, object]:
+    config: dict[str, object] = {
+        "vocab_size": 32,
+        "d_model": 32,
+        "d_ff": 64,
+        "num_layers": 1,
+        "num_decoder_layers": 1,
+        "num_heads": 4,
+        "d_kv": 8,
+        "relative_attention_num_buckets": 8,
+        "relative_attention_max_distance": 16,
+        "dropout_rate": 0.0,
+        "classifier_dropout": 0.0,
+    }
+    config.update(overrides)
+    return config
+
+
+def build_t5_variant(
+    *,
+    variant_name: str = "t5_runtime_smoke",
+    variant_config_overrides: dict[str, object] | None = None,
+    mutations: list[dict[str, object]] | None = None,
+) -> ResolvedVariantSpec:
+    variant_config: dict[str, object] = {
+        "target_input_channels": 1,
+        "target_output_classes": 3,
+        "example_input_shape": [2, 6],
+        "max_sequence_length": 6,
+        "run_training": False,
+        "run_inference": False,
+        "export_onnx": False,
+        "training_batch_sizes": [2],
+        "training_measurement_min_seconds": 1e-9,
+        "use_fake_text_dataset": True,
+        "t5_config": build_t5_config_override(),
+    }
+    if variant_config_overrides is not None:
+        variant_config.update(variant_config_overrides)
+
+    config = ArchConfig.model_validate(
+        {
+            "base_model_groups": [
+                {
+                    "base_model": {"name": "t5", "pretrained": False},
+                    "single_variant_define": [
+                        {
+                            "name": variant_name,
+                            "variant_config": variant_config,
+                            "mutations": mutations or [],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    return expand_arch_config(config)[0]
+
+
+def require_t5_test_eos_token_id(model: T5ForSequenceClassification) -> int:
+    eos_token_id = model.config.eos_token_id
+    assert isinstance(eos_token_id, int)
+    return eos_token_id
 
 
 def build_vgg_variant(mutations: list[dict[str, object]]) -> object:
@@ -704,6 +771,149 @@ def test_gpt2_architecture_only_onnx_randomizes_to_runtime_inputs(
     assert outputs[0].shape == (2, 3)
 
 
+def test_build_variant_model_builds_t5_model_with_eos_inputs() -> None:
+    variant = build_t5_variant()
+
+    model = build_variant_model(variant)
+    batch = build_example_batch(variant.variant_config, model, is_text_model=True)
+    outputs = model(**batch)
+
+    assert isinstance(model, T5ForSequenceClassification)
+    eos_token_id = require_t5_test_eos_token_id(model)
+    assert model.config.model_type == "t5"
+    assert batch["input_ids"].shape == (2, 6)
+    assert torch.all(batch["input_ids"][:, -1] == eos_token_id)
+    assert torch.all((batch["input_ids"] == eos_token_id).sum(dim=1) == 1)
+    assert outputs.logits.shape == (2, 3)
+
+
+@pytest.mark.parametrize(
+    ("variant_config_overrides", "match"),
+    [
+        ({"t5_config": None}, "variant_config.t5_config"),
+        (
+            {"t5_config": build_t5_config_override(d_model=30, num_heads=8, d_kv=None)},
+            "divisible",
+        ),
+        (
+            {"t5_config": build_t5_config_override(feed_forward_proj="gelu")},
+            "feed_forward_proj",
+        ),
+        (
+            {"t5_config": build_t5_config_override(dropout_rate=1.0)},
+            "dropout_rate",
+        ),
+    ],
+)
+def test_build_variant_model_rejects_invalid_t5_config(
+    variant_config_overrides: dict[str, object],
+    match: str,
+) -> None:
+    variant = build_t5_variant(variant_config_overrides=variant_config_overrides)
+
+    with pytest.raises(ValueError, match=match):
+        build_variant_model(variant)
+
+
+def test_build_variant_model_rejects_t5_mutations() -> None:
+    variant = build_t5_variant(
+        mutations=[
+            {
+                "type": "HiddenSizeModification",
+                "params": {"hidden_size": 64},
+            }
+        ]
+    )
+
+    with pytest.raises(ValueError, match="do not support mutations"):
+        build_variant_model(variant)
+
+
+def test_t5_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
+    config_path = tmp_path / "t5_variants.yaml"
+    variant = build_t5_variant(
+        variant_config_overrides={
+            "run_training": True,
+            "run_inference": True,
+            "pre_inference_cooldown_seconds": 0.0,
+            "inference_measurement_min_seconds": 1e-9,
+        }
+    )
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_t5_variant_runner"),
+    )
+
+    result = run_variant(variant, context)
+
+    assert result.training is not None
+    assert result.inference is not None
+    assert result.metadata["model_kind"] == "text"
+    assert result.metadata["validation_num_outputs"] == 3
+
+
+def test_t5_architecture_only_onnx_randomizes_to_runtime_inputs(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "t5_variants.yaml"
+    variant = build_t5_variant(
+        variant_name="t5_architecture_only",
+        variant_config_overrides={
+            "export_onnx": True,
+            "onnx_export_mode": "architecture_only",
+        },
+    )
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_t5_architecture_only"),
+    )
+
+    result = run_variant(variant, context)
+    assert result.onnx_export is not None
+    assert result.onnx_export.graph_info["runtime_input_names"] == [
+        "input_ids",
+        "attention_mask",
+    ]
+    assert result.onnx_export.graph_info["initializer_names"] == []
+    assert result.onnx_export.graph_info["parameter_input_names"]
+
+    randomized_path = output_layout.onnx_models_dir / "t5_randomized.onnx"
+    write_randomized_onnx_model(
+        Path(result.onnx_export.path),
+        randomized_path,
+        seed=0,
+    )
+
+    session = ort.InferenceSession(
+        str(randomized_path),
+        providers=["CPUExecutionProvider"],
+    )
+    assert [value.name for value in session.get_inputs()] == [
+        "input_ids",
+        "attention_mask",
+    ]
+    input_ids = torch.randint(2, 32, (2, 6), dtype=torch.long)
+    input_ids[:, -1] = 1
+    outputs = session.run(
+        None,
+        {
+            "input_ids": input_ids.numpy(),
+            "attention_mask": torch.ones((2, 6), dtype=torch.long).numpy(),
+        },
+    )
+    output = outputs[0]
+    assert isinstance(output, np.ndarray)
+    assert output.shape == (2, 3)
+
+
 def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
     config_path = tmp_path / "text_variants.yaml"
     config = ArchConfig.model_validate(
@@ -980,6 +1190,23 @@ def test_build_training_batch_keeps_fake_tensors_on_cpu() -> None:
     assert text_attention_mask.shape == (2, 8)
     assert text_labels.shape == (2,)
 
+    t5_variant = build_t5_variant(variant_name="t5_cpu_batch")
+    t5_model = build_variant_model(t5_variant)
+    assert isinstance(t5_model, T5ForSequenceClassification)
+    t5_input_ids, t5_attention_mask, t5_labels = build_training_batch(
+        spec=t5_variant,
+        model=t5_model,
+        batch_size=2,
+        generator=torch.Generator().manual_seed(42),
+    )
+
+    assert t5_input_ids.device.type == "cpu"
+    assert t5_attention_mask.device.type == "cpu"
+    assert t5_labels.device.type == "cpu"
+    eos_token_id = require_t5_test_eos_token_id(t5_model)
+    assert torch.all(t5_input_ids[:, -1] == eos_token_id)
+    assert torch.all((t5_input_ids == eos_token_id).sum(dim=1) == 1)
+
 
 def test_build_example_batch_keeps_runtime_inputs_on_cpu() -> None:
     image_variant = build_image_variant(
@@ -1006,6 +1233,20 @@ def test_build_example_batch_keeps_runtime_inputs_on_cpu() -> None:
 
     assert text_batch["input_ids"].device.type == "cpu"
     assert text_batch["attention_mask"].device.type == "cpu"
+
+    t5_variant = build_t5_variant(variant_name="t5_cpu_batch")
+    t5_model = build_variant_model(t5_variant)
+    assert isinstance(t5_model, T5ForSequenceClassification)
+    t5_batch = build_example_batch(
+        t5_variant.variant_config,
+        t5_model,
+        True,
+    )
+
+    assert t5_batch["input_ids"].device.type == "cpu"
+    assert t5_batch["attention_mask"].device.type == "cpu"
+    eos_token_id = require_t5_test_eos_token_id(t5_model)
+    assert torch.all(t5_batch["input_ids"][:, -1] == eos_token_id)
 
 
 def test_run_variant_cleans_workload_boundary_on_success_and_failure(
