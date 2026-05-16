@@ -15,6 +15,7 @@ from transformers import BertConfig, BertForSequenceClassification
 
 from gnn_archs.config import (
     is_detection_model_name,
+    is_recommender_model_name,
     is_text_model_name,
     normalize_model_identifier,
 )
@@ -66,12 +67,21 @@ class RunContext:
 
 
 class OnnxExportWrapper(nn.Module):
-    def __init__(self, model: nn.Module, is_text_model: bool) -> None:
+    def __init__(
+        self,
+        model: nn.Module,
+        is_text_model: bool,
+        recommender_feature_names: list[str] | None = None,
+    ) -> None:
         super().__init__()
         self.model = model
         self.is_text_model = is_text_model
+        self.recommender_feature_names = recommender_feature_names
 
     def forward(self, *inputs: torch.Tensor) -> torch.Tensor:
+        if self.recommender_feature_names is not None:
+            batch = dict(zip(self.recommender_feature_names, inputs, strict=True))
+            return extract_logits(self.model(batch)).unsqueeze(1)  # [B]->[B,1]
         if self.is_text_model:
             outputs = self.model(input_ids=inputs[0], attention_mask=inputs[1])
             return extract_logits(outputs)
@@ -115,6 +125,7 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
     timings: dict[str, TimeWindow] = {}
     is_text_model = is_text_model_name(spec.base_model.name)
     is_detection_model = is_detection_model_name(spec.base_model.name)
+    is_recommender_model = is_recommender_model_name(spec.base_model.name)
     model: nn.Module | None = None
     onnx_result: OnnxExportResult | None = None
     training_result: TrainingResult | None = None
@@ -126,12 +137,24 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
         timings["model_build"] = build_time_window(model_build_started_at, time.time())
 
         validation_started_at = time.time()
-        validation_metrics = validate_model(spec, model, context.device, is_text_model)
+        validation_metrics = validate_model(
+            spec,
+            model,
+            context.device,
+            is_text_model,
+            is_recommender_model,
+        )
         timings["validation"] = build_time_window(validation_started_at, time.time())
 
         if spec.variant_config.export_onnx:
             onnx_started_at = time.time()
-            onnx_result = export_onnx_model(spec, model, context, is_text_model)
+            onnx_result = export_onnx_model(
+                spec,
+                model,
+                context,
+                is_text_model,
+                is_recommender_model,
+            )
             timings["onnx_export"] = build_time_window(onnx_started_at, time.time())
 
         if spec.variant_config.run_training:
@@ -153,6 +176,7 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
                 model,
                 context.device,
                 is_text_model,
+                is_recommender_model,
             )
             timings["inference"] = inference_result.timings
 
@@ -176,7 +200,11 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
                 "model_kind": (
                     "detection"
                     if is_detection_model
-                    else ("text" if is_text_model else "image")
+                    else (
+                        "recommender"
+                        if is_recommender_model
+                        else ("text" if is_text_model else "image")
+                    )
                 ),
                 "parameter_count": count_parameters(model),
                 "validation_batch_size": validation_metrics["batch_size"],
@@ -220,6 +248,18 @@ def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
         from gnn_archs.yolo_builder import build_detection_model
 
         return build_detection_model(spec)
+
+    if is_recommender_model_name(spec.base_model.name):
+        model_name = normalize_model_identifier(spec.base_model.name)
+        if model_name == "deepfm":
+            from gnn_archs.deepfm_builder import build_deepfm_model
+
+            return build_deepfm_model(spec)
+        if model_name == "dcn":
+            from gnn_archs.dcn_builder import build_dcn_model
+
+            return build_dcn_model(spec)
+        raise ValueError(f"unsupported recommender model: {spec.base_model.name}")
 
     if normalize_model_identifier(spec.base_model.name) == "gpt2":
         from gnn_archs.gpt2_builder import build_gpt2_variant_model
@@ -289,12 +329,13 @@ def validate_model(
     model: nn.Module,
     device: torch.device,
     is_text_model: bool,
+    is_recommender_model: bool = False,
 ) -> dict[str, int]:
     model.eval()
     with torch.no_grad():
         batch = build_example_batch(spec.variant_config, model, is_text_model)
         batch = {name: tensor.to(device) for name, tensor in batch.items()}
-        outputs = forward_model(model, batch, is_text_model)
+        outputs = forward_model(model, batch, is_text_model, is_recommender_model)
         logits = extract_logits(outputs)
 
     expected_batch_size = spec.variant_config.example_input_shape[0]
@@ -305,7 +346,7 @@ def validate_model(
         )
     return {
         "batch_size": expected_batch_size,
-        "num_outputs": int(logits.shape[-1]),
+        "num_outputs": 1 if is_recommender_model else int(logits.shape[-1]),
     }
 
 
@@ -314,6 +355,7 @@ def export_onnx_model(
     model: nn.Module,
     context: RunContext,
     is_text_model: bool,
+    is_recommender_model: bool = False,
 ) -> OnnxExportResult:
     if is_detection_model_name(spec.base_model.name):
         from gnn_archs.yolo_builder import export_detection_onnx
@@ -321,7 +363,17 @@ def export_onnx_model(
         return export_detection_onnx(spec, model, context)
 
     model.eval()
-    export_wrapper = OnnxExportWrapper(model, is_text_model).to(context.device)
+    recommender_feature_names: list[str] | None = None
+    if is_recommender_model:
+        from gnn_archs.recommender.common import get_recommender_feature_names
+
+        recommender_feature_names = get_recommender_feature_names(spec.variant_config)
+
+    export_wrapper = OnnxExportWrapper(
+        model,
+        is_text_model,
+        recommender_feature_names,
+    ).to(context.device)
     batch = build_example_batch(spec.variant_config, model, is_text_model)
     batch = {name: tensor.to(context.device) for name, tensor in batch.items()}
     export_path = context.output_layout.onnx_models_dir / f"{spec.name}.onnx"
@@ -330,6 +382,9 @@ def export_onnx_model(
     if is_text_model:
         args = (batch["input_ids"], batch["attention_mask"])
         input_names = ["input_ids", "attention_mask"]
+    elif recommender_feature_names is not None:
+        args = tuple(batch[name] for name in recommender_feature_names)
+        input_names = recommender_feature_names
     else:
         args = (batch["inputs"],)
         input_names = ["inputs"]
@@ -392,7 +447,13 @@ def train_model(
 
         return train_detection_model(spec, model, device)
 
-    if is_text_model_name(spec.base_model.name):
+    is_recommender_model = is_recommender_model_name(spec.base_model.name)
+    if is_recommender_model:
+        if not spec.variant_config.use_fake_recommender_dataset:
+            raise NotImplementedError(
+                "real recommender dataset preparation is not migrated yet"
+            )
+    elif is_text_model_name(spec.base_model.name):
         if not spec.variant_config.use_fake_text_dataset:
             raise NotImplementedError(
                 "real text dataset preparation is not migrated yet"
@@ -404,7 +465,9 @@ def train_model(
     batch_size = spec.variant_config.training_batch_sizes[0]
     generator = torch.Generator().manual_seed(42)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
-    criterion = nn.CrossEntropyLoss()
+    criterion: nn.Module = (
+        nn.BCELoss() if is_recommender_model else nn.CrossEntropyLoss()
+    )
 
     measurement_min_seconds = spec.variant_config.training_measurement_min_seconds
     total_steps = 0
@@ -427,7 +490,15 @@ def train_model(
         )
         optimizer.zero_grad(set_to_none=True)
 
-        if is_text_model:
+        if is_recommender_model:
+            feature_batch, labels = batch
+            feature_batch = {
+                name: tensor.to(device) for name, tensor in feature_batch.items()
+            }
+            labels = labels.to(device)
+            scores = extract_logits(model(feature_batch))
+            loss = criterion(scores, labels)
+        elif is_text_model:
             input_ids, attention_mask, labels = [tensor.to(device) for tensor in batch]
             outputs = model(
                 input_ids=input_ids,
@@ -470,6 +541,7 @@ def run_inference(
     model: nn.Module,
     device: torch.device,
     is_text_model: bool,
+    is_recommender_model: bool = False,
 ) -> InferenceResult:
     if is_detection_model_name(spec.base_model.name):
         from gnn_archs.yolo_builder import run_detection_inference
@@ -484,7 +556,7 @@ def run_inference(
     model.eval()
     with torch.no_grad():
         for _ in range(2):
-            _ = forward_model(model, batch, is_text_model)
+            _ = forward_model(model, batch, is_text_model, is_recommender_model)
 
         synchronize_device(device)
 
@@ -492,7 +564,7 @@ def run_inference(
         ended_at = started_at
         outputs: Any | None = None
         while ended_at - started_at < measurement_min_seconds:
-            outputs = forward_model(model, batch, is_text_model)
+            outputs = forward_model(model, batch, is_text_model, is_recommender_model)
             synchronize_device(device)
             iterations += 1
             ended_at = time.time()
@@ -505,7 +577,7 @@ def run_inference(
             "iterations": iterations,
             "batch_size": spec.variant_config.example_input_shape[0],
             "avg_latency_ms": round(total_duration / iterations * 1000, 4),
-            "num_outputs": int(logits.shape[-1]),
+            "num_outputs": 1 if is_recommender_model else int(logits.shape[-1]),
         },
         timings=build_time_window(started_at, ended_at),
     )
@@ -516,9 +588,17 @@ def build_training_batch(
     model: nn.Module,
     batch_size: int,
     generator: torch.Generator,
-) -> tuple[torch.Tensor, ...]:
+) -> tuple[Any, ...]:
     output_classes = spec.variant_config.target_output_classes
     assert output_classes is not None
+    if is_recommender_model_name(spec.base_model.name):
+        from gnn_archs.recommender.common import build_recommender_batch
+
+        return (
+            build_recommender_batch(spec.variant_config, batch_size, generator),
+            torch.randint(0, 2, (batch_size,), generator=generator).float(),
+        )
+
     if is_text_model_name(spec.base_model.name):
         sequence_length = spec.variant_config.example_input_shape[1]
         return (
@@ -545,6 +625,15 @@ def build_example_batch(
     is_text_model: bool,
 ) -> dict[str, torch.Tensor]:
     generator = torch.Generator().manual_seed(42)
+
+    if (
+        variant_config.deepfm_config is not None
+        or variant_config.dcn_config is not None
+    ):
+        from gnn_archs.recommender.common import build_recommender_batch
+
+        batch_size = variant_config.example_input_shape[0]
+        return build_recommender_batch(variant_config, batch_size, generator)
 
     if is_text_model:
         batch_size, sequence_length = variant_config.example_input_shape
@@ -640,8 +729,13 @@ def build_t5_input_ids(
 
 
 def forward_model(
-    model: nn.Module, batch: dict[str, torch.Tensor], is_text_model: bool
+    model: nn.Module,
+    batch: dict[str, torch.Tensor],
+    is_text_model: bool,
+    is_recommender_model: bool = False,
 ) -> Any:
+    if is_recommender_model:
+        return model(batch)
     if is_text_model:
         return model(
             input_ids=batch["input_ids"],

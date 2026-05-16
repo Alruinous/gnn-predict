@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -46,6 +46,14 @@ def is_detection_model_name(model_name: str) -> bool:
     """判断是否为 YOLO 检测模型。"""
     normalized = normalize_model_identifier(model_name)
     return any(normalized.startswith(prefix) for prefix in DETECTION_MODEL_PREFIXES)
+
+
+RECOMMENDER_MODEL_NAMES = {"deepfm", "dcn"}
+
+
+def is_recommender_model_name(model_name: str) -> bool:
+    normalized_name = normalize_model_identifier(model_name)
+    return normalized_name in RECOMMENDER_MODEL_NAMES
 
 
 class StrictModel(BaseModel):
@@ -112,6 +120,124 @@ class T5ConfigOverride(StrictModel):
     feed_forward_proj: str = "relu"
 
 
+class RecommenderSparseFeatureConfig(StrictModel):
+    name: str
+    vocab_size: int
+    embed_dim: int
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise ValueError("sparse feature name must not be empty")
+        return normalized_value
+
+    @model_validator(mode="after")
+    def validate_positive_fields(self) -> RecommenderSparseFeatureConfig:
+        if self.vocab_size <= 0:
+            raise ValueError("sparse feature vocab_size must be positive")
+        if self.embed_dim <= 0:
+            raise ValueError("sparse feature embed_dim must be positive")
+        return self
+
+
+class RecommenderDenseFeatureConfig(StrictModel):
+    name: str
+    embed_dim: int = 1
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise ValueError("dense feature name must not be empty")
+        return normalized_value
+
+    @field_validator("embed_dim")
+    @classmethod
+    def validate_embed_dim(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("dense feature embed_dim must be positive")
+        return value
+
+
+class RecommenderBaseConfigOverride(StrictModel):
+    config_field_name: ClassVar[str] = "recommender_model_config"
+
+    sparse_features: list[RecommenderSparseFeatureConfig]
+    dense_features: list[RecommenderDenseFeatureConfig] = Field(default_factory=list)
+    mlp_dims: list[int]
+    activation: str = "relu"
+    dropout: float = 0.0
+
+    @model_validator(mode="after")
+    def validate_common_config(self) -> Self:
+        if not self.sparse_features:
+            raise ValueError(
+                f"{self.config_field_name}.sparse_features must not be empty"
+            )
+        if not self.mlp_dims:
+            raise ValueError(f"{self.config_field_name}.mlp_dims must not be empty")
+        if any(dim <= 0 for dim in self.mlp_dims):
+            raise ValueError(f"{self.config_field_name}.mlp_dims must be positive")
+        if not 0 <= self.dropout < 1:
+            raise ValueError(f"{self.config_field_name}.dropout must be in [0, 1)")
+
+        sparse_names = [feature.name for feature in self.sparse_features]
+        dense_names = [feature.name for feature in self.dense_features]
+        feature_names = sparse_names + dense_names
+        if len(set(feature_names)) != len(feature_names):
+            raise ValueError("recommender feature names must be unique")
+        return self
+
+
+class DeepFMConfigOverride(RecommenderBaseConfigOverride):
+    config_field_name: ClassVar[str] = "deepfm_config"
+
+    fm_feature_names: list[str]
+
+    @model_validator(mode="after")
+    def validate_deepfm_config(self) -> DeepFMConfigOverride:
+        sparse_names = {feature.name for feature in self.sparse_features}
+        if not self.fm_feature_names:
+            raise ValueError("deepfm_config.fm_feature_names must not be empty")
+        unknown_names = sorted(set(self.fm_feature_names) - sparse_names)
+        if unknown_names:
+            raise ValueError(
+                "deepfm_config.fm_feature_names must reference sparse "
+                f"features: {unknown_names}"
+            )
+        return self
+
+
+class DCNConfigOverride(RecommenderBaseConfigOverride):
+    config_field_name: ClassVar[str] = "dcn_config"
+
+    n_cross_layers: int
+
+    @field_validator("n_cross_layers")
+    @classmethod
+    def validate_n_cross_layers(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("dcn_config.n_cross_layers must be positive")
+        return value
+
+
+def has_recommender_config(variant_config: VariantConfig) -> bool:
+    return (
+        variant_config.deepfm_config is not None
+        or variant_config.dcn_config is not None
+    )
+
+
+def count_recommender_configs(variant_config: VariantConfig) -> int:
+    return sum(
+        config is not None
+        for config in (variant_config.deepfm_config, variant_config.dcn_config)
+    )
+
+
 class VariantConfig(StrictModel):
     target_input_channels: int | None = None
     target_output_classes: int | None = None
@@ -126,10 +252,13 @@ class VariantConfig(StrictModel):
     training_measurement_min_seconds: float = 5.0
     use_fake_imagenet: bool = False
     use_fake_text_dataset: bool = False
+    use_fake_recommender_dataset: bool = False
     use_real_text_dataset: bool = False
     max_sequence_length: int = 128
     gpt2_config: Gpt2ConfigOverride | None = None
     t5_config: T5ConfigOverride | None = None
+    deepfm_config: DeepFMConfigOverride | None = None
+    dcn_config: DCNConfigOverride | None = None
 
     @field_validator("training_batch_sizes", mode="before")
     @classmethod
@@ -141,9 +270,9 @@ class VariantConfig(StrictModel):
     @field_validator("example_input_shape")
     @classmethod
     def validate_example_input_shape(cls, value: list[int]) -> list[int]:
-        if len(value) not in (2, 4):
+        if len(value) not in (1, 2, 4):
             raise ValueError(
-                "example_input_shape must be [batch, seq_length] "
+                "example_input_shape must be [batch], [batch, seq_length] "
                 "or [batch, channels, height, width]"
             )
         if any(item <= 0 for item in value):
@@ -170,6 +299,18 @@ class VariantConfig(StrictModel):
             raise ValueError("inference_measurement_min_seconds must be positive")
         if any(batch_size <= 0 for batch_size in self.training_batch_sizes):
             raise ValueError("training_batch_sizes must only contain positive integers")
+        recommender_config_count = count_recommender_configs(self)
+        if recommender_config_count > 1:
+            raise ValueError("variant_config must define only one recommender config")
+        if recommender_config_count == 0 and len(self.example_input_shape) == 1:
+            raise ValueError("non-recommender variants require 2D or 4D input shapes")
+        if recommender_config_count == 1:
+            if len(self.example_input_shape) != 1:
+                raise ValueError(
+                    "recommender variants require example_input_shape [batch]"
+                )
+            if self.target_output_classes != 1:
+                raise ValueError("recommender variants require target_output_classes=1")
 
         return self
 
@@ -202,7 +343,10 @@ class SingleVariantDefinition(StrictModel):
 
     @model_validator(mode="after")
     def require_explicit_targets(self) -> SingleVariantDefinition:
-        if self.variant_config.target_input_channels is None:
+        if (
+            not has_recommender_config(self.variant_config)
+            and self.variant_config.target_input_channels is None
+        ):
             raise ValueError(
                 "single_variant_define.variant_config.target_input_channels is required"
             )
@@ -240,18 +384,98 @@ class CombinatorialVariantGrid(StrictModel):
         return self
 
 
+class VariantConfigGridAxisValue(StrictModel):
+    name: str
+    overrides: dict[str, Any]
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise ValueError("variant_config_grid axis value name must not be empty")
+        return normalized_value
+
+    @field_validator("overrides")
+    @classmethod
+    def validate_overrides(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if not value:
+            raise ValueError(
+                "variant_config_grid axis value overrides must not be empty"
+            )
+        for field_path in value:
+            if not field_path.strip():
+                raise ValueError("variant_config_grid override path must not be empty")
+            if any(not part for part in field_path.split(".")):
+                raise ValueError(
+                    f"variant_config_grid override path is invalid: {field_path}"
+                )
+        return value
+
+
+class VariantConfigGridAxis(StrictModel):
+    name: str
+    values: list[VariantConfigGridAxisValue]
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise ValueError("variant_config_grid axis name must not be empty")
+        return normalized_value
+
+    @model_validator(mode="after")
+    def validate_values(self) -> VariantConfigGridAxis:
+        if not self.values:
+            raise ValueError("variant_config_grid axis values must not be empty")
+        value_names = [value.name for value in self.values]
+        if len(set(value_names)) != len(value_names):
+            raise ValueError(
+                f"variant_config_grid axis '{self.name}' value names must be unique"
+            )
+        return self
+
+
+class VariantConfigGrid(StrictModel):
+    base_variant_config_template: VariantConfig
+    axes: list[VariantConfigGridAxis]
+    mutations: list[MutationConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_axes(self) -> VariantConfigGrid:
+        if not self.axes:
+            raise ValueError("variant_config_grid.axes must not be empty")
+        axis_names = [axis.name for axis in self.axes]
+        if len(set(axis_names)) != len(axis_names):
+            raise ValueError("variant_config_grid axis names must be unique")
+        return self
+
+
 class BaseModelGroup(StrictModel):
     base_model: BaseModelConfig
     single_variant_define: list[SingleVariantDefinition] = Field(default_factory=list)
     combinatorial_variant_grid: CombinatorialVariantGrid | None = None
+    variant_config_grid: VariantConfigGrid | None = None
     fc_mutation_sets: list[MutationSet] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def require_variant_source(self) -> BaseModelGroup:
-        if not self.single_variant_define and self.combinatorial_variant_grid is None:
+        if (
+            self.combinatorial_variant_grid is not None
+            and self.variant_config_grid is not None
+        ):
             raise ValueError(
-                "base_model_group must define single_variant_define "
-                "or combinatorial_variant_grid"
+                "base_model_group must not define both combinatorial_variant_grid "
+                "and variant_config_grid"
+            )
+        if (
+            not self.single_variant_define
+            and self.combinatorial_variant_grid is None
+            and self.variant_config_grid is None
+        ):
+            raise ValueError(
+                "base_model_group must define single_variant_define or a variant grid"
             )
         return self
 

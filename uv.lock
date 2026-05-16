@@ -664,6 +664,7 @@ dependencies = [
     { name = "torch" },
     { name = "torch-geometric" },
     { name = "torch-pruning" },
+    { name = "torch-rechub" },
     { name = "transformers" },
     { name = "ty" },
     { name = "ultralytics" },
@@ -700,6 +701,7 @@ requires-dist = [
     { name = "torch", specifier = "==2.9.0" },
     { name = "torch-geometric", specifier = ">=2.7.0" },
     { name = "torch-pruning", specifier = ">=1.6.1" },
+    { name = "torch-rechub", specifier = "==0.8.0" },
     { name = "transformers", specifier = "==4.57.1" },
     { name = "ty", specifier = ">=0.0.25" },
     { name = "ultralytics", specifier = ">=8.4.39" },
@@ -2893,6 +2895,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/bc/43/ddacbb7f5ecbd7a1223ba57e80cadd8cfc58d05c54b8b8f529e819817f22/torch_pruning-1.6.1.tar.gz", hash = "sha256:3166ab2b700a5819d2b1db5b4a228e161bc32cc31e3022563b873ddd706fcacb", size = 89167, upload_time = "2025-09-07T17:25:48.681Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/20/bf/ac91f896d1a0c1bb4fceaac8ffd5bf8f23754d3566137e0b313b072f8f77/torch_pruning-1.6.1-py3-none-any.whl", hash = "sha256:5cb619e55bb4d1b7ce71be9782865ad4977bfe99c148fdce9c3822eab08a9c08", size = 70181, upload_time = "2025-09-07T17:25:45.819Z" },
+]
+
+[[package]]
+name = "torch-rechub"
+version = "0.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "scikit-learn" },
+    { name = "torch" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2d/4e/0d1085ec81b8d9444d6d63357002f75322cbc6600ff6df7c44da72312cd7/torch_rechub-0.8.0.tar.gz", hash = "sha256:26ebc45627fb2008939fc9873b9d6467c5f9317ec08441a5829db3fea2845cb3", size = 59910100, upload_time = "2026-05-12T06:03:34.186Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/11/39/32cf076dfc8422b21a16c2f6d475a61f75589828293a83769ea8b934f55b/torch_rechub-0.8.0-py3-none-any.whl", hash = "sha256:96d80f3e000356b7df6190d7cdffba3fbdb364c10809751316bfbed982eaeb20", size = 152620, upload_time = "2026-05-12T06:03:37.83Z" },
 ]
 
 [[package]]

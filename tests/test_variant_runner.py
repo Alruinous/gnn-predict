@@ -44,7 +44,7 @@ def build_image_variant(
     base_model_name: str = "resnet18",
     variant_name: str = "image_mutation_smoke",
     example_input_shape: list[int] | None = None,
-) -> object:
+) -> ResolvedVariantSpec:
     resolved_input_shape = (
         example_input_shape if example_input_shape is not None else [1, 3, 64, 64]
     )
@@ -80,7 +80,7 @@ def build_text_variant(
     base_model_name: str = "bert-base-uncased",
     variant_name: str = "text_mutation_smoke",
     example_input_shape: list[int] | None = None,
-) -> object:
+) -> ResolvedVariantSpec:
     resolved_input_shape = (
         example_input_shape if example_input_shape is not None else [1, 8]
     )
@@ -228,13 +228,89 @@ def build_t5_variant(
     return expand_arch_config(config)[0]
 
 
+def build_recommender_common_config_override(**overrides: object) -> dict[str, object]:
+    config: dict[str, object] = {
+        "sparse_features": [
+            {"name": "user_id", "vocab_size": 32, "embed_dim": 4},
+            {"name": "item_id", "vocab_size": 64, "embed_dim": 4},
+            {"name": "device_type", "vocab_size": 8, "embed_dim": 4},
+        ],
+        "dense_features": [
+            {"name": "user_age_score"},
+            {"name": "item_price_score"},
+        ],
+        "mlp_dims": [16, 8],
+        "activation": "relu",
+        "dropout": 0.0,
+    }
+    config.update(overrides)
+    return config
+
+
+def build_recommender_variant(
+    *,
+    base_model_name: str = "deepfm",
+    variant_name: str = "recommender_runtime_smoke",
+    variant_config_overrides: dict[str, object] | None = None,
+    model_config_overrides: dict[str, object] | None = None,
+    mutations: list[dict[str, object]] | None = None,
+) -> ResolvedVariantSpec:
+    if base_model_name == "deepfm":
+        model_config_field = "deepfm_config"
+        model_specific_config: dict[str, object] = {
+            "fm_feature_names": ["user_id", "item_id"]
+        }
+    elif base_model_name == "dcn":
+        model_config_field = "dcn_config"
+        model_specific_config = {"n_cross_layers": 2}
+    else:
+        raise ValueError(f"unsupported recommender model: {base_model_name}")
+    if model_config_overrides is not None:
+        model_specific_config.update(model_config_overrides)
+
+    variant_config: dict[str, object] = {
+        "target_output_classes": 1,
+        "example_input_shape": [2],
+        "run_training": False,
+        "run_inference": False,
+        "export_onnx": False,
+        "training_batch_sizes": [2],
+        "training_measurement_min_seconds": 1e-9,
+        "inference_measurement_min_seconds": 1e-9,
+        "use_fake_recommender_dataset": True,
+        model_config_field: build_recommender_common_config_override(
+            **model_specific_config
+        ),
+    }
+    if variant_config_overrides is not None:
+        variant_config.update(variant_config_overrides)
+
+    config = ArchConfig.model_validate(
+        {
+            "base_model_groups": [
+                {
+                    "base_model": {"name": base_model_name, "pretrained": False},
+                    "single_variant_define": [
+                        {
+                            "name": variant_name,
+                            "variant_config": variant_config,
+                            "mutations": mutations or [],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    return expand_arch_config(config)[0]
+
+
 def require_t5_test_eos_token_id(model: T5ForSequenceClassification) -> int:
     eos_token_id = model.config.eos_token_id
     assert isinstance(eos_token_id, int)
     return eos_token_id
 
 
-def build_vgg_variant(mutations: list[dict[str, object]]) -> object:
+def build_vgg_variant(mutations: list[dict[str, object]]) -> ResolvedVariantSpec:
     return build_image_variant(
         mutations,
         base_model_name="vgg11",
@@ -246,7 +322,7 @@ def build_vit_variant(
     mutations: list[dict[str, object]],
     *,
     variant_name: str = "vit_image_mutation_smoke",
-) -> object:
+) -> ResolvedVariantSpec:
     return build_image_variant(
         mutations,
         base_model_name="vit_tiny_patch16_224",
@@ -259,7 +335,7 @@ def build_beit_variant(
     mutations: list[dict[str, object]],
     *,
     variant_name: str = "beit_image_mutation_smoke",
-) -> object:
+) -> ResolvedVariantSpec:
     return build_image_variant(
         mutations,
         base_model_name="beit_base_patch16_224",
@@ -272,7 +348,7 @@ def build_convnext_variant(
     mutations: list[dict[str, object]],
     *,
     variant_name: str = "convnext_image_mutation_smoke",
-) -> object:
+) -> ResolvedVariantSpec:
     return build_image_variant(
         mutations,
         base_model_name="convnext_tiny",
@@ -912,6 +988,222 @@ def test_t5_architecture_only_onnx_randomizes_to_runtime_inputs(
     output = outputs[0]
     assert isinstance(output, np.ndarray)
     assert output.shape == (2, 3)
+
+
+@pytest.mark.parametrize("base_model_name", ["deepfm", "dcn"])
+def test_build_variant_model_builds_recommender_model(base_model_name: str) -> None:
+    variant = build_recommender_variant(base_model_name=base_model_name)
+
+    model = build_variant_model(variant)
+    batch = build_example_batch(variant.variant_config, model, is_text_model=False)
+    outputs = model(batch)
+    metrics = variant_runner_module.validate_model(
+        variant,
+        model,
+        torch.device("cpu"),
+        is_text_model=False,
+        is_recommender_model=True,
+    )
+
+    assert outputs.shape == (2,)
+    assert metrics == {"batch_size": 2, "num_outputs": 1}
+
+
+@pytest.mark.parametrize("base_model_name", ["deepfm", "dcn"])
+def test_recommender_variant_runner_executes_pipeline(
+    tmp_path: Path,
+    base_model_name: str,
+) -> None:
+    config_path = tmp_path / f"{base_model_name}_variants.yaml"
+    variant = build_recommender_variant(
+        base_model_name=base_model_name,
+        variant_name=f"{base_model_name}_runtime_smoke",
+        variant_config_overrides={
+            "run_training": True,
+            "run_inference": True,
+            "pre_inference_cooldown_seconds": 0.0,
+        },
+    )
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger(f"test_{base_model_name}_variant_runner"),
+    )
+
+    result = run_variant(variant, context)
+
+    assert result.training is not None
+    assert result.inference is not None
+    assert result.metadata["model_kind"] == "recommender"
+    assert result.metadata["validation_num_outputs"] == 1
+
+
+@pytest.mark.parametrize("base_model_name", ["deepfm", "dcn"])
+def test_recommender_architecture_only_onnx_randomizes_to_runtime_inputs(
+    tmp_path: Path,
+    base_model_name: str,
+) -> None:
+    config_path = tmp_path / f"{base_model_name}_variants.yaml"
+    variant = build_recommender_variant(
+        base_model_name=base_model_name,
+        variant_name=f"{base_model_name}_architecture_only",
+        variant_config_overrides={
+            "export_onnx": True,
+            "onnx_export_mode": "architecture_only",
+        },
+    )
+    model = build_variant_model(variant)
+    feature_batch = build_example_batch(
+        variant.variant_config,
+        model,
+        is_text_model=False,
+    )
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger(f"test_{base_model_name}_architecture_only"),
+    )
+
+    result = run_variant(variant, context)
+    assert result.onnx_export is not None
+    runtime_input_names = result.onnx_export.graph_info["runtime_input_names"]
+    assert runtime_input_names == list(feature_batch)
+    assert result.onnx_export.graph_info["initializer_names"] == []
+    assert result.onnx_export.graph_info["parameter_input_names"]
+
+    randomized_path = output_layout.onnx_models_dir / f"{base_model_name}_randomized.onnx"
+    write_randomized_onnx_model(
+        Path(result.onnx_export.path),
+        randomized_path,
+        seed=0,
+    )
+
+    session = ort.InferenceSession(
+        str(randomized_path),
+        providers=["CPUExecutionProvider"],
+    )
+    assert [value.name for value in session.get_inputs()] == runtime_input_names
+    outputs = session.run(
+        None,
+        {name: tensor.numpy() for name, tensor in feature_batch.items()},
+    )
+    assert outputs[0].shape == (2, 1)
+
+
+@pytest.mark.parametrize("batch_size", [2, 4, 8])
+def test_recommender_fake_batches_use_feature_shapes(batch_size: int) -> None:
+    variant = build_recommender_variant(
+        variant_config_overrides={
+            "example_input_shape": [batch_size],
+            "training_batch_sizes": [batch_size],
+        }
+    )
+    model = build_variant_model(variant)
+    example_batch = build_example_batch(
+        variant.variant_config,
+        model,
+        is_text_model=False,
+    )
+    training_features, labels = build_training_batch(
+        spec=variant,
+        model=model,
+        batch_size=batch_size,
+        generator=torch.Generator().manual_seed(42),
+    )
+
+    assert set(example_batch) == {
+        "user_id",
+        "item_id",
+        "device_type",
+        "user_age_score",
+        "item_price_score",
+    }
+    assert all(tensor.shape == (batch_size,) for tensor in example_batch.values())
+    assert example_batch["user_id"].dtype == torch.long
+    assert example_batch["user_age_score"].dtype == torch.float32
+    assert isinstance(training_features, dict)
+    assert labels.shape == (batch_size,)
+    assert labels.dtype == torch.float32
+
+
+def test_recommender_fake_batch_supports_vector_dense_features() -> None:
+    variant = build_recommender_variant(
+        model_config_overrides={
+            "dense_features": [
+                {"name": "user_age_score"},
+                {"name": "engagement_vector", "embed_dim": 4},
+            ]
+        }
+    )
+    model = build_variant_model(variant)
+
+    example_batch = build_example_batch(
+        variant.variant_config,
+        model,
+        is_text_model=False,
+    )
+
+    assert example_batch["user_age_score"].shape == (2,)
+    assert example_batch["engagement_vector"].shape == (2, 4)
+    assert example_batch["engagement_vector"].dtype == torch.float32
+
+
+@pytest.mark.parametrize(
+    ("base_model_name", "config_field", "match"),
+    [
+        ("deepfm", "deepfm_config", "variant_config.deepfm_config"),
+        ("dcn", "dcn_config", "variant_config.dcn_config"),
+    ],
+)
+def test_build_variant_model_rejects_recommender_missing_model_config(
+    base_model_name: str,
+    config_field: str,
+    match: str,
+) -> None:
+    variant = build_recommender_variant(base_model_name=base_model_name)
+    variant_config = variant.variant_config.model_copy(update={config_field: None})
+    invalid_variant = variant.model_copy(update={"variant_config": variant_config})
+
+    with pytest.raises(ValueError, match=match):
+        build_variant_model(invalid_variant)
+
+
+def test_build_variant_model_rejects_deepfm_unknown_fm_feature() -> None:
+    variant = build_recommender_variant(base_model_name="deepfm")
+    deepfm_config = variant.variant_config.deepfm_config
+    assert deepfm_config is not None
+    variant_config = variant.variant_config.model_copy(
+        update={
+            "deepfm_config": deepfm_config.model_copy(
+                update={"fm_feature_names": ["unknown_feature"]}
+            )
+        }
+    )
+    invalid_variant = variant.model_copy(update={"variant_config": variant_config})
+
+    with pytest.raises(ValueError, match="fm_feature_names"):
+        build_variant_model(invalid_variant)
+
+
+def test_build_variant_model_rejects_dcn_missing_cross_layers() -> None:
+    variant = build_recommender_variant(base_model_name="dcn")
+    dcn_config = variant.variant_config.dcn_config
+    assert dcn_config is not None
+    variant_config = variant.variant_config.model_copy(
+        update={
+            "dcn_config": dcn_config.model_copy(update={"n_cross_layers": None})
+        }
+    )
+    invalid_variant = variant.model_copy(update={"variant_config": variant_config})
+
+    with pytest.raises(ValueError, match="n_cross_layers"):
+        build_variant_model(invalid_variant)
 
 
 def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:

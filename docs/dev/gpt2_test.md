@@ -1,1 +1,0 @@
-阅读docs目录中的文档,理解项目背景. 对比docs/agent/gnn_model_newdata_training_eval_2026-05-04.md上次训练记录,我增加了更多类型的数据. 在当前新的全量数据集上, 重新训练一次GNN预测器,并使用多种criteria评估预测器的性能.

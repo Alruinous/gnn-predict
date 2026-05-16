@@ -10,7 +10,9 @@ from gnn_archs.config import (
     ArchConfig,
     BaseModelGroup,
     MutationSet,
+    ResolvedVariantSpec,
     is_detection_model_name,
+    is_recommender_model_name,
     is_text_model_name,
 )
 from gnn_archs.mutations import (
@@ -38,6 +40,10 @@ GPT2_CONFIG_VARIANT_COUNTS = {
 }
 T5_CONFIG_VARIANT_COUNTS = {
     "t5_variants.yaml": 16,
+}
+RECOMMENDER_CONFIG_VARIANT_COUNTS = {
+    "deepfm_variants.yaml": 480,
+    "dcn_variants.yaml": 480,
 }
 
 
@@ -151,6 +157,102 @@ def test_t5_arch_configs_expand_to_expected_counts(
     assert all(not variant.mutations for variant in variants)
 
 
+@pytest.mark.parametrize(
+    ("config_name", "expected_count"),
+    RECOMMENDER_CONFIG_VARIANT_COUNTS.items(),
+)
+def test_recommender_arch_configs_expand_to_expected_counts(
+    config_name: str, expected_count: int
+) -> None:
+    config = load_arch_config(ARCH_CONFIG_DIR / config_name)
+
+    variants = expand_arch_config(config)
+
+    assert len(variants) == expected_count
+    assert all(
+        is_recommender_model_name(variant.base_model.name) for variant in variants
+    )
+    if config_name == "deepfm_variants.yaml":
+        assert all(variant.variant_config.deepfm_config is not None for variant in variants)
+        assert all(variant.variant_config.dcn_config is None for variant in variants)
+    if config_name == "dcn_variants.yaml":
+        assert all(variant.variant_config.dcn_config is not None for variant in variants)
+        assert all(variant.variant_config.deepfm_config is None for variant in variants)
+    assert all(
+        len(variant.variant_config.example_input_shape) == 1 for variant in variants
+    )
+    assert all(not variant.mutations for variant in variants)
+    assert len(build_recommender_structural_signatures(variants)) == 240
+
+
+def test_recommender_variant_rejects_multiple_model_configs() -> None:
+    common_config = {
+        "sparse_features": [{"name": "user_id", "vocab_size": 32, "embed_dim": 4}],
+        "dense_features": [{"name": "score"}],
+        "mlp_dims": [8, 4],
+        "activation": "relu",
+        "dropout": 0.0,
+    }
+
+    with pytest.raises(ValueError, match="only one recommender config"):
+        ArchConfig.model_validate(
+            {
+                "base_model_groups": [
+                    {
+                        "base_model": {"name": "deepfm", "pretrained": False},
+                        "single_variant_define": [
+                            {
+                                "name": "invalid_recommender_config",
+                                "variant_config": {
+                                    "target_output_classes": 1,
+                                    "example_input_shape": [2],
+                                    "deepfm_config": {
+                                        **common_config,
+                                        "fm_feature_names": ["user_id"],
+                                    },
+                                    "dcn_config": {
+                                        **common_config,
+                                        "n_cross_layers": 2,
+                                    },
+                                },
+                                "mutations": [],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+
+def build_recommender_structural_signatures(
+    variants: list[ResolvedVariantSpec],
+) -> set[tuple[object, ...]]:
+    signatures: set[tuple[object, ...]] = set()
+    for variant in variants:
+        variant_config = variant.variant_config
+        model_config = variant_config.deepfm_config or variant_config.dcn_config
+        assert model_config is not None
+        signatures.add(
+            (
+                variant.base_model.name,
+                tuple(
+                    (feature.name, feature.vocab_size, feature.embed_dim)
+                    for feature in model_config.sparse_features
+                ),
+                tuple(
+                    (feature.name, feature.embed_dim)
+                    for feature in model_config.dense_features
+                ),
+                tuple(model_config.mlp_dims),
+                model_config.activation,
+                model_config.dropout,
+                tuple(getattr(model_config, "fm_feature_names", []) or []),
+                getattr(model_config, "n_cross_layers", None),
+            )
+        )
+    return signatures
+
+
 def test_gpt2_batch_sweep_variants_define_batch_in_name_and_config() -> None:
     config = load_arch_config(ARCH_CONFIG_DIR / "gpt2_variants.yaml")
 
@@ -181,6 +283,8 @@ def test_arch_config_mutations_match_model_kind(config_path: Path) -> None:
     for group in config.base_model_groups:
         if is_detection_model_name(group.base_model.name):
             allowed_mutation_types = YOLO_YAML_MUTATION_TYPES
+        elif is_recommender_model_name(group.base_model.name):
+            allowed_mutation_types = ()
         elif is_text_model_name(group.base_model.name):
             allowed_mutation_types = TEXT_MUTATION_TYPES
         else:
