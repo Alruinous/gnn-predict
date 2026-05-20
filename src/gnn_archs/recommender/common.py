@@ -7,12 +7,17 @@ from torch_rechub.basic.features import DenseFeature, SparseFeature
 
 from gnn_archs.config import (
     DCNConfigOverride,
+    DCNv2ConfigOverride,
     DeepFMConfigOverride,
+    EDCNConfigOverride,
+    RecommenderMlpConfigOverride,
     ResolvedVariantSpec,
     VariantConfig,
 )
 
-type RecommenderModelConfig = DeepFMConfigOverride | DCNConfigOverride
+type RecommenderModelConfig = (
+    DeepFMConfigOverride | DCNConfigOverride | DCNv2ConfigOverride | EDCNConfigOverride
+)
 
 
 def validate_recommender_spec(spec: ResolvedVariantSpec) -> None:
@@ -36,12 +41,32 @@ def get_dcn_config(variant_config: VariantConfig) -> DCNConfigOverride:
     return config
 
 
+def get_dcnv2_config(variant_config: VariantConfig) -> DCNv2ConfigOverride:
+    config = variant_config.dcnv2_config
+    if config is None:
+        raise ValueError("dcnv2 variants require variant_config.dcnv2_config")
+    return config
+
+
+def get_edcn_config(variant_config: VariantConfig) -> EDCNConfigOverride:
+    config = variant_config.edcn_config
+    if config is None:
+        raise ValueError("edcn variants require variant_config.edcn_config")
+    return config
+
+
 def get_recommender_config(variant_config: VariantConfig) -> RecommenderModelConfig:
-    config = variant_config.deepfm_config or variant_config.dcn_config
+    config = (
+        variant_config.deepfm_config
+        or variant_config.dcn_config
+        or variant_config.dcnv2_config
+        or variant_config.edcn_config
+    )
     if config is None:
         raise ValueError(
             "recommender variants require variant_config.deepfm_config "
-            "or variant_config.dcn_config"
+            "or variant_config.dcn_config or variant_config.dcnv2_config "
+            "or variant_config.edcn_config"
         )
     return config
 
@@ -64,9 +89,21 @@ def build_dense_features(config: RecommenderModelConfig) -> list[DenseFeature]:
     ]
 
 
-def build_mlp_params(config: RecommenderModelConfig) -> dict[str, Any]:
+def build_mlp_params(config: RecommenderMlpConfigOverride) -> dict[str, Any]:
     return {
         "dims": config.mlp_dims,
+        "activation": config.activation,
+        "dropout": config.dropout,
+    }
+
+
+def build_edcn_mlp_params(
+    config: EDCNConfigOverride,
+    features: list[SparseFeature | DenseFeature],
+) -> dict[str, Any]:
+    input_dim = sum(feature.embed_dim for feature in features)
+    return {
+        "dims": [input_dim, input_dim],
         "activation": config.activation,
         "dropout": config.dropout,
     }

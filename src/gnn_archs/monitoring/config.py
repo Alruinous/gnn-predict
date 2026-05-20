@@ -27,6 +27,7 @@ class MonitorDefaults(StrictModel):
     namespace: str
     cpu_rate_window: str = "3s"
     query_step_seconds: int = 1
+    memory_baseline_window_seconds: int = 5
 
     @field_validator("prometheus_url", "namespace", "cpu_rate_window")
     @classmethod
@@ -47,6 +48,13 @@ class MonitorDefaults(StrictModel):
     def validate_positive_step(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("query_step_seconds must be positive")
+        return value
+
+    @field_validator("memory_baseline_window_seconds")
+    @classmethod
+    def validate_positive_memory_baseline_window(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("memory_baseline_window_seconds must be positive")
         return value
 
 
@@ -107,6 +115,7 @@ class ResolvedMonitorSettings:
     cpu_rate_window_seconds: float
     query_step_seconds: int
     targets: tuple[ResolvedMonitorTarget, ...]
+    memory_baseline_window_seconds: int = 5
 
 
 def load_monitor_settings(
@@ -157,6 +166,7 @@ def load_monitor_settings(
         ),
         query_step_seconds=config.defaults.query_step_seconds,
         targets=tuple(resolved_targets),
+        memory_baseline_window_seconds=config.defaults.memory_baseline_window_seconds,
     )
 
 

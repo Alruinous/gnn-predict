@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -39,11 +40,25 @@ GPT2_CONFIG_VARIANT_COUNTS = {
     "gpt2_variants.yaml": 240,
 }
 T5_CONFIG_VARIANT_COUNTS = {
-    "t5_variants.yaml": 16,
+    "t5_variants.yaml": 240,
 }
 RECOMMENDER_CONFIG_VARIANT_COUNTS = {
-    "deepfm_variants.yaml": 480,
-    "dcn_variants.yaml": 480,
+    "deepfm_variants.yaml": 252,
+    "dcn_variants.yaml": 252,
+    "dcnv2_variants.yaml": 384,
+    "edcn_variants.yaml": 252,
+}
+RECOMMENDER_CONFIG_BATCH_COUNTS = {
+    "deepfm_variants.yaml": {1024: 6, 2048: 240, 4096: 6},
+    "dcn_variants.yaml": {1024: 6, 2048: 240, 4096: 6},
+    "dcnv2_variants.yaml": {1024: 6, 2048: 372, 4096: 6},
+    "edcn_variants.yaml": {1024: 6, 2048: 240, 4096: 6},
+}
+RECOMMENDER_CONFIG_SIGNATURE_COUNTS = {
+    "deepfm_variants.yaml": 240,
+    "dcn_variants.yaml": 240,
+    "dcnv2_variants.yaml": 372,
+    "edcn_variants.yaml": 240,
 }
 
 
@@ -135,10 +150,41 @@ def test_gpt2_arch_configs_expand_to_expected_counts(
     config = load_arch_config(ARCH_CONFIG_DIR / config_name)
 
     variants = expand_arch_config(config)
+    base_variants = [variant for variant in variants if "_bs" not in variant.name]
+    batch_variants = [variant for variant in variants if "_bs" in variant.name]
+    sequence_lengths = {
+        variant.variant_config.example_input_shape[1] for variant in variants
+    }
 
     assert len(variants) == expected_count
+    assert len(base_variants) == 216
+    assert len(batch_variants) == 24
+    assert sequence_lengths == {128, 256, 512}
     assert all(variant.variant_config.gpt2_config is not None for variant in variants)
     assert all(not variant.mutations for variant in variants)
+    assert all(
+        variant.variant_config.example_input_shape[0] == 4
+        and variant.variant_config.training_batch_sizes == [4]
+        for variant in base_variants
+    )
+    assert all(
+        variant.variant_config.max_sequence_length
+        == variant.variant_config.example_input_shape[1]
+        for variant in variants
+    )
+    assert all(
+        variant.variant_config.gpt2_config.n_positions
+        >= variant.variant_config.example_input_shape[1]
+        for variant in variants
+        if variant.variant_config.gpt2_config is not None
+    )
+    assert all(
+        variant.variant_config.gpt2_config.n_embd
+        % variant.variant_config.gpt2_config.n_head
+        == 0
+        for variant in variants
+        if variant.variant_config.gpt2_config is not None
+    )
 
 
 @pytest.mark.parametrize(
@@ -151,10 +197,67 @@ def test_t5_arch_configs_expand_to_expected_counts(
     config = load_arch_config(ARCH_CONFIG_DIR / config_name)
 
     variants = expand_arch_config(config)
+    base_variants = [
+        variant for variant in variants if variant.source == "variant_config_grid"
+    ]
+    batch_variants = [variant for variant in variants if "_bs" in variant.name]
+    sequence_lengths = {
+        variant.variant_config.example_input_shape[1] for variant in variants
+    }
+    output_classes = {
+        variant.variant_config.target_output_classes for variant in variants
+    }
+    t5_configs = [variant.variant_config.t5_config for variant in variants]
 
     assert len(variants) == expected_count
-    assert all(variant.variant_config.t5_config is not None for variant in variants)
+    assert len(base_variants) == 216
+    assert len(batch_variants) == 24
+    assert len(base_variants) + len(batch_variants) == len(variants)
+    assert all(variant.source == "single_variant_define" for variant in batch_variants)
+    assert sequence_lengths == {128, 256, 512}
+    assert output_classes == {2, 10, 100}
+    assert all(t5_config is not None for t5_config in t5_configs)
     assert all(not variant.mutations for variant in variants)
+    assert all(
+        variant.variant_config.example_input_shape[0] == 4
+        and variant.variant_config.training_batch_sizes == [4]
+        for variant in base_variants
+    )
+    assert {
+        variant.variant_config.example_input_shape[0] for variant in batch_variants
+    } == {2, 4, 8, 16}
+    assert all(
+        variant.variant_config.example_input_shape[1] == 512
+        and variant.variant_config.target_output_classes == 10
+        for variant in batch_variants
+    )
+    assert all(
+        t5_config is not None
+        and t5_config.vocab_size == 16384
+        and t5_config.relative_attention_max_distance == 512
+        for variant in batch_variants
+        for t5_config in [variant.variant_config.t5_config]
+    )
+    assert all(
+        variant.variant_config.max_sequence_length
+        == variant.variant_config.example_input_shape[1]
+        for variant in variants
+    )
+    assert all(
+        t5_config is not None
+        and t5_config.d_kv is not None
+        and t5_config.d_kv * t5_config.num_heads == t5_config.d_model
+        and t5_config.dropout_rate == 0.0
+        and t5_config.classifier_dropout == 0.0
+        for t5_config in t5_configs
+    )
+    assert all(
+        t5_config is not None
+        and t5_config.relative_attention_max_distance
+        >= variant.variant_config.example_input_shape[1]
+        for variant in variants
+        for t5_config in [variant.variant_config.t5_config]
+    )
 
 
 @pytest.mark.parametrize(
@@ -178,11 +281,24 @@ def test_recommender_arch_configs_expand_to_expected_counts(
     if config_name == "dcn_variants.yaml":
         assert all(variant.variant_config.dcn_config is not None for variant in variants)
         assert all(variant.variant_config.deepfm_config is None for variant in variants)
+    if config_name == "dcnv2_variants.yaml":
+        assert all(variant.variant_config.dcnv2_config is not None for variant in variants)
+        assert all(variant.variant_config.deepfm_config is None for variant in variants)
+    if config_name == "edcn_variants.yaml":
+        assert all(variant.variant_config.edcn_config is not None for variant in variants)
+        assert all(variant.variant_config.deepfm_config is None for variant in variants)
     assert all(
         len(variant.variant_config.example_input_shape) == 1 for variant in variants
     )
+    batch_counts = Counter(
+        variant.variant_config.example_input_shape[0] for variant in variants
+    )
+    assert batch_counts == RECOMMENDER_CONFIG_BATCH_COUNTS[config_name]
     assert all(not variant.mutations for variant in variants)
-    assert len(build_recommender_structural_signatures(variants)) == 240
+    assert (
+        len(build_recommender_structural_signatures(variants))
+        == RECOMMENDER_CONFIG_SIGNATURE_COUNTS[config_name]
+    )
 
 
 def test_recommender_variant_rejects_multiple_model_configs() -> None:
@@ -230,7 +346,12 @@ def build_recommender_structural_signatures(
     signatures: set[tuple[object, ...]] = set()
     for variant in variants:
         variant_config = variant.variant_config
-        model_config = variant_config.deepfm_config or variant_config.dcn_config
+        model_config = (
+            variant_config.deepfm_config
+            or variant_config.dcn_config
+            or variant_config.dcnv2_config
+            or variant_config.edcn_config
+        )
         assert model_config is not None
         signatures.add(
             (
@@ -243,11 +364,18 @@ def build_recommender_structural_signatures(
                     (feature.name, feature.embed_dim)
                     for feature in model_config.dense_features
                 ),
-                tuple(model_config.mlp_dims),
+                tuple(getattr(model_config, "mlp_dims", []) or []),
                 model_config.activation,
                 model_config.dropout,
                 tuple(getattr(model_config, "fm_feature_names", []) or []),
                 getattr(model_config, "n_cross_layers", None),
+                getattr(model_config, "low_rank", None),
+                getattr(model_config, "num_experts", None),
+                getattr(model_config, "model_structure", None),
+                getattr(model_config, "use_low_rank_mixture", None),
+                getattr(model_config, "bridge_type", None),
+                getattr(model_config, "use_regulation_module", None),
+                getattr(model_config, "temperature", None),
             )
         )
     return signatures
@@ -264,10 +392,15 @@ def test_gpt2_batch_sweep_variants_define_batch_in_name_and_config() -> None:
     }
 
     assert len(batch_variants) == 24
-    assert batch_sizes == {1, 2, 4, 8}
+    assert batch_sizes == {2, 4, 8, 16}
     assert all(
         variant.variant_config.example_input_shape[0]
         == variant.variant_config.training_batch_sizes[0]
+        for variant in batch_variants
+    )
+    assert all(
+        variant.variant_config.example_input_shape[1] == 512
+        and variant.variant_config.target_output_classes == 10
         for variant in batch_variants
     )
 

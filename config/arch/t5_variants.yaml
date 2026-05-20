@@ -3,12 +3,41 @@ base_model_groups:
     name: t5
     pretrained: false
   single_variant_define:
-  - name: t5_balanced_h64_l2_d2_a4_ff128_relu_compact_oc2
+  - name: t5_balanced_h256_l4_d4_a4_kv64_ff1024_relu_xlong_oc10_bs2
     variant_config:
       target_input_channels: 1
-      target_output_classes: 2
-      example_input_shape: [2, 24]
-      max_sequence_length: 24
+      target_output_classes: 10
+      example_input_shape: [2, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [2]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 256
+        d_kv: 64
+        d_ff: 1024
+        num_layers: 4
+        num_decoder_layers: 4
+        num_heads: 4
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_balanced_h256_l4_d4_a4_kv64_ff1024_relu_xlong_oc10_bs4
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [4, 512]
+      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
@@ -19,25 +48,460 @@ base_model_groups:
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
-        vocab_size: 512
-        d_model: 64
-        d_kv: 16
-        d_ff: 128
+        vocab_size: 16384
+        d_model: 256
+        d_kv: 64
+        d_ff: 1024
+        num_layers: 4
+        num_decoder_layers: 4
+        num_heads: 4
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_balanced_h256_l4_d4_a4_kv64_ff1024_relu_xlong_oc10_bs8
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [8, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [8]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 256
+        d_kv: 64
+        d_ff: 1024
+        num_layers: 4
+        num_decoder_layers: 4
+        num_heads: 4
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_balanced_h256_l4_d4_a4_kv64_ff1024_relu_xlong_oc10_bs16
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [16, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [16]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 256
+        d_kv: 64
+        d_ff: 1024
+        num_layers: 4
+        num_decoder_layers: 4
+        num_heads: 4
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_balanced_h512_l6_d6_a8_kv64_ff2048_relu_xlong_oc10_bs2
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [2, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [2]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 512
+        d_kv: 64
+        d_ff: 2048
+        num_layers: 6
+        num_decoder_layers: 6
+        num_heads: 8
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_balanced_h512_l6_d6_a8_kv64_ff2048_relu_xlong_oc10_bs4
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [4, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [4]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 512
+        d_kv: 64
+        d_ff: 2048
+        num_layers: 6
+        num_decoder_layers: 6
+        num_heads: 8
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_balanced_h512_l6_d6_a8_kv64_ff2048_relu_xlong_oc10_bs8
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [8, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [8]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 512
+        d_kv: 64
+        d_ff: 2048
+        num_layers: 6
+        num_decoder_layers: 6
+        num_heads: 8
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_balanced_h512_l6_d6_a8_kv64_ff2048_relu_xlong_oc10_bs16
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [16, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [16]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 512
+        d_kv: 64
+        d_ff: 2048
+        num_layers: 6
+        num_decoder_layers: 6
+        num_heads: 8
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_balanced_h768_l4_d4_a12_kv64_ff3072_relu_xlong_oc10_bs2
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [2, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [2]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 768
+        d_kv: 64
+        d_ff: 3072
+        num_layers: 4
+        num_decoder_layers: 4
+        num_heads: 12
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_balanced_h768_l4_d4_a12_kv64_ff3072_relu_xlong_oc10_bs4
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [4, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [4]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 768
+        d_kv: 64
+        d_ff: 3072
+        num_layers: 4
+        num_decoder_layers: 4
+        num_heads: 12
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_balanced_h768_l4_d4_a12_kv64_ff3072_relu_xlong_oc10_bs8
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [8, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [8]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 768
+        d_kv: 64
+        d_ff: 3072
+        num_layers: 4
+        num_decoder_layers: 4
+        num_heads: 12
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_balanced_h768_l4_d4_a12_kv64_ff3072_relu_xlong_oc10_bs16
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [16, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [16]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 768
+        d_kv: 64
+        d_ff: 3072
+        num_layers: 4
+        num_decoder_layers: 4
+        num_heads: 12
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_deep_narrow_h384_l10_d10_a12_kv32_ff768_relu_xlong_oc10_bs2
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [2, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [2]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 384
+        d_kv: 32
+        d_ff: 768
+        num_layers: 10
+        num_decoder_layers: 10
+        num_heads: 12
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_deep_narrow_h384_l10_d10_a12_kv32_ff768_relu_xlong_oc10_bs4
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [4, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [4]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 384
+        d_kv: 32
+        d_ff: 768
+        num_layers: 10
+        num_decoder_layers: 10
+        num_heads: 12
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_deep_narrow_h384_l10_d10_a12_kv32_ff768_relu_xlong_oc10_bs8
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [8, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [8]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 384
+        d_kv: 32
+        d_ff: 768
+        num_layers: 10
+        num_decoder_layers: 10
+        num_heads: 12
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_deep_narrow_h384_l10_d10_a12_kv32_ff768_relu_xlong_oc10_bs16
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [16, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [16]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 384
+        d_kv: 32
+        d_ff: 768
+        num_layers: 10
+        num_decoder_layers: 10
+        num_heads: 12
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  - name: t5_shallow_wide_h768_l2_d2_a12_kv64_ff6144_relu_xlong_oc10_bs2
+    variant_config:
+      target_input_channels: 1
+      target_output_classes: 10
+      example_input_shape: [2, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [2]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 768
+        d_kv: 64
+        d_ff: 6144
         num_layers: 2
         num_decoder_layers: 2
-        num_heads: 4
-        relative_attention_num_buckets: 16
-        relative_attention_max_distance: 32
+        num_heads: 12
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
         dropout_rate: 0.0
         classifier_dropout: 0.0
         feed_forward_proj: relu
     mutations: []
-  - name: t5_balanced_h64_l2_d2_a4_ff128_relu_compact_oc10
+  - name: t5_shallow_wide_h768_l2_d2_a12_kv64_ff6144_relu_xlong_oc10_bs4
     variant_config:
       target_input_channels: 1
       target_output_classes: 10
-      example_input_shape: [2, 24]
-      max_sequence_length: 24
+      example_input_shape: [4, 512]
+      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
@@ -48,170 +512,112 @@ base_model_groups:
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
-        vocab_size: 512
-        d_model: 64
-        d_kv: 16
-        d_ff: 128
+        vocab_size: 16384
+        d_model: 768
+        d_kv: 64
+        d_ff: 6144
         num_layers: 2
         num_decoder_layers: 2
-        num_heads: 4
-        relative_attention_num_buckets: 16
-        relative_attention_max_distance: 32
+        num_heads: 12
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
         dropout_rate: 0.0
         classifier_dropout: 0.0
         feed_forward_proj: relu
     mutations: []
-  - name: t5_balanced_h64_l2_d2_a4_ff128_relu_short_oc2
+  - name: t5_shallow_wide_h768_l2_d2_a12_kv64_ff6144_relu_xlong_oc10_bs8
     variant_config:
       target_input_channels: 1
-      target_output_classes: 2
-      example_input_shape: [2, 40]
-      max_sequence_length: 40
+      target_output_classes: 10
+      example_input_shape: [8, 512]
+      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
+      training_batch_sizes: [8]
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
-        vocab_size: 1024
-        d_model: 64
-        d_kv: 16
-        d_ff: 128
+        vocab_size: 16384
+        d_model: 768
+        d_kv: 64
+        d_ff: 6144
         num_layers: 2
         num_decoder_layers: 2
-        num_heads: 4
-        relative_attention_num_buckets: 32
-        relative_attention_max_distance: 64
+        num_heads: 12
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
         dropout_rate: 0.0
         classifier_dropout: 0.0
         feed_forward_proj: relu
     mutations: []
-  - name: t5_balanced_h64_l2_d2_a4_ff128_relu_short_oc10
+  - name: t5_shallow_wide_h768_l2_d2_a12_kv64_ff6144_relu_xlong_oc10_bs16
     variant_config:
       target_input_channels: 1
       target_output_classes: 10
-      example_input_shape: [2, 40]
-      max_sequence_length: 40
+      example_input_shape: [16, 512]
+      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
+      training_batch_sizes: [16]
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
-        vocab_size: 1024
-        d_model: 64
-        d_kv: 16
-        d_ff: 128
+        vocab_size: 16384
+        d_model: 768
+        d_kv: 64
+        d_ff: 6144
         num_layers: 2
         num_decoder_layers: 2
-        num_heads: 4
-        relative_attention_num_buckets: 32
-        relative_attention_max_distance: 64
+        num_heads: 12
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
         dropout_rate: 0.0
         classifier_dropout: 0.0
         feed_forward_proj: relu
     mutations: []
-  - name: t5_balanced_h64_l4_d4_a4_ff256_relu_compact_oc2
-    variant_config:
-      target_input_channels: 1
-      target_output_classes: 2
-      example_input_shape: [2, 24]
-      max_sequence_length: 24
-      run_training: true
-      run_inference: true
-      pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
-      training_measurement_min_seconds: 40.0
-      use_fake_text_dataset: true
-      t5_config:
-        vocab_size: 512
-        d_model: 64
-        d_kv: 16
-        d_ff: 256
-        num_layers: 4
-        num_decoder_layers: 4
-        num_heads: 4
-        relative_attention_num_buckets: 16
-        relative_attention_max_distance: 32
-        dropout_rate: 0.0
-        classifier_dropout: 0.0
-        feed_forward_proj: relu
-    mutations: []
-  - name: t5_balanced_h64_l4_d4_a4_ff256_relu_compact_oc10
+  - name: t5_dec_heavy_h512_l4_d10_a8_kv64_ff2048_relu_xlong_oc10_bs2
     variant_config:
       target_input_channels: 1
       target_output_classes: 10
-      example_input_shape: [2, 24]
-      max_sequence_length: 24
+      example_input_shape: [2, 512]
+      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
+      training_batch_sizes: [2]
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
-        vocab_size: 512
-        d_model: 64
-        d_kv: 16
-        d_ff: 256
+        vocab_size: 16384
+        d_model: 512
+        d_kv: 64
+        d_ff: 2048
         num_layers: 4
-        num_decoder_layers: 4
-        num_heads: 4
-        relative_attention_num_buckets: 16
-        relative_attention_max_distance: 32
+        num_decoder_layers: 10
+        num_heads: 8
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
         dropout_rate: 0.0
         classifier_dropout: 0.0
         feed_forward_proj: relu
     mutations: []
-  - name: t5_balanced_h64_l4_d4_a4_ff256_relu_short_oc2
-    variant_config:
-      target_input_channels: 1
-      target_output_classes: 2
-      example_input_shape: [2, 40]
-      max_sequence_length: 40
-      run_training: true
-      run_inference: true
-      pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
-      training_measurement_min_seconds: 40.0
-      use_fake_text_dataset: true
-      t5_config:
-        vocab_size: 1024
-        d_model: 64
-        d_kv: 16
-        d_ff: 256
-        num_layers: 4
-        num_decoder_layers: 4
-        num_heads: 4
-        relative_attention_num_buckets: 32
-        relative_attention_max_distance: 64
-        dropout_rate: 0.0
-        classifier_dropout: 0.0
-        feed_forward_proj: relu
-    mutations: []
-  - name: t5_balanced_h64_l4_d4_a4_ff256_relu_short_oc10
+  - name: t5_dec_heavy_h512_l4_d10_a8_kv64_ff2048_relu_xlong_oc10_bs4
     variant_config:
       target_input_channels: 1
       target_output_classes: 10
-      example_input_shape: [2, 40]
-      max_sequence_length: 40
+      example_input_shape: [4, 512]
+      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
@@ -222,112 +628,83 @@ base_model_groups:
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
-        vocab_size: 1024
-        d_model: 64
-        d_kv: 16
-        d_ff: 256
+        vocab_size: 16384
+        d_model: 512
+        d_kv: 64
+        d_ff: 2048
         num_layers: 4
-        num_decoder_layers: 4
-        num_heads: 4
-        relative_attention_num_buckets: 32
-        relative_attention_max_distance: 64
+        num_decoder_layers: 10
+        num_heads: 8
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
         dropout_rate: 0.0
         classifier_dropout: 0.0
         feed_forward_proj: relu
     mutations: []
-  - name: t5_balanced_h96_l4_d4_a4_ff192_ggelu_compact_oc2
-    variant_config:
-      target_input_channels: 1
-      target_output_classes: 2
-      example_input_shape: [2, 24]
-      max_sequence_length: 24
-      run_training: true
-      run_inference: true
-      pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
-      training_measurement_min_seconds: 40.0
-      use_fake_text_dataset: true
-      t5_config:
-        vocab_size: 512
-        d_model: 96
-        d_kv: 24
-        d_ff: 192
-        num_layers: 4
-        num_decoder_layers: 4
-        num_heads: 4
-        relative_attention_num_buckets: 16
-        relative_attention_max_distance: 32
-        dropout_rate: 0.0
-        classifier_dropout: 0.0
-        feed_forward_proj: gated-gelu
-    mutations: []
-  - name: t5_balanced_h96_l4_d4_a4_ff192_ggelu_compact_oc10
+  - name: t5_dec_heavy_h512_l4_d10_a8_kv64_ff2048_relu_xlong_oc10_bs8
     variant_config:
       target_input_channels: 1
       target_output_classes: 10
-      example_input_shape: [2, 24]
-      max_sequence_length: 24
+      example_input_shape: [8, 512]
+      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
+      training_batch_sizes: [8]
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
-        vocab_size: 512
-        d_model: 96
-        d_kv: 24
-        d_ff: 192
+        vocab_size: 16384
+        d_model: 512
+        d_kv: 64
+        d_ff: 2048
         num_layers: 4
-        num_decoder_layers: 4
-        num_heads: 4
-        relative_attention_num_buckets: 16
-        relative_attention_max_distance: 32
+        num_decoder_layers: 10
+        num_heads: 8
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
         dropout_rate: 0.0
         classifier_dropout: 0.0
-        feed_forward_proj: gated-gelu
+        feed_forward_proj: relu
     mutations: []
-  - name: t5_balanced_h96_l4_d4_a4_ff192_ggelu_short_oc2
-    variant_config:
-      target_input_channels: 1
-      target_output_classes: 2
-      example_input_shape: [2, 40]
-      max_sequence_length: 40
-      run_training: true
-      run_inference: true
-      pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
-      training_measurement_min_seconds: 40.0
-      use_fake_text_dataset: true
-      t5_config:
-        vocab_size: 1024
-        d_model: 96
-        d_kv: 24
-        d_ff: 192
-        num_layers: 4
-        num_decoder_layers: 4
-        num_heads: 4
-        relative_attention_num_buckets: 32
-        relative_attention_max_distance: 64
-        dropout_rate: 0.0
-        classifier_dropout: 0.0
-        feed_forward_proj: gated-gelu
-    mutations: []
-  - name: t5_balanced_h96_l4_d4_a4_ff192_ggelu_short_oc10
+  - name: t5_dec_heavy_h512_l4_d10_a8_kv64_ff2048_relu_xlong_oc10_bs16
     variant_config:
       target_input_channels: 1
       target_output_classes: 10
-      example_input_shape: [2, 40]
-      max_sequence_length: 40
+      example_input_shape: [16, 512]
+      max_sequence_length: 512
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes: [16]
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      t5_config:
+        vocab_size: 16384
+        d_model: 512
+        d_kv: 64
+        d_ff: 2048
+        num_layers: 4
+        num_decoder_layers: 10
+        num_heads: 8
+        relative_attention_num_buckets: 64
+        relative_attention_max_distance: 512
+        dropout_rate: 0.0
+        classifier_dropout: 0.0
+        feed_forward_proj: relu
+    mutations: []
+  variant_config_grid:
+    base_variant_config_template:
+      target_input_channels: 1
+      target_output_classes: 2
+      example_input_shape: [4, 128]
+      max_sequence_length: 128
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
@@ -338,132 +715,268 @@ base_model_groups:
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
-        vocab_size: 1024
-        d_model: 96
-        d_kv: 24
-        d_ff: 192
+        vocab_size: 4096
+        d_model: 256
+        d_kv: 64
+        d_ff: 1024
         num_layers: 4
         num_decoder_layers: 4
         num_heads: 4
         relative_attention_num_buckets: 32
-        relative_attention_max_distance: 64
-        dropout_rate: 0.0
-        classifier_dropout: 0.0
-        feed_forward_proj: gated-gelu
-    mutations: []
-  - name: t5_deep_narrow_h96_l8_d8_a4_ff192_relu_compact_oc2
-    variant_config:
-      target_input_channels: 1
-      target_output_classes: 2
-      example_input_shape: [2, 24]
-      max_sequence_length: 24
-      run_training: true
-      run_inference: true
-      pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
-      training_measurement_min_seconds: 40.0
-      use_fake_text_dataset: true
-      t5_config:
-        vocab_size: 512
-        d_model: 96
-        d_kv: 24
-        d_ff: 192
-        num_layers: 8
-        num_decoder_layers: 8
-        num_heads: 4
-        relative_attention_num_buckets: 16
-        relative_attention_max_distance: 32
+        relative_attention_max_distance: 128
         dropout_rate: 0.0
         classifier_dropout: 0.0
         feed_forward_proj: relu
-    mutations: []
-  - name: t5_deep_narrow_h96_l8_d8_a4_ff192_relu_compact_oc10
-    variant_config:
-      target_input_channels: 1
-      target_output_classes: 10
-      example_input_shape: [2, 24]
-      max_sequence_length: 24
-      run_training: true
-      run_inference: true
-      pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
-      training_measurement_min_seconds: 40.0
-      use_fake_text_dataset: true
-      t5_config:
-        vocab_size: 512
-        d_model: 96
-        d_kv: 24
-        d_ff: 192
-        num_layers: 8
-        num_decoder_layers: 8
-        num_heads: 4
-        relative_attention_num_buckets: 16
-        relative_attention_max_distance: 32
-        dropout_rate: 0.0
-        classifier_dropout: 0.0
-        feed_forward_proj: relu
-    mutations: []
-  - name: t5_deep_narrow_h96_l8_d8_a4_ff192_relu_short_oc2
-    variant_config:
-      target_input_channels: 1
-      target_output_classes: 2
-      example_input_shape: [2, 40]
-      max_sequence_length: 40
-      run_training: true
-      run_inference: true
-      pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
-      training_measurement_min_seconds: 40.0
-      use_fake_text_dataset: true
-      t5_config:
-        vocab_size: 1024
-        d_model: 96
-        d_kv: 24
-        d_ff: 192
-        num_layers: 8
-        num_decoder_layers: 8
-        num_heads: 4
-        relative_attention_num_buckets: 32
-        relative_attention_max_distance: 64
-        dropout_rate: 0.0
-        classifier_dropout: 0.0
-        feed_forward_proj: relu
-    mutations: []
-  - name: t5_deep_narrow_h96_l8_d8_a4_ff192_relu_short_oc10
-    variant_config:
-      target_input_channels: 1
-      target_output_classes: 10
-      example_input_shape: [2, 40]
-      max_sequence_length: 40
-      run_training: true
-      run_inference: true
-      pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
-      training_measurement_min_seconds: 40.0
-      use_fake_text_dataset: true
-      t5_config:
-        vocab_size: 1024
-        d_model: 96
-        d_kv: 24
-        d_ff: 192
-        num_layers: 8
-        num_decoder_layers: 8
-        num_heads: 4
-        relative_attention_num_buckets: 32
-        relative_attention_max_distance: 64
-        dropout_rate: 0.0
-        classifier_dropout: 0.0
-        feed_forward_proj: relu
-    mutations: []
+    axes:
+    - name: shape
+      values:
+      - name: balanced_h256_l4_d4_a4_kv64_ff1024_relu
+        overrides:
+          t5_config.d_model: 256
+          t5_config.d_kv: 64
+          t5_config.d_ff: 1024
+          t5_config.num_layers: 4
+          t5_config.num_decoder_layers: 4
+          t5_config.num_heads: 4
+          t5_config.feed_forward_proj: relu
+      - name: balanced_h256_l8_d8_a8_kv32_ff1024_relu
+        overrides:
+          t5_config.d_model: 256
+          t5_config.d_kv: 32
+          t5_config.d_ff: 1024
+          t5_config.num_layers: 8
+          t5_config.num_decoder_layers: 8
+          t5_config.num_heads: 8
+          t5_config.feed_forward_proj: relu
+      - name: balanced_h384_l4_d4_a6_kv64_ff1536_relu
+        overrides:
+          t5_config.d_model: 384
+          t5_config.d_kv: 64
+          t5_config.d_ff: 1536
+          t5_config.num_layers: 4
+          t5_config.num_decoder_layers: 4
+          t5_config.num_heads: 6
+          t5_config.feed_forward_proj: relu
+      - name: balanced_h384_l8_d8_a8_kv48_ff1536_relu
+        overrides:
+          t5_config.d_model: 384
+          t5_config.d_kv: 48
+          t5_config.d_ff: 1536
+          t5_config.num_layers: 8
+          t5_config.num_decoder_layers: 8
+          t5_config.num_heads: 8
+          t5_config.feed_forward_proj: relu
+      - name: balanced_h512_l4_d4_a8_kv64_ff2048_relu
+        overrides:
+          t5_config.d_model: 512
+          t5_config.d_kv: 64
+          t5_config.d_ff: 2048
+          t5_config.num_layers: 4
+          t5_config.num_decoder_layers: 4
+          t5_config.num_heads: 8
+          t5_config.feed_forward_proj: relu
+      - name: balanced_h512_l6_d6_a8_kv64_ff2048_relu
+        overrides:
+          t5_config.d_model: 512
+          t5_config.d_kv: 64
+          t5_config.d_ff: 2048
+          t5_config.num_layers: 6
+          t5_config.num_decoder_layers: 6
+          t5_config.num_heads: 8
+          t5_config.feed_forward_proj: relu
+      - name: balanced_h512_l8_d8_a8_kv64_ff2048_ggelu
+        overrides:
+          t5_config.d_model: 512
+          t5_config.d_kv: 64
+          t5_config.d_ff: 2048
+          t5_config.num_layers: 8
+          t5_config.num_decoder_layers: 8
+          t5_config.num_heads: 8
+          t5_config.feed_forward_proj: gated-gelu
+      - name: balanced_h768_l4_d4_a12_kv64_ff3072_relu
+        overrides:
+          t5_config.d_model: 768
+          t5_config.d_kv: 64
+          t5_config.d_ff: 3072
+          t5_config.num_layers: 4
+          t5_config.num_decoder_layers: 4
+          t5_config.num_heads: 12
+          t5_config.feed_forward_proj: relu
+      - name: balanced_h768_l6_d6_a12_kv64_ff3072_relu
+        overrides:
+          t5_config.d_model: 768
+          t5_config.d_kv: 64
+          t5_config.d_ff: 3072
+          t5_config.num_layers: 6
+          t5_config.num_decoder_layers: 6
+          t5_config.num_heads: 12
+          t5_config.feed_forward_proj: relu
+      - name: balanced_h768_l8_d8_a12_kv64_ff3072_relu
+        overrides:
+          t5_config.d_model: 768
+          t5_config.d_kv: 64
+          t5_config.d_ff: 3072
+          t5_config.num_layers: 8
+          t5_config.num_decoder_layers: 8
+          t5_config.num_heads: 12
+          t5_config.feed_forward_proj: relu
+      - name: balanced_h1024_l4_d4_a16_kv64_ff4096_relu
+        overrides:
+          t5_config.d_model: 1024
+          t5_config.d_kv: 64
+          t5_config.d_ff: 4096
+          t5_config.num_layers: 4
+          t5_config.num_decoder_layers: 4
+          t5_config.num_heads: 16
+          t5_config.feed_forward_proj: relu
+      - name: deep_narrow_h256_l10_d10_a8_kv32_ff512_relu
+        overrides:
+          t5_config.d_model: 256
+          t5_config.d_kv: 32
+          t5_config.d_ff: 512
+          t5_config.num_layers: 10
+          t5_config.num_decoder_layers: 10
+          t5_config.num_heads: 8
+          t5_config.feed_forward_proj: relu
+      - name: deep_narrow_h384_l10_d10_a12_kv32_ff768_relu
+        overrides:
+          t5_config.d_model: 384
+          t5_config.d_kv: 32
+          t5_config.d_ff: 768
+          t5_config.num_layers: 10
+          t5_config.num_decoder_layers: 10
+          t5_config.num_heads: 12
+          t5_config.feed_forward_proj: relu
+      - name: deep_narrow_h512_l10_d10_a8_kv64_ff1024_relu
+        overrides:
+          t5_config.d_model: 512
+          t5_config.d_kv: 64
+          t5_config.d_ff: 1024
+          t5_config.num_layers: 10
+          t5_config.num_decoder_layers: 10
+          t5_config.num_heads: 8
+          t5_config.feed_forward_proj: relu
+      - name: deep_narrow_h384_l14_d14_a12_kv32_ff768_ggelu
+        overrides:
+          t5_config.d_model: 384
+          t5_config.d_kv: 32
+          t5_config.d_ff: 768
+          t5_config.num_layers: 14
+          t5_config.num_decoder_layers: 14
+          t5_config.num_heads: 12
+          t5_config.feed_forward_proj: gated-gelu
+      - name: shallow_wide_h512_l2_d2_a8_kv64_ff4096_relu
+        overrides:
+          t5_config.d_model: 512
+          t5_config.d_kv: 64
+          t5_config.d_ff: 4096
+          t5_config.num_layers: 2
+          t5_config.num_decoder_layers: 2
+          t5_config.num_heads: 8
+          t5_config.feed_forward_proj: relu
+      - name: shallow_wide_h768_l2_d2_a12_kv64_ff6144_relu
+        overrides:
+          t5_config.d_model: 768
+          t5_config.d_kv: 64
+          t5_config.d_ff: 6144
+          t5_config.num_layers: 2
+          t5_config.num_decoder_layers: 2
+          t5_config.num_heads: 12
+          t5_config.feed_forward_proj: relu
+      - name: shallow_wide_h1024_l2_d2_a16_kv64_ff8192_relu
+        overrides:
+          t5_config.d_model: 1024
+          t5_config.d_kv: 64
+          t5_config.d_ff: 8192
+          t5_config.num_layers: 2
+          t5_config.num_decoder_layers: 2
+          t5_config.num_heads: 16
+          t5_config.feed_forward_proj: relu
+      - name: mlp_narrow_h512_l8_d8_a8_kv64_ff512_relu
+        overrides:
+          t5_config.d_model: 512
+          t5_config.d_kv: 64
+          t5_config.d_ff: 512
+          t5_config.num_layers: 8
+          t5_config.num_decoder_layers: 8
+          t5_config.num_heads: 8
+          t5_config.feed_forward_proj: relu
+      - name: mlp_narrow_h768_l8_d8_a12_kv64_ff768_relu
+        overrides:
+          t5_config.d_model: 768
+          t5_config.d_kv: 64
+          t5_config.d_ff: 768
+          t5_config.num_layers: 8
+          t5_config.num_decoder_layers: 8
+          t5_config.num_heads: 12
+          t5_config.feed_forward_proj: relu
+      - name: mlp_narrow_h1024_l6_d6_a16_kv64_ff1024_relu
+        overrides:
+          t5_config.d_model: 1024
+          t5_config.d_kv: 64
+          t5_config.d_ff: 1024
+          t5_config.num_layers: 6
+          t5_config.num_decoder_layers: 6
+          t5_config.num_heads: 16
+          t5_config.feed_forward_proj: relu
+      - name: enc_heavy_h512_l10_d4_a8_kv64_ff2048_relu
+        overrides:
+          t5_config.d_model: 512
+          t5_config.d_kv: 64
+          t5_config.d_ff: 2048
+          t5_config.num_layers: 10
+          t5_config.num_decoder_layers: 4
+          t5_config.num_heads: 8
+          t5_config.feed_forward_proj: relu
+      - name: dec_heavy_h512_l4_d10_a8_kv64_ff2048_relu
+        overrides:
+          t5_config.d_model: 512
+          t5_config.d_kv: 64
+          t5_config.d_ff: 2048
+          t5_config.num_layers: 4
+          t5_config.num_decoder_layers: 10
+          t5_config.num_heads: 8
+          t5_config.feed_forward_proj: relu
+      - name: enc_heavy_h768_l8_d4_a12_kv64_ff3072_relu
+        overrides:
+          t5_config.d_model: 768
+          t5_config.d_kv: 64
+          t5_config.d_ff: 3072
+          t5_config.num_layers: 8
+          t5_config.num_decoder_layers: 4
+          t5_config.num_heads: 12
+          t5_config.feed_forward_proj: relu
+    - name: profile
+      values:
+      - name: medium
+        overrides:
+          t5_config.vocab_size: 4096
+          example_input_shape: [4, 128]
+          max_sequence_length: 128
+          t5_config.relative_attention_num_buckets: 32
+          t5_config.relative_attention_max_distance: 128
+      - name: long
+        overrides:
+          t5_config.vocab_size: 8192
+          example_input_shape: [4, 256]
+          max_sequence_length: 256
+          t5_config.relative_attention_num_buckets: 64
+          t5_config.relative_attention_max_distance: 256
+      - name: xlong
+        overrides:
+          t5_config.vocab_size: 16384
+          example_input_shape: [4, 512]
+          max_sequence_length: 512
+          t5_config.relative_attention_num_buckets: 64
+          t5_config.relative_attention_max_distance: 512
+    - name: classes
+      values:
+      - name: oc2
+        overrides:
+          target_output_classes: 2
+      - name: oc10
+        overrides:
+          target_output_classes: 10
+      - name: oc100
+        overrides:
+          target_output_classes: 100

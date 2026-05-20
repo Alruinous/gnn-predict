@@ -115,8 +115,16 @@
 | `memory_gb_max` | 阶段内 Pod 工作集内存峰值，单位 GB | 对阶段窗口内 Pod 内存样本求最大值，并换算成 GB |
 | `memory_gb_p95` | 阶段内 Pod 工作集内存 95 分位，单位 GB | 对阶段窗口内 Pod 内存样本求 95 分位，并换算成 GB |
 | `memory_gb_pct_of_total_avg` | Pod 平均内存占整机总内存的百分比 | `memory_gb_avg / 节点总内存 * 100` |
+| `container_started_at_ts` | 容器启动时间，Unix 秒时间戳 | 来自 `container_start_time_seconds` |
+| `memory_baseline_gb` | 容器启动后基线工作集内存，单位 GB | 对容器启动后 5 秒内 Pod 内存样本取最小值 |
+| `memory_baseline_sample_count` | 基线窗口内可用内存样本数 | 来自基线窗口内有效样本数量 |
+| `memory_delta_gb_avg` | 阶段内 Pod 工作集内存相对启动基线的平均增量 | 对 `max(memory_gb_sample - memory_baseline_gb, 0)` 求平均 |
+| `memory_delta_gb_max` | 阶段内 Pod 工作集内存相对启动基线的峰值增量 | 对内存增量样本求最大值 |
+| `memory_delta_gb_p95` | 阶段内 Pod 工作集内存相对启动基线的 95 分位增量 | 对内存增量样本求 95 分位 |
 
 这里的内存口径是 Pod 在阶段窗口内的实际工作集内存。
+`memory_delta_gb_*` 不是数据集对象内存，而是容器启动基线之上的 Pod 工作集内存增量。
+如果容器启动时间或基线内存样本缺失，增量列为空，原始 `memory_gb_*` 列仍保留。
 
 ### 6. GPU 指标族
 

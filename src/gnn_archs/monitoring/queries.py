@@ -41,6 +41,15 @@ def build_node_memory_total_query(node_name: str) -> str:
     return f'max(machine_memory_bytes{{node="{_escape_label_value(node_name)}"}})'
 
 
+def build_container_start_time_query(pod_name: str, namespace: str) -> str:
+    return (
+        "min(container_start_time_seconds"
+        f'{{pod="{_escape_label_value(pod_name)}",'
+        f'namespace="{_escape_label_value(namespace)}",'
+        'container!="",container!="POD"})'
+    )
+
+
 def build_pod_cpu_query(pod_name: str, namespace: str, cpu_rate_window: str) -> str:
     return (
         "sum(max by (pod,namespace,node,container) "

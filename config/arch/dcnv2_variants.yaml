@@ -1,0 +1,3213 @@
+base_model_groups:
+- base_model:
+    name: dcnv2
+    pretrained: false
+  variant_config_grid:
+    base_variant_config_template:
+      target_output_classes: 1
+      example_input_shape:
+      - 2048
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 2048
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 128
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 128
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 128
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 128
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 128
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 128
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 128
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 128
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 128
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 128
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 128
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 128
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 128
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 128
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 128
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 128
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 128
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 128
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 128
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 128
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 128
+        dense_features: &id001
+        - name: user_age_score
+        - name: item_price_score
+        - name: recency_score
+        - name: seller_quality_score
+        - name: ctr_prior_score
+        - name: context_score
+        - name: freshness_score
+        - name: position_score
+        - name: discount_score
+        - name: quality_score
+        - name: delivery_score
+        - name: seasonality_score
+        mlp_dims: &id003
+        - 2048
+        - 1024
+        - 512
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 8
+        low_rank: 128
+        num_experts: 4
+        model_structure: parallel
+        use_low_rank_mixture: true
+    axes:
+    - name: feature
+      values:
+      - name: f24_e128_d12
+        overrides:
+          dcnv2_config.sparse_features:
+          - name: user_id
+            vocab_size: 100000
+            embed_dim: 128
+          - name: item_id
+            vocab_size: 200000
+            embed_dim: 128
+          - name: category_id
+            vocab_size: 10000
+            embed_dim: 128
+          - name: brand_id
+            vocab_size: 50000
+            embed_dim: 128
+          - name: shop_id
+            vocab_size: 40000
+            embed_dim: 128
+          - name: region_id
+            vocab_size: 1024
+            embed_dim: 128
+          - name: device_type
+            vocab_size: 64
+            embed_dim: 128
+          - name: hour_bucket
+            vocab_size: 24
+            embed_dim: 128
+          - name: campaign_id
+            vocab_size: 50000
+            embed_dim: 128
+          - name: query_token_id
+            vocab_size: 100000
+            embed_dim: 128
+          - name: ad_slot_id
+            vocab_size: 2048
+            embed_dim: 128
+          - name: creative_id
+            vocab_size: 100000
+            embed_dim: 128
+          - name: seller_id
+            vocab_size: 80000
+            embed_dim: 128
+          - name: page_section
+            vocab_size: 1024
+            embed_dim: 128
+          - name: price_bucket
+            vocab_size: 512
+            embed_dim: 128
+          - name: user_segment
+            vocab_size: 4096
+            embed_dim: 128
+          - name: merchant_id
+            vocab_size: 120000
+            embed_dim: 128
+          - name: coupon_id
+            vocab_size: 20000
+            embed_dim: 128
+          - name: city_id
+            vocab_size: 8192
+            embed_dim: 128
+          - name: os_id
+            vocab_size: 128
+            embed_dim: 128
+          - name: network_type
+            vocab_size: 64
+            embed_dim: 128
+          - name: scene_id
+            vocab_size: 1024
+            embed_dim: 128
+          - name: channel_id
+            vocab_size: 512
+            embed_dim: 128
+          - name: experiment_bucket
+            vocab_size: 256
+            embed_dim: 128
+          dcnv2_config.dense_features: *id001
+      - name: f24_e192_d12
+        overrides:
+          dcnv2_config.sparse_features:
+          - name: user_id
+            vocab_size: 100000
+            embed_dim: 192
+          - name: item_id
+            vocab_size: 200000
+            embed_dim: 192
+          - name: category_id
+            vocab_size: 10000
+            embed_dim: 192
+          - name: brand_id
+            vocab_size: 50000
+            embed_dim: 192
+          - name: shop_id
+            vocab_size: 40000
+            embed_dim: 192
+          - name: region_id
+            vocab_size: 1024
+            embed_dim: 192
+          - name: device_type
+            vocab_size: 64
+            embed_dim: 192
+          - name: hour_bucket
+            vocab_size: 24
+            embed_dim: 192
+          - name: campaign_id
+            vocab_size: 50000
+            embed_dim: 192
+          - name: query_token_id
+            vocab_size: 100000
+            embed_dim: 192
+          - name: ad_slot_id
+            vocab_size: 2048
+            embed_dim: 192
+          - name: creative_id
+            vocab_size: 100000
+            embed_dim: 192
+          - name: seller_id
+            vocab_size: 80000
+            embed_dim: 192
+          - name: page_section
+            vocab_size: 1024
+            embed_dim: 192
+          - name: price_bucket
+            vocab_size: 512
+            embed_dim: 192
+          - name: user_segment
+            vocab_size: 4096
+            embed_dim: 192
+          - name: merchant_id
+            vocab_size: 120000
+            embed_dim: 192
+          - name: coupon_id
+            vocab_size: 20000
+            embed_dim: 192
+          - name: city_id
+            vocab_size: 8192
+            embed_dim: 192
+          - name: os_id
+            vocab_size: 128
+            embed_dim: 192
+          - name: network_type
+            vocab_size: 64
+            embed_dim: 192
+          - name: scene_id
+            vocab_size: 1024
+            embed_dim: 192
+          - name: channel_id
+            vocab_size: 512
+            embed_dim: 192
+          - name: experiment_bucket
+            vocab_size: 256
+            embed_dim: 192
+          dcnv2_config.dense_features: *id001
+      - name: f24_e256_d12
+        overrides:
+          dcnv2_config.sparse_features:
+          - name: user_id
+            vocab_size: 100000
+            embed_dim: 256
+          - name: item_id
+            vocab_size: 200000
+            embed_dim: 256
+          - name: category_id
+            vocab_size: 10000
+            embed_dim: 256
+          - name: brand_id
+            vocab_size: 50000
+            embed_dim: 256
+          - name: shop_id
+            vocab_size: 40000
+            embed_dim: 256
+          - name: region_id
+            vocab_size: 1024
+            embed_dim: 256
+          - name: device_type
+            vocab_size: 64
+            embed_dim: 256
+          - name: hour_bucket
+            vocab_size: 24
+            embed_dim: 256
+          - name: campaign_id
+            vocab_size: 50000
+            embed_dim: 256
+          - name: query_token_id
+            vocab_size: 100000
+            embed_dim: 256
+          - name: ad_slot_id
+            vocab_size: 2048
+            embed_dim: 256
+          - name: creative_id
+            vocab_size: 100000
+            embed_dim: 256
+          - name: seller_id
+            vocab_size: 80000
+            embed_dim: 256
+          - name: page_section
+            vocab_size: 1024
+            embed_dim: 256
+          - name: price_bucket
+            vocab_size: 512
+            embed_dim: 256
+          - name: user_segment
+            vocab_size: 4096
+            embed_dim: 256
+          - name: merchant_id
+            vocab_size: 120000
+            embed_dim: 256
+          - name: coupon_id
+            vocab_size: 20000
+            embed_dim: 256
+          - name: city_id
+            vocab_size: 8192
+            embed_dim: 256
+          - name: os_id
+            vocab_size: 128
+            embed_dim: 256
+          - name: network_type
+            vocab_size: 64
+            embed_dim: 256
+          - name: scene_id
+            vocab_size: 1024
+            embed_dim: 256
+          - name: channel_id
+            vocab_size: 512
+            embed_dim: 256
+          - name: experiment_bucket
+            vocab_size: 256
+            embed_dim: 256
+          dcnv2_config.dense_features: *id001
+      - name: f32_e192_d16
+        overrides:
+          dcnv2_config.sparse_features:
+          - name: user_id
+            vocab_size: 100000
+            embed_dim: 192
+          - name: item_id
+            vocab_size: 200000
+            embed_dim: 192
+          - name: category_id
+            vocab_size: 10000
+            embed_dim: 192
+          - name: brand_id
+            vocab_size: 50000
+            embed_dim: 192
+          - name: shop_id
+            vocab_size: 40000
+            embed_dim: 192
+          - name: region_id
+            vocab_size: 1024
+            embed_dim: 192
+          - name: device_type
+            vocab_size: 64
+            embed_dim: 192
+          - name: hour_bucket
+            vocab_size: 24
+            embed_dim: 192
+          - name: campaign_id
+            vocab_size: 50000
+            embed_dim: 192
+          - name: query_token_id
+            vocab_size: 100000
+            embed_dim: 192
+          - name: ad_slot_id
+            vocab_size: 2048
+            embed_dim: 192
+          - name: creative_id
+            vocab_size: 100000
+            embed_dim: 192
+          - name: seller_id
+            vocab_size: 80000
+            embed_dim: 192
+          - name: page_section
+            vocab_size: 1024
+            embed_dim: 192
+          - name: price_bucket
+            vocab_size: 512
+            embed_dim: 192
+          - name: user_segment
+            vocab_size: 4096
+            embed_dim: 192
+          - name: merchant_id
+            vocab_size: 120000
+            embed_dim: 192
+          - name: coupon_id
+            vocab_size: 20000
+            embed_dim: 192
+          - name: city_id
+            vocab_size: 8192
+            embed_dim: 192
+          - name: os_id
+            vocab_size: 128
+            embed_dim: 192
+          - name: network_type
+            vocab_size: 64
+            embed_dim: 192
+          - name: scene_id
+            vocab_size: 1024
+            embed_dim: 192
+          - name: channel_id
+            vocab_size: 512
+            embed_dim: 192
+          - name: experiment_bucket
+            vocab_size: 256
+            embed_dim: 192
+          - name: interest_cluster
+            vocab_size: 65536
+            embed_dim: 192
+          - name: poi_id
+            vocab_size: 200000
+            embed_dim: 192
+          - name: author_id
+            vocab_size: 180000
+            embed_dim: 192
+          - name: content_topic
+            vocab_size: 32768
+            embed_dim: 192
+          - name: supply_bucket
+            vocab_size: 4096
+            embed_dim: 192
+          - name: member_level
+            vocab_size: 128
+            embed_dim: 192
+          - name: risk_bucket
+            vocab_size: 512
+            embed_dim: 192
+          - name: campaign_group
+            vocab_size: 65536
+            embed_dim: 192
+          dcnv2_config.dense_features: &id002
+          - name: user_age_score
+          - name: item_price_score
+          - name: recency_score
+          - name: seller_quality_score
+          - name: ctr_prior_score
+          - name: context_score
+          - name: freshness_score
+          - name: position_score
+          - name: discount_score
+          - name: quality_score
+          - name: delivery_score
+          - name: seasonality_score
+          - name: inventory_score
+          - name: rank_score
+          - name: user_value_score
+          - name: merchant_score
+      - name: f32_e256_d16
+        overrides:
+          dcnv2_config.sparse_features:
+          - name: user_id
+            vocab_size: 100000
+            embed_dim: 256
+          - name: item_id
+            vocab_size: 200000
+            embed_dim: 256
+          - name: category_id
+            vocab_size: 10000
+            embed_dim: 256
+          - name: brand_id
+            vocab_size: 50000
+            embed_dim: 256
+          - name: shop_id
+            vocab_size: 40000
+            embed_dim: 256
+          - name: region_id
+            vocab_size: 1024
+            embed_dim: 256
+          - name: device_type
+            vocab_size: 64
+            embed_dim: 256
+          - name: hour_bucket
+            vocab_size: 24
+            embed_dim: 256
+          - name: campaign_id
+            vocab_size: 50000
+            embed_dim: 256
+          - name: query_token_id
+            vocab_size: 100000
+            embed_dim: 256
+          - name: ad_slot_id
+            vocab_size: 2048
+            embed_dim: 256
+          - name: creative_id
+            vocab_size: 100000
+            embed_dim: 256
+          - name: seller_id
+            vocab_size: 80000
+            embed_dim: 256
+          - name: page_section
+            vocab_size: 1024
+            embed_dim: 256
+          - name: price_bucket
+            vocab_size: 512
+            embed_dim: 256
+          - name: user_segment
+            vocab_size: 4096
+            embed_dim: 256
+          - name: merchant_id
+            vocab_size: 120000
+            embed_dim: 256
+          - name: coupon_id
+            vocab_size: 20000
+            embed_dim: 256
+          - name: city_id
+            vocab_size: 8192
+            embed_dim: 256
+          - name: os_id
+            vocab_size: 128
+            embed_dim: 256
+          - name: network_type
+            vocab_size: 64
+            embed_dim: 256
+          - name: scene_id
+            vocab_size: 1024
+            embed_dim: 256
+          - name: channel_id
+            vocab_size: 512
+            embed_dim: 256
+          - name: experiment_bucket
+            vocab_size: 256
+            embed_dim: 256
+          - name: interest_cluster
+            vocab_size: 65536
+            embed_dim: 256
+          - name: poi_id
+            vocab_size: 200000
+            embed_dim: 256
+          - name: author_id
+            vocab_size: 180000
+            embed_dim: 256
+          - name: content_topic
+            vocab_size: 32768
+            embed_dim: 256
+          - name: supply_bucket
+            vocab_size: 4096
+            embed_dim: 256
+          - name: member_level
+            vocab_size: 128
+            embed_dim: 256
+          - name: risk_bucket
+            vocab_size: 512
+            embed_dim: 256
+          - name: campaign_group
+            vocab_size: 65536
+            embed_dim: 256
+          dcnv2_config.dense_features: *id002
+    - name: mlp
+      values:
+      - name: mlp2048x1024x512
+        overrides:
+          dcnv2_config.mlp_dims: *id003
+      - name: mlp3072x1536x768
+        overrides:
+          dcnv2_config.mlp_dims: &id005
+          - 3072
+          - 1536
+          - 768
+      - name: mlp4096x2048x1024
+        overrides:
+          dcnv2_config.mlp_dims: &id004
+          - 4096
+          - 2048
+          - 1024
+    - name: cross_rank
+      values:
+      - name: cross8_rank128
+        overrides:
+          dcnv2_config.n_cross_layers: 8
+          dcnv2_config.low_rank: 128
+      - name: cross10_rank192
+        overrides:
+          dcnv2_config.n_cross_layers: 10
+          dcnv2_config.low_rank: 192
+      - name: cross12_rank256
+        overrides:
+          dcnv2_config.n_cross_layers: 12
+          dcnv2_config.low_rank: 256
+    - name: structure
+      values:
+      - name: parallel
+        overrides:
+          dcnv2_config.model_structure: parallel
+      - name: stacked
+        overrides:
+          dcnv2_config.model_structure: stacked
+    - name: activation
+      values:
+      - name: relu
+        overrides:
+          dcnv2_config.activation: relu
+      - name: prelu
+        overrides:
+          dcnv2_config.activation: prelu
+    - name: dropout
+      values:
+      - name: drop0
+        overrides:
+          dcnv2_config.dropout: 0.0
+      - name: drop0p1
+        overrides:
+          dcnv2_config.dropout: 0.1
+    mutations: []
+  single_variant_define:
+  - name: dcnv2_batch1024_f24_e256_d12_mlp4096x2048x1024_cross12_rank256_parallel_relu_drop0p0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 1024
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 1024
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 256
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 256
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 256
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 256
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 256
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 256
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 256
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 256
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 256
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 256
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 256
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 256
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 256
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 256
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 256
+        dense_features: *id001
+        mlp_dims: *id004
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 12
+        low_rank: 256
+        num_experts: 4
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_batch1024_f24_e256_d12_mlp4096x2048x1024_cross12_rank256_stacked_prelu_drop0p1
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 1024
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 1024
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 256
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 256
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 256
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 256
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 256
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 256
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 256
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 256
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 256
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 256
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 256
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 256
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 256
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 256
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 256
+        dense_features: *id001
+        mlp_dims: *id004
+        activation: prelu
+        dropout: 0.1
+        n_cross_layers: 12
+        low_rank: 256
+        num_experts: 4
+        model_structure: stacked
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_batch1024_f32_e192_d16_mlp4096x2048x1024_cross12_rank256_parallel_relu_drop0p0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 1024
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 1024
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 192
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 192
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 192
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 192
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 192
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 192
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 192
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 192
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 192
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 192
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 192
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 192
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 192
+        - name: interest_cluster
+          vocab_size: 65536
+          embed_dim: 192
+        - name: poi_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: author_id
+          vocab_size: 180000
+          embed_dim: 192
+        - name: content_topic
+          vocab_size: 32768
+          embed_dim: 192
+        - name: supply_bucket
+          vocab_size: 4096
+          embed_dim: 192
+        - name: member_level
+          vocab_size: 128
+          embed_dim: 192
+        - name: risk_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: campaign_group
+          vocab_size: 65536
+          embed_dim: 192
+        dense_features: *id002
+        mlp_dims: *id004
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 12
+        low_rank: 256
+        num_experts: 4
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_batch1024_f32_e192_d16_mlp4096x2048x1024_cross12_rank256_stacked_prelu_drop0p1
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 1024
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 1024
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 192
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 192
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 192
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 192
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 192
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 192
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 192
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 192
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 192
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 192
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 192
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 192
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 192
+        - name: interest_cluster
+          vocab_size: 65536
+          embed_dim: 192
+        - name: poi_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: author_id
+          vocab_size: 180000
+          embed_dim: 192
+        - name: content_topic
+          vocab_size: 32768
+          embed_dim: 192
+        - name: supply_bucket
+          vocab_size: 4096
+          embed_dim: 192
+        - name: member_level
+          vocab_size: 128
+          embed_dim: 192
+        - name: risk_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: campaign_group
+          vocab_size: 65536
+          embed_dim: 192
+        dense_features: *id002
+        mlp_dims: *id004
+        activation: prelu
+        dropout: 0.1
+        n_cross_layers: 12
+        low_rank: 256
+        num_experts: 4
+        model_structure: stacked
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_batch1024_f32_e256_d16_mlp3072x1536x768_cross10_rank192_parallel_relu_drop0p0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 1024
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 1024
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 256
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 256
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 256
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 256
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 256
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 256
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 256
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 256
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 256
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 256
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 256
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 256
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 256
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 256
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 256
+        - name: interest_cluster
+          vocab_size: 65536
+          embed_dim: 256
+        - name: poi_id
+          vocab_size: 200000
+          embed_dim: 256
+        - name: author_id
+          vocab_size: 180000
+          embed_dim: 256
+        - name: content_topic
+          vocab_size: 32768
+          embed_dim: 256
+        - name: supply_bucket
+          vocab_size: 4096
+          embed_dim: 256
+        - name: member_level
+          vocab_size: 128
+          embed_dim: 256
+        - name: risk_bucket
+          vocab_size: 512
+          embed_dim: 256
+        - name: campaign_group
+          vocab_size: 65536
+          embed_dim: 256
+        dense_features: *id002
+        mlp_dims: *id005
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 10
+        low_rank: 192
+        num_experts: 4
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_batch1024_f32_e256_d16_mlp3072x1536x768_cross10_rank192_stacked_prelu_drop0p1
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 1024
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 1024
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 256
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 256
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 256
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 256
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 256
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 256
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 256
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 256
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 256
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 256
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 256
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 256
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 256
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 256
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 256
+        - name: interest_cluster
+          vocab_size: 65536
+          embed_dim: 256
+        - name: poi_id
+          vocab_size: 200000
+          embed_dim: 256
+        - name: author_id
+          vocab_size: 180000
+          embed_dim: 256
+        - name: content_topic
+          vocab_size: 32768
+          embed_dim: 256
+        - name: supply_bucket
+          vocab_size: 4096
+          embed_dim: 256
+        - name: member_level
+          vocab_size: 128
+          embed_dim: 256
+        - name: risk_bucket
+          vocab_size: 512
+          embed_dim: 256
+        - name: campaign_group
+          vocab_size: 65536
+          embed_dim: 256
+        dense_features: *id002
+        mlp_dims: *id005
+        activation: prelu
+        dropout: 0.1
+        n_cross_layers: 10
+        low_rank: 192
+        num_experts: 4
+        model_structure: stacked
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_batch4096_f24_e128_d12_mlp2048x1024x512_cross8_rank128_parallel_relu_drop0p0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 4096
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 4096
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 128
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 128
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 128
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 128
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 128
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 128
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 128
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 128
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 128
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 128
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 128
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 128
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 128
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 128
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 128
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 128
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 128
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 128
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 128
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 128
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 128
+        dense_features: *id001
+        mlp_dims: *id003
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 8
+        low_rank: 128
+        num_experts: 4
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_batch4096_f24_e128_d12_mlp2048x1024x512_cross8_rank128_stacked_prelu_drop0p1
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 4096
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 4096
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 128
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 128
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 128
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 128
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 128
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 128
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 128
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 128
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 128
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 128
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 128
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 128
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 128
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 128
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 128
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 128
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 128
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 128
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 128
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 128
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 128
+        dense_features: *id001
+        mlp_dims: *id003
+        activation: prelu
+        dropout: 0.1
+        n_cross_layers: 8
+        low_rank: 128
+        num_experts: 4
+        model_structure: stacked
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_batch4096_f24_e192_d12_mlp2048x1024x512_cross8_rank128_parallel_relu_drop0p0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 4096
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 4096
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 192
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 192
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 192
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 192
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 192
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 192
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 192
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 192
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 192
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 192
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 192
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 192
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 192
+        dense_features: *id001
+        mlp_dims: *id003
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 8
+        low_rank: 128
+        num_experts: 4
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_batch4096_f24_e192_d12_mlp2048x1024x512_cross8_rank128_stacked_prelu_drop0p1
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 4096
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 4096
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 192
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 192
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 192
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 192
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 192
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 192
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 192
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 192
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 192
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 192
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 192
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 192
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 192
+        dense_features: *id001
+        mlp_dims: *id003
+        activation: prelu
+        dropout: 0.1
+        n_cross_layers: 8
+        low_rank: 128
+        num_experts: 4
+        model_structure: stacked
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_batch4096_f32_e192_d16_mlp2048x1024x512_cross8_rank128_parallel_relu_drop0p0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 4096
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 4096
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 192
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 192
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 192
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 192
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 192
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 192
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 192
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 192
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 192
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 192
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 192
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 192
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 192
+        - name: interest_cluster
+          vocab_size: 65536
+          embed_dim: 192
+        - name: poi_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: author_id
+          vocab_size: 180000
+          embed_dim: 192
+        - name: content_topic
+          vocab_size: 32768
+          embed_dim: 192
+        - name: supply_bucket
+          vocab_size: 4096
+          embed_dim: 192
+        - name: member_level
+          vocab_size: 128
+          embed_dim: 192
+        - name: risk_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: campaign_group
+          vocab_size: 65536
+          embed_dim: 192
+        dense_features: *id002
+        mlp_dims: *id003
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 8
+        low_rank: 128
+        num_experts: 4
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_batch4096_f32_e192_d16_mlp2048x1024x512_cross8_rank128_stacked_prelu_drop0p1
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 4096
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 4096
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 192
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 192
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 192
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 192
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 192
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 192
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 192
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 192
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 192
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 192
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 192
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 192
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 192
+        - name: interest_cluster
+          vocab_size: 65536
+          embed_dim: 192
+        - name: poi_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: author_id
+          vocab_size: 180000
+          embed_dim: 192
+        - name: content_topic
+          vocab_size: 32768
+          embed_dim: 192
+        - name: supply_bucket
+          vocab_size: 4096
+          embed_dim: 192
+        - name: member_level
+          vocab_size: 128
+          embed_dim: 192
+        - name: risk_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: campaign_group
+          vocab_size: 65536
+          embed_dim: 192
+        dense_features: *id002
+        mlp_dims: *id003
+        activation: prelu
+        dropout: 0.1
+        n_cross_layers: 8
+        low_rank: 128
+        num_experts: 4
+        model_structure: stacked
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_expert8_f24_e128_d12_mlp3072x1536x768_cross8_rank128_parallel_relu_drop0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 2048
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 2048
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 128
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 128
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 128
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 128
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 128
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 128
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 128
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 128
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 128
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 128
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 128
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 128
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 128
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 128
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 128
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 128
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 128
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 128
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 128
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 128
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 128
+        dense_features: *id001
+        mlp_dims: *id005
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 8
+        low_rank: 128
+        num_experts: 8
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_expert8_f24_e128_d12_mlp3072x1536x768_cross10_rank192_parallel_relu_drop0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 2048
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 2048
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 128
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 128
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 128
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 128
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 128
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 128
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 128
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 128
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 128
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 128
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 128
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 128
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 128
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 128
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 128
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 128
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 128
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 128
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 128
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 128
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 128
+        dense_features: *id001
+        mlp_dims: *id005
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 10
+        low_rank: 192
+        num_experts: 8
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_expert8_f24_e128_d12_mlp3072x1536x768_cross12_rank256_parallel_relu_drop0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 2048
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 2048
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 128
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 128
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 128
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 128
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 128
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 128
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 128
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 128
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 128
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 128
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 128
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 128
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 128
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 128
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 128
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 128
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 128
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 128
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 128
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 128
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 128
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 128
+        dense_features: *id001
+        mlp_dims: *id005
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 12
+        low_rank: 256
+        num_experts: 8
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_expert8_f24_e192_d12_mlp3072x1536x768_cross8_rank128_parallel_relu_drop0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 2048
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 2048
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 192
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 192
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 192
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 192
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 192
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 192
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 192
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 192
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 192
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 192
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 192
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 192
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 192
+        dense_features: *id001
+        mlp_dims: *id005
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 8
+        low_rank: 128
+        num_experts: 8
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_expert8_f24_e192_d12_mlp3072x1536x768_cross10_rank192_parallel_relu_drop0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 2048
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 2048
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 192
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 192
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 192
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 192
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 192
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 192
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 192
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 192
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 192
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 192
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 192
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 192
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 192
+        dense_features: *id001
+        mlp_dims: *id005
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 10
+        low_rank: 192
+        num_experts: 8
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_expert8_f24_e192_d12_mlp3072x1536x768_cross12_rank256_parallel_relu_drop0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 2048
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 2048
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 192
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 192
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 192
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 192
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 192
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 192
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 192
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 192
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 192
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 192
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 192
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 192
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 192
+        dense_features: *id001
+        mlp_dims: *id005
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 12
+        low_rank: 256
+        num_experts: 8
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_expert8_f24_e256_d12_mlp3072x1536x768_cross8_rank128_parallel_relu_drop0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 2048
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 2048
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 256
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 256
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 256
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 256
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 256
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 256
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 256
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 256
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 256
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 256
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 256
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 256
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 256
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 256
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 256
+        dense_features: *id001
+        mlp_dims: *id005
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 8
+        low_rank: 128
+        num_experts: 8
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_expert8_f24_e256_d12_mlp3072x1536x768_cross10_rank192_parallel_relu_drop0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 2048
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 2048
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 256
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 256
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 256
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 256
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 256
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 256
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 256
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 256
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 256
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 256
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 256
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 256
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 256
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 256
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 256
+        dense_features: *id001
+        mlp_dims: *id005
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 10
+        low_rank: 192
+        num_experts: 8
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_expert8_f24_e256_d12_mlp3072x1536x768_cross12_rank256_parallel_relu_drop0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 2048
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 2048
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 256
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 256
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 256
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 256
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 256
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 256
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 256
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 256
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 256
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 256
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 256
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 256
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 256
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 256
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 256
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 256
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 256
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 256
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 256
+        dense_features: *id001
+        mlp_dims: *id005
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 12
+        low_rank: 256
+        num_experts: 8
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_expert8_f32_e192_d16_mlp3072x1536x768_cross8_rank128_parallel_relu_drop0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 2048
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 2048
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 192
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 192
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 192
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 192
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 192
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 192
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 192
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 192
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 192
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 192
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 192
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 192
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 192
+        - name: interest_cluster
+          vocab_size: 65536
+          embed_dim: 192
+        - name: poi_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: author_id
+          vocab_size: 180000
+          embed_dim: 192
+        - name: content_topic
+          vocab_size: 32768
+          embed_dim: 192
+        - name: supply_bucket
+          vocab_size: 4096
+          embed_dim: 192
+        - name: member_level
+          vocab_size: 128
+          embed_dim: 192
+        - name: risk_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: campaign_group
+          vocab_size: 65536
+          embed_dim: 192
+        dense_features: *id002
+        mlp_dims: *id005
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 8
+        low_rank: 128
+        num_experts: 8
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_expert8_f32_e192_d16_mlp3072x1536x768_cross10_rank192_parallel_relu_drop0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 2048
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 2048
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 192
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 192
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 192
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 192
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 192
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 192
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 192
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 192
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 192
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 192
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 192
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 192
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 192
+        - name: interest_cluster
+          vocab_size: 65536
+          embed_dim: 192
+        - name: poi_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: author_id
+          vocab_size: 180000
+          embed_dim: 192
+        - name: content_topic
+          vocab_size: 32768
+          embed_dim: 192
+        - name: supply_bucket
+          vocab_size: 4096
+          embed_dim: 192
+        - name: member_level
+          vocab_size: 128
+          embed_dim: 192
+        - name: risk_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: campaign_group
+          vocab_size: 65536
+          embed_dim: 192
+        dense_features: *id002
+        mlp_dims: *id005
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 10
+        low_rank: 192
+        num_experts: 8
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []
+  - name: dcnv2_expert8_f32_e192_d16_mlp3072x1536x768_cross12_rank256_parallel_relu_drop0
+    variant_config:
+      target_output_classes: 1
+      example_input_shape:
+      - 2048
+      run_training: true
+      run_inference: true
+      pre_inference_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      training_batch_sizes:
+      - 2048
+      training_measurement_min_seconds: 40.0
+      use_fake_recommender_dataset: true
+      dcnv2_config:
+        sparse_features:
+        - name: user_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: item_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: category_id
+          vocab_size: 10000
+          embed_dim: 192
+        - name: brand_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: shop_id
+          vocab_size: 40000
+          embed_dim: 192
+        - name: region_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: device_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: hour_bucket
+          vocab_size: 24
+          embed_dim: 192
+        - name: campaign_id
+          vocab_size: 50000
+          embed_dim: 192
+        - name: query_token_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: ad_slot_id
+          vocab_size: 2048
+          embed_dim: 192
+        - name: creative_id
+          vocab_size: 100000
+          embed_dim: 192
+        - name: seller_id
+          vocab_size: 80000
+          embed_dim: 192
+        - name: page_section
+          vocab_size: 1024
+          embed_dim: 192
+        - name: price_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: user_segment
+          vocab_size: 4096
+          embed_dim: 192
+        - name: merchant_id
+          vocab_size: 120000
+          embed_dim: 192
+        - name: coupon_id
+          vocab_size: 20000
+          embed_dim: 192
+        - name: city_id
+          vocab_size: 8192
+          embed_dim: 192
+        - name: os_id
+          vocab_size: 128
+          embed_dim: 192
+        - name: network_type
+          vocab_size: 64
+          embed_dim: 192
+        - name: scene_id
+          vocab_size: 1024
+          embed_dim: 192
+        - name: channel_id
+          vocab_size: 512
+          embed_dim: 192
+        - name: experiment_bucket
+          vocab_size: 256
+          embed_dim: 192
+        - name: interest_cluster
+          vocab_size: 65536
+          embed_dim: 192
+        - name: poi_id
+          vocab_size: 200000
+          embed_dim: 192
+        - name: author_id
+          vocab_size: 180000
+          embed_dim: 192
+        - name: content_topic
+          vocab_size: 32768
+          embed_dim: 192
+        - name: supply_bucket
+          vocab_size: 4096
+          embed_dim: 192
+        - name: member_level
+          vocab_size: 128
+          embed_dim: 192
+        - name: risk_bucket
+          vocab_size: 512
+          embed_dim: 192
+        - name: campaign_group
+          vocab_size: 65536
+          embed_dim: 192
+        dense_features: *id002
+        mlp_dims: *id005
+        activation: relu
+        dropout: 0.0
+        n_cross_layers: 12
+        low_rank: 256
+        num_experts: 8
+        model_structure: parallel
+        use_low_rank_mixture: true
+    mutations: []

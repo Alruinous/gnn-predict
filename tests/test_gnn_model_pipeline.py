@@ -96,9 +96,12 @@ def write_prepared_manifest(path: Path) -> Path:
     prepared_dir = path / "prepared"
     prepared_dir.mkdir()
     split_data = {
-        "train": [build_synthetic_graph(0), build_synthetic_graph(1)],
-        "val": [build_synthetic_graph(2)],
-        "test": [build_synthetic_graph(3)],
+        "train": [
+            build_synthetic_graph(0, target_dim=len(TARGET_FIELDS)),
+            build_synthetic_graph(1, target_dim=len(TARGET_FIELDS)),
+        ],
+        "val": [build_synthetic_graph(2, target_dim=len(TARGET_FIELDS))],
+        "test": [build_synthetic_graph(3, target_dim=len(TARGET_FIELDS))],
     }
     split_files = {
         "train": "train.pt",

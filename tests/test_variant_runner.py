@@ -255,18 +255,37 @@ def build_recommender_variant(
     model_config_overrides: dict[str, object] | None = None,
     mutations: list[dict[str, object]] | None = None,
 ) -> ResolvedVariantSpec:
+    model_specific_config: dict[str, object]
     if base_model_name == "deepfm":
         model_config_field = "deepfm_config"
-        model_specific_config: dict[str, object] = {
-            "fm_feature_names": ["user_id", "item_id"]
-        }
+        model_specific_config = {"fm_feature_names": ["user_id", "item_id"]}
     elif base_model_name == "dcn":
         model_config_field = "dcn_config"
         model_specific_config = {"n_cross_layers": 2}
+    elif base_model_name == "dcnv2":
+        model_config_field = "dcnv2_config"
+        model_specific_config = {
+            "n_cross_layers": 2,
+            "low_rank": 4,
+            "num_experts": 2,
+            "model_structure": "parallel",
+            "use_low_rank_mixture": True,
+        }
+    elif base_model_name == "edcn":
+        model_config_field = "edcn_config"
+        model_specific_config = {
+            "n_cross_layers": 2,
+            "bridge_type": "hadamard_product",
+            "use_regulation_module": True,
+            "temperature": 1.0,
+        }
     else:
         raise ValueError(f"unsupported recommender model: {base_model_name}")
     if model_config_overrides is not None:
-        model_specific_config.update(model_config_overrides)
+        model_specific_config = {**model_specific_config, **model_config_overrides}
+    common_config = build_recommender_common_config_override(**model_specific_config)
+    if base_model_name == "edcn":
+        common_config.pop("mlp_dims")
 
     variant_config: dict[str, object] = {
         "target_output_classes": 1,
@@ -278,9 +297,7 @@ def build_recommender_variant(
         "training_measurement_min_seconds": 1e-9,
         "inference_measurement_min_seconds": 1e-9,
         "use_fake_recommender_dataset": True,
-        model_config_field: build_recommender_common_config_override(
-            **model_specific_config
-        ),
+        model_config_field: common_config,
     }
     if variant_config_overrides is not None:
         variant_config.update(variant_config_overrides)
@@ -990,7 +1007,7 @@ def test_t5_architecture_only_onnx_randomizes_to_runtime_inputs(
     assert output.shape == (2, 3)
 
 
-@pytest.mark.parametrize("base_model_name", ["deepfm", "dcn"])
+@pytest.mark.parametrize("base_model_name", ["deepfm", "dcn", "dcnv2", "edcn"])
 def test_build_variant_model_builds_recommender_model(base_model_name: str) -> None:
     variant = build_recommender_variant(base_model_name=base_model_name)
 
@@ -1009,7 +1026,7 @@ def test_build_variant_model_builds_recommender_model(base_model_name: str) -> N
     assert metrics == {"batch_size": 2, "num_outputs": 1}
 
 
-@pytest.mark.parametrize("base_model_name", ["deepfm", "dcn"])
+@pytest.mark.parametrize("base_model_name", ["deepfm", "dcn", "dcnv2", "edcn"])
 def test_recommender_variant_runner_executes_pipeline(
     tmp_path: Path,
     base_model_name: str,
@@ -1041,7 +1058,7 @@ def test_recommender_variant_runner_executes_pipeline(
     assert result.metadata["validation_num_outputs"] == 1
 
 
-@pytest.mark.parametrize("base_model_name", ["deepfm", "dcn"])
+@pytest.mark.parametrize("base_model_name", ["deepfm", "dcn", "dcnv2", "edcn"])
 def test_recommender_architecture_only_onnx_randomizes_to_runtime_inputs(
     tmp_path: Path,
     base_model_name: str,
@@ -1155,11 +1172,13 @@ def test_recommender_fake_batch_supports_vector_dense_features() -> None:
 
 
 @pytest.mark.parametrize(
-    ("base_model_name", "config_field", "match"),
-    [
-        ("deepfm", "deepfm_config", "variant_config.deepfm_config"),
-        ("dcn", "dcn_config", "variant_config.dcn_config"),
-    ],
+        ("base_model_name", "config_field", "match"),
+        [
+            ("deepfm", "deepfm_config", "variant_config.deepfm_config"),
+            ("dcn", "dcn_config", "variant_config.dcn_config"),
+            ("dcnv2", "dcnv2_config", "variant_config.dcnv2_config"),
+            ("edcn", "edcn_config", "variant_config.edcn_config"),
+        ],
 )
 def test_build_variant_model_rejects_recommender_missing_model_config(
     base_model_name: str,
@@ -1204,6 +1223,65 @@ def test_build_variant_model_rejects_dcn_missing_cross_layers() -> None:
 
     with pytest.raises(ValueError, match="n_cross_layers"):
         build_variant_model(invalid_variant)
+
+
+@pytest.mark.parametrize(
+    ("base_model_name", "model_config_overrides", "match"),
+    [
+        ("dcn", {"n_cross_layers": 0}, "n_cross_layers"),
+        ("dcnv2", {"n_cross_layers": 0}, "n_cross_layers"),
+        ("dcnv2", {"low_rank": 0}, "low_rank"),
+        ("dcnv2", {"num_experts": 0}, "num_experts"),
+        ("edcn", {"n_cross_layers": 0}, "n_cross_layers"),
+        ("edcn", {"temperature": 0.0}, "temperature"),
+    ],
+)
+def test_recommender_variant_rejects_non_positive_model_params(
+    base_model_name: str,
+    model_config_overrides: dict[str, object],
+    match: str,
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        build_recommender_variant(
+            base_model_name=base_model_name,
+            model_config_overrides=model_config_overrides,
+        )
+
+
+def test_recommender_variant_rejects_multiple_model_configs() -> None:
+    common_config = build_recommender_common_config_override(
+        fm_feature_names=["user_id", "item_id"]
+    )
+    dcnv2_config = build_recommender_common_config_override(
+        n_cross_layers=2,
+        low_rank=4,
+        num_experts=2,
+        model_structure="parallel",
+        use_low_rank_mixture=True,
+    )
+
+    with pytest.raises(ValueError, match="only one recommender config"):
+        ArchConfig.model_validate(
+            {
+                "base_model_groups": [
+                    {
+                        "base_model": {"name": "dcnv2", "pretrained": False},
+                        "single_variant_define": [
+                            {
+                                "name": "invalid_multi_recommender",
+                                "variant_config": {
+                                    "target_output_classes": 1,
+                                    "example_input_shape": [2],
+                                    "deepfm_config": common_config,
+                                    "dcnv2_config": dcnv2_config,
+                                },
+                                "mutations": [],
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
 
 
 def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:

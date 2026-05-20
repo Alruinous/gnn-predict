@@ -217,6 +217,7 @@ sum by (node, resource) (
 | `container_memory_usage_bytes` | 容器当前内存使用 | `namespace`, `pod`, `container`, `instance`, `metrics_path` |
 | `container_memory_working_set_bytes` | 工作集内存 | `namespace`, `pod`, `container` |
 | `container_memory_rss` | RSS | `namespace`, `pod`, `container` |
+| `container_start_time_seconds` | 容器启动时间 | `namespace`, `pod`, `container` |
 | `container_network_receive_bytes_total` | 容器接收字节数 | `namespace`, `pod`, `container`, `interface` |
 | `container_network_transmit_bytes_total` | 容器发送字节数 | `namespace`, `pod`, `container`, `interface` |
 | `container_processes` | 进程数 | `namespace`, `pod`, `container` |
@@ -251,10 +252,22 @@ sum by (namespace, pod) (
 )
 ```
 
+#### 某个 Pod 的容器启动时间
+
+```promql
+min(container_start_time_seconds{
+  namespace="crater-workspace",
+  pod="your-pod",
+  container!="",
+  container!="POD"
+})
+```
+
 ### 说明
 
 - 这是 Crater 后端 [query.go](/Users/yid11/project/crater/limit/backend/pkg/monitor/query.go:17) 查询 Pod CPU / 内存使用时的主数据源。
 - kubelet 的 cAdvisor 抓取配置设置了 `honor_timestamps: true`，直接看 `timestamp(container_*)` 容易受 exporter 自带时间戳影响，不适合反推抓取间隔。实际应以 target 配置里的 `1s` 为准。
+- 当前项目用 `container_start_time_seconds` 后 5 秒内的 Pod 工作集内存最小值作为 `memory_delta_gb_*` 的启动基线。
 
 ## 3. 节点 CPU / 内存 / 磁盘 / 网络使用
 
@@ -875,4 +888,3 @@ container_npu_utilization
 - `prometheus-kube-prometheus-alertmanager`
 - `prometheus-kube-prometheus-operator`
 - `prometheus-kube-prometheus-prometheus`
-

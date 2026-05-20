@@ -10,6 +10,7 @@ from .config import (
 )
 from .queries import (
     GPU_METRIC_DEFINITIONS,
+    build_container_start_time_query,
     build_gpu_metrics_query,
     build_node_cpu_total_query,
     build_node_memory_total_query,
@@ -32,6 +33,7 @@ __all__ = [
     "MonitorTarget",
     "ResolvedMonitorSettings",
     "ResolvedMonitorTarget",
+    "build_container_start_time_query",
     "build_gpu_metrics_query",
     "build_node_cpu_total_query",
     "build_node_memory_total_query",

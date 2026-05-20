@@ -79,6 +79,38 @@ def test_resolve_profile_tensor_shape_keeps_scalar_and_zero_length_shapes() -> N
     assert count_elements(zero_length_shape) == 0
 
 
+def test_build_graph_data_from_onnx_supports_squeeze_without_axes(
+    tmp_path: Path,
+) -> None:
+    class SqueezeLinearModel(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.proj = torch.nn.Linear(3, 1)
+
+        def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+            return self.proj(inputs.squeeze())
+
+    architecture_only_path = tmp_path / "squeeze_architecture.onnx"
+    export_architecture_only_onnx(
+        SqueezeLinearModel(),
+        architecture_only_path,
+        (2, 3, 1),
+    )
+
+    data = build_graph_data_from_onnx(
+        architecture_only_path,
+        batch_size=2,
+        gpu_name="v100",
+        phase="training",
+        sample_count=1,
+    )
+
+    profile_macs_index = GRAPH_FEATURE_NAMES.index("profile_total_macs")
+    assert data.x.shape[1] == NODE_FEATURE_DIM
+    assert data.edge_attr.shape[1] == EDGE_FEATURE_DIM
+    assert data.graph_features[0, profile_macs_index] > 0
+
+
 def test_build_graph_data_from_onnx_supports_softplus(tmp_path: Path) -> None:
     class SoftplusModel(torch.nn.Module):
         def forward(self, inputs: torch.Tensor) -> torch.Tensor:
@@ -248,7 +280,7 @@ def test_build_model_record_info_resolves_path_and_targets(tmp_path: Path) -> No
     assert info.sample_id == "variant_a::training"
     assert info.batch_size == 2
     assert info.gpu_name == "v100"
-    assert info.target == pytest.approx((2.5, 75.0, 12.5, 2048.0))
+    assert info.target == pytest.approx((2.5, 4.25, 1.5, 1.25, 75.0, 12.5, 2048.0))
 
 
 def test_process_csv_builds_graphs_with_hardcoded_targets(tmp_path: Path) -> None:
@@ -265,7 +297,9 @@ def test_process_csv_builds_graphs_with_hardcoded_targets(tmp_path: Path) -> Non
     assert len(graphs) == 1
     graph = graphs[0]
     assert graph.y.shape == (1, len(TARGET_FIELDS))
-    assert graph.y[0].tolist() == pytest.approx([4.0, 75.0, 12.5, 2048.0])
+    assert graph.y[0].tolist() == pytest.approx(
+        [4.0, 4.25, 1.5, 1.25, 75.0, 12.5, 2048.0]
+    )
     assert graph.batch_size == 2
     assert graph.gpu_node == "v100"
     assert graph.gpu_name == "v100"
@@ -346,6 +380,9 @@ def build_monitor_row(
         "resolved_device_label": "nvidia0",
         "duration_sec": duration_sec,
         "phase_rounds": 3,
+        "cpu_cores_p95": 4.25,
+        "memory_gb_p95": 1.5,
+        "memory_delta_gb_p95": 1.25,
         "gpu_util_percent_p95": 75.0,
         "gpu_sm_occupancy_percent_p95": 12.5,
         "gpu_mem_used_mb_p95": 2048.0,

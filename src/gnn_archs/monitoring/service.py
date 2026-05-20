@@ -12,6 +12,7 @@ from gnn_archs.result import ResultDocument
 from .prometheus import PrometheusClient
 from .queries import (
     GPU_METRIC_DEFINITIONS,
+    build_container_start_time_query,
     build_gpu_metrics_query,
     build_node_cpu_total_query,
     build_node_memory_total_query,
@@ -56,6 +57,12 @@ CSV_COLUMNS = [
     "memory_gb_max",
     "memory_gb_p95",
     "memory_gb_pct_of_total_avg",
+    "container_started_at_ts",
+    "memory_baseline_gb",
+    "memory_baseline_sample_count",
+    "memory_delta_gb_avg",
+    "memory_delta_gb_max",
+    "memory_delta_gb_p95",
     "gpu_util_percent_avg",
     "gpu_util_percent_max",
     "gpu_util_percent_p95",
@@ -113,6 +120,13 @@ class MonitorPhaseRecord:
     batch_size: int
 
 
+@dataclass(frozen=True)
+class MemoryBaseline:
+    container_started_at_ts: float | None
+    memory_baseline_gb: float | None
+    sample_count: int
+
+
 def extract_phase_records(
     target_name: str,
     result_json: Path,
@@ -155,7 +169,7 @@ def extract_phase_records(
                     phase="inference",
                     timings=variant.inference.timings,
                     gpu_id=gpu_id,
-                    batch_size=int(variant.inference.metrics["batch_size"])
+                    batch_size=int(variant.inference.metrics["batch_size"]),
                 )
             )
 
@@ -205,6 +219,15 @@ def monitor_target(
         reference_timestamp,
         description="node memory total",
     ) / (1024**3)
+    memory_baseline = _query_memory_baseline(
+        client,
+        target.pod_name,
+        settings.namespace,
+        reference_timestamp,
+        settings.memory_baseline_window_seconds,
+        settings.query_step_seconds,
+        logger,
+    )
 
     rows = []
     for record in phase_records:
@@ -216,6 +239,7 @@ def monitor_target(
             query_step_seconds=settings.query_step_seconds,
             node_total_cpu=node_total_cpu,
             node_total_memory_gb=node_total_memory_gb,
+            memory_baseline=memory_baseline,
             logger=logger,
         )
         if len(row) == 0:
@@ -362,6 +386,7 @@ def _monitor_phase_record(
     query_step_seconds: int,
     node_total_cpu: float,
     node_total_memory_gb: float,
+    memory_baseline: MemoryBaseline,
     logger: logging.Logger,
 ) -> dict[str, Any]:
     cpu_query_start_ts = phase_record.started_at_ts + cpu_rate_window_seconds
@@ -446,6 +471,7 @@ def _monitor_phase_record(
         memory_summary["memory_gb_avg"] / node_total_memory_gb * 100,
         2,
     )
+    memory_delta_summary = _summarize_memory_delta(memory_values, memory_baseline)
 
     sample_count = min([len(cpu_values), len(memory_values), *gpu_sample_counts])
     if sample_count < MIN_REQUIRED_PHASE_SAMPLES:
@@ -475,11 +501,77 @@ def _monitor_phase_record(
         "resolved_gpu_label": resolved_gpu_label,
         "resolved_device_label": resolved_device_label,
         "batch_size": phase_record.batch_size,
+        "container_started_at_ts": memory_baseline.container_started_at_ts,
+        "memory_baseline_gb": memory_baseline.memory_baseline_gb,
+        "memory_baseline_sample_count": memory_baseline.sample_count,
     }
     row.update(cpu_summary)
     row.update(memory_summary)
+    row.update(memory_delta_summary)
     row.update(gpu_metrics)
     return row
+
+
+def _query_memory_baseline(
+    client: PrometheusQueryAPI,
+    pod_name: str,
+    namespace: str,
+    reference_timestamp: float,
+    memory_baseline_window_seconds: int,
+    query_step_seconds: int,
+    logger: logging.Logger,
+) -> MemoryBaseline:
+    container_started_at_ts = _query_optional_scalar(
+        client,
+        build_container_start_time_query(pod_name, namespace),
+        reference_timestamp,
+        description="container start time",
+    )
+    if container_started_at_ts is None:
+        logger.warning(
+            f"No container start time returned for {pod_name} in {namespace}; "
+            "memory delta columns will be empty."
+        )
+        return MemoryBaseline(None, None, 0)
+
+    baseline_values = _extract_optional_single_series_values(
+        client.range_query(
+            build_pod_memory_query(pod_name, namespace),
+            container_started_at_ts,
+            container_started_at_ts + memory_baseline_window_seconds,
+            query_step_seconds,
+        ),
+        scale_factor=1 / (1024**3),
+    )
+    if not baseline_values:
+        logger.warning(
+            f"No memory baseline samples returned for {pod_name} in {namespace}; "
+            "memory delta columns will be empty."
+        )
+        return MemoryBaseline(container_started_at_ts, None, 0)
+
+    return MemoryBaseline(
+        container_started_at_ts=container_started_at_ts,
+        memory_baseline_gb=round(min(baseline_values), 3),
+        sample_count=len(baseline_values),
+    )
+
+
+def _summarize_memory_delta(
+    memory_values: list[float],
+    memory_baseline: MemoryBaseline,
+) -> dict[str, float | None]:
+    if memory_baseline.memory_baseline_gb is None:
+        return {
+            "memory_delta_gb_avg": None,
+            "memory_delta_gb_max": None,
+            "memory_delta_gb_p95": None,
+        }
+    delta_values = [
+        max(memory_value - memory_baseline.memory_baseline_gb, 0.0)
+        for memory_value in memory_values
+    ]
+    return _summarize_values(delta_values, "memory_delta_gb")
 
 
 def _extract_gpu_metrics(
@@ -570,6 +662,29 @@ def _query_scalar(
     return float(raw_value[1])
 
 
+def _query_optional_scalar(
+    client: PrometheusQueryAPI,
+    query: str,
+    timestamp: float,
+    *,
+    description: str,
+) -> float | None:
+    result = client.instant_query(query, timestamp)
+    if len(result) == 0:
+        return None
+    if len(result) != 1:
+        raise ValueError(
+            f"expected at most one series for {description}, got {len(result)}"
+        )
+    raw_value = result[0].get("value")
+    if not isinstance(raw_value, list) or len(raw_value) != 2:
+        raise ValueError(f"invalid scalar payload for {description}")
+    raw_scalar = raw_value[1]
+    if raw_scalar in {"NaN", "nan", "null", None}:
+        return None
+    return float(raw_scalar)
+
+
 def _extract_single_series_values(
     result: list[dict[str, Any]],
     *,
@@ -578,15 +693,33 @@ def _extract_single_series_values(
 ) -> list[float]:
     if len(result) == 0:
         return []
-    # if len(result) != 1:
-    #     raise ValueError(
-    #         f"expected exactly one series for {description}, got {len(result)}"
-    #     )
     return _extract_series_values(
         result[0],
         description=description,
         scale_factor=scale_factor,
     )
+
+
+def _extract_optional_single_series_values(
+    result: list[dict[str, Any]],
+    *,
+    scale_factor: float,
+) -> list[float]:
+    if len(result) == 0:
+        return []
+    raw_values = result[0].get("values")
+    if not isinstance(raw_values, list):
+        raise ValueError("invalid series payload for memory baseline")
+
+    values: list[float] = []
+    for sample in raw_values:
+        if not isinstance(sample, list | tuple) or len(sample) != 2:
+            raise ValueError("invalid sample payload for memory baseline")
+        raw_value = sample[1]
+        if raw_value in {"NaN", "nan", "null", None}:
+            continue
+        values.append(float(raw_value) * scale_factor)
+    return values
 
 
 def _extract_series_values(

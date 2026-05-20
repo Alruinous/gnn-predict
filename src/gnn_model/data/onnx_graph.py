@@ -8,7 +8,17 @@ import numpy as np
 import onnx
 import onnx_tool
 import torch
-from onnx_tool.node import ADD_MACS, CMP_MACS, EXP_MACS, LOG_MACS, MUL_MACS, PWNode
+from onnx_tool.node import (
+    ADD_MACS,
+    CMP_MACS,
+    EXP_MACS,
+    LOG_MACS,
+    MUL_MACS,
+    PWNode,
+)
+from onnx_tool.node import (
+    SqueezeNode as OnnxToolSqueezeNode,
+)
 from onnx_tool.utils import NODE_REGISTRY
 from torch_geometric.data import Data
 
@@ -121,9 +131,49 @@ def build_graph_data_from_onnx(
 
 
 def register_onnx_tool_extensions() -> None:
+    replace_onnx_tool_node(SqueezeNode)
     for node_class in (SoftplusNode, EluNode, SeluNode):
         if NODE_REGISTRY.get(node_class.__name__) is None:
             NODE_REGISTRY.register(node_class)
+
+
+def replace_onnx_tool_node(node_class: type[Any]) -> None:
+    if NODE_REGISTRY.get(node_class.__name__) is not node_class:
+        NODE_REGISTRY._obj_map[node_class.__name__] = node_class
+
+
+class SqueezeNode(OnnxToolSqueezeNode):
+    def shape_infer(self, intensors: list[Any], outtensors: list[Any]) -> None:
+        inshape = intensors[0].get_shape()
+        axes = resolve_squeeze_axes(inshape, self, intensors)
+        outshape = [
+            dimension for index, dimension in enumerate(inshape) if index not in axes
+        ]
+        outtensors[0].update_shape(outshape)
+        outtensors[0].update_dtype(intensors[0].dtype)
+
+    def value_infer(self, intensors: list[Any], outtensors: list[Any]) -> None:
+        value = intensors[0].get_numpy().copy()
+        axes = resolve_squeeze_axes(list(value.shape), self, intensors)
+        value = np.squeeze(value, axis=tuple(sorted(axes)))
+        outtensors[0].update_tensor(value)
+
+
+def resolve_squeeze_axes(
+    inshape: list[int],
+    node_info: Any,
+    intensors: list[Any],
+) -> set[int]:
+    if len(intensors) == 2:
+        raw_axes = np.asarray(intensors[1].get_numpy()).reshape(-1)
+    elif "axes" in node_info.attr:
+        raw_axes = np.asarray(node_info.axes).reshape(-1)
+    else:
+        return {index for index, dimension in enumerate(inshape) if dimension == 1}
+    return {
+        axis if axis >= 0 else len(inshape) + axis
+        for axis in (int(raw_axis) for raw_axis in raw_axes)
+    }
 
 
 class SoftplusNode(PWNode):
@@ -137,6 +187,8 @@ class SoftplusNode(PWNode):
 
 
 class EluNode(PWNode):
+    alpha: float
+
     def __init__(self, node_proto: onnx.NodeProto) -> None:
         super().__init__(node_proto)
         self.op_mac = CMP_MACS + EXP_MACS + ADD_MACS + MUL_MACS
@@ -149,6 +201,9 @@ class EluNode(PWNode):
 
 
 class SeluNode(PWNode):
+    alpha: float
+    gamma: float
+
     def __init__(self, node_proto: onnx.NodeProto) -> None:
         super().__init__(node_proto)
         self.op_mac = CMP_MACS + EXP_MACS + ADD_MACS + MUL_MACS * 2

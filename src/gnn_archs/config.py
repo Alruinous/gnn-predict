@@ -48,7 +48,7 @@ def is_detection_model_name(model_name: str) -> bool:
     return any(normalized.startswith(prefix) for prefix in DETECTION_MODEL_PREFIXES)
 
 
-RECOMMENDER_MODEL_NAMES = {"deepfm", "dcn"}
+RECOMMENDER_MODEL_NAMES = {"deepfm", "dcn", "dcnv2", "edcn"}
 
 
 def is_recommender_model_name(model_name: str) -> bool:
@@ -167,7 +167,6 @@ class RecommenderBaseConfigOverride(StrictModel):
 
     sparse_features: list[RecommenderSparseFeatureConfig]
     dense_features: list[RecommenderDenseFeatureConfig] = Field(default_factory=list)
-    mlp_dims: list[int]
     activation: str = "relu"
     dropout: float = 0.0
 
@@ -177,10 +176,6 @@ class RecommenderBaseConfigOverride(StrictModel):
             raise ValueError(
                 f"{self.config_field_name}.sparse_features must not be empty"
             )
-        if not self.mlp_dims:
-            raise ValueError(f"{self.config_field_name}.mlp_dims must not be empty")
-        if any(dim <= 0 for dim in self.mlp_dims):
-            raise ValueError(f"{self.config_field_name}.mlp_dims must be positive")
         if not 0 <= self.dropout < 1:
             raise ValueError(f"{self.config_field_name}.dropout must be in [0, 1)")
 
@@ -192,7 +187,19 @@ class RecommenderBaseConfigOverride(StrictModel):
         return self
 
 
-class DeepFMConfigOverride(RecommenderBaseConfigOverride):
+class RecommenderMlpConfigOverride(RecommenderBaseConfigOverride):
+    mlp_dims: list[int]
+
+    @model_validator(mode="after")
+    def validate_mlp_config(self) -> Self:
+        if not self.mlp_dims:
+            raise ValueError(f"{self.config_field_name}.mlp_dims must not be empty")
+        if any(dim <= 0 for dim in self.mlp_dims):
+            raise ValueError(f"{self.config_field_name}.mlp_dims must be positive")
+        return self
+
+
+class DeepFMConfigOverride(RecommenderMlpConfigOverride):
     config_field_name: ClassVar[str] = "deepfm_config"
 
     fm_feature_names: list[str]
@@ -211,7 +218,7 @@ class DeepFMConfigOverride(RecommenderBaseConfigOverride):
         return self
 
 
-class DCNConfigOverride(RecommenderBaseConfigOverride):
+class DCNConfigOverride(RecommenderMlpConfigOverride):
     config_field_name: ClassVar[str] = "dcn_config"
 
     n_cross_layers: int
@@ -224,17 +231,66 @@ class DCNConfigOverride(RecommenderBaseConfigOverride):
         return value
 
 
+class DCNv2ConfigOverride(RecommenderMlpConfigOverride):
+    config_field_name: ClassVar[str] = "dcnv2_config"
+
+    n_cross_layers: int
+    low_rank: int
+    num_experts: int
+    model_structure: Literal["crossnet_only", "stacked", "parallel"] = "parallel"
+    use_low_rank_mixture: bool = True
+
+    @model_validator(mode="after")
+    def validate_dcnv2_config(self) -> DCNv2ConfigOverride:
+        if self.n_cross_layers <= 0:
+            raise ValueError("dcnv2_config.n_cross_layers must be positive")
+        if self.low_rank <= 0:
+            raise ValueError("dcnv2_config.low_rank must be positive")
+        if self.num_experts <= 0:
+            raise ValueError("dcnv2_config.num_experts must be positive")
+        return self
+
+
+class EDCNConfigOverride(RecommenderBaseConfigOverride):
+    config_field_name: ClassVar[str] = "edcn_config"
+
+    n_cross_layers: int
+    bridge_type: Literal[
+        "hadamard_product",
+        "pointwise_addition",
+        "concatenation",
+        "attention_pooling",
+    ] = "hadamard_product"
+    use_regulation_module: bool = True
+    temperature: float = 1.0
+
+    @model_validator(mode="after")
+    def validate_edcn_config(self) -> EDCNConfigOverride:
+        if self.n_cross_layers <= 0:
+            raise ValueError("edcn_config.n_cross_layers must be positive")
+        if self.temperature <= 0:
+            raise ValueError("edcn_config.temperature must be positive")
+        return self
+
+
 def has_recommender_config(variant_config: VariantConfig) -> bool:
     return (
         variant_config.deepfm_config is not None
         or variant_config.dcn_config is not None
+        or variant_config.dcnv2_config is not None
+        or variant_config.edcn_config is not None
     )
 
 
 def count_recommender_configs(variant_config: VariantConfig) -> int:
     return sum(
         config is not None
-        for config in (variant_config.deepfm_config, variant_config.dcn_config)
+        for config in (
+            variant_config.deepfm_config,
+            variant_config.dcn_config,
+            variant_config.dcnv2_config,
+            variant_config.edcn_config,
+        )
     )
 
 
@@ -259,6 +315,8 @@ class VariantConfig(StrictModel):
     t5_config: T5ConfigOverride | None = None
     deepfm_config: DeepFMConfigOverride | None = None
     dcn_config: DCNConfigOverride | None = None
+    dcnv2_config: DCNv2ConfigOverride | None = None
+    edcn_config: EDCNConfigOverride | None = None
 
     @field_validator("training_batch_sizes", mode="before")
     @classmethod

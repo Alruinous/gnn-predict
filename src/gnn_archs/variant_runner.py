@@ -259,6 +259,14 @@ def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
             from gnn_archs.dcn_builder import build_dcn_model
 
             return build_dcn_model(spec)
+        if model_name == "dcnv2":
+            from gnn_archs.dcnv2_builder import build_dcnv2_model
+
+            return build_dcnv2_model(spec)
+        if model_name == "edcn":
+            from gnn_archs.edcn_builder import build_edcn_model
+
+            return build_edcn_model(spec)
         raise ValueError(f"unsupported recommender model: {spec.base_model.name}")
 
     if normalize_model_identifier(spec.base_model.name) == "gpt2":
@@ -629,6 +637,8 @@ def build_example_batch(
     if (
         variant_config.deepfm_config is not None
         or variant_config.dcn_config is not None
+        or variant_config.dcnv2_config is not None
+        or variant_config.edcn_config is not None
     ):
         from gnn_archs.recommender.common import build_recommender_batch
 
