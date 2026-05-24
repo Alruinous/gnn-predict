@@ -7,7 +7,7 @@ __pycache__/
 .pytest_cache/
 
 
-data/
+/data/
 res/
 test/
 /bak
@@ -31,5 +31,6 @@ tmp/
 .DS_Store
 
 /csv/
+/csv*/
 /output/
 perfseer/

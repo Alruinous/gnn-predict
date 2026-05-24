@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -27,9 +28,72 @@ from gnn_model.data.constants import (
     EDGE_FEATURE_DIM,
     GPU_SPECS,
     GRAPH_FEATURE_DIM,
+    MAX_SHAPE_RANK,
     NODE_FEATURE_DIM,
+    OP_TYPE_TO_INDEX,
     PHASE_TO_INDEX,
+    normalize_gpu_name,
 )
+
+OP_TYPE_CATEGORY_BY_RAW_OP = {
+    "Conv": "op_conv",
+    "ConvTranspose": "op_conv",
+    "Gemm": "op_dense",
+    "MatMul": "op_dense",
+    "Gather": "op_embedding",
+    "GatherElements": "op_embedding",
+    "GatherND": "op_embedding",
+    "Softmax": "op_attention",
+    "Einsum": "op_attention",
+    "BatchNormalization": "op_norm",
+    "LayerNormalization": "op_norm",
+    "InstanceNormalization": "op_norm",
+    "MaxPool": "op_pool",
+    "AveragePool": "op_pool",
+    "GlobalAveragePool": "op_pool",
+    "GlobalMaxPool": "op_pool",
+    "Relu": "op_activation",
+    "Gelu": "op_activation",
+    "Sigmoid": "op_activation",
+    "Tanh": "op_activation",
+    "Softplus": "op_activation",
+    "Elu": "op_activation",
+    "Selu": "op_activation",
+    "LeakyRelu": "op_activation",
+    "HardSigmoid": "op_activation",
+    "HardSwish": "op_activation",
+    "Add": "op_elementwise",
+    "Sub": "op_elementwise",
+    "Mul": "op_elementwise",
+    "Div": "op_elementwise",
+    "Pow": "op_elementwise",
+    "Where": "op_elementwise",
+    "Max": "op_elementwise",
+    "Min": "op_elementwise",
+    "Equal": "op_elementwise",
+    "Greater": "op_elementwise",
+    "Less": "op_elementwise",
+    "ReduceMean": "op_reduce",
+    "ReduceSum": "op_reduce",
+    "ReduceMax": "op_reduce",
+    "ReduceMin": "op_reduce",
+    "Shape": "op_shape",
+    "Size": "op_shape",
+    "ConstantOfShape": "op_shape",
+    "Reshape": "op_layout",
+    "Transpose": "op_layout",
+    "Flatten": "op_layout",
+    "Squeeze": "op_layout",
+    "Unsqueeze": "op_layout",
+    "Concat": "op_join_split",
+    "Split": "op_join_split",
+    "Slice": "op_join_split",
+    "Tile": "op_join_split",
+    "Expand": "op_join_split",
+    "Cast": "op_cast",
+    "CastLike": "op_cast",
+    "Constant": "op_constant",
+}
 
 
 def build_graph_data_from_onnx(
@@ -76,12 +140,17 @@ def build_graph_data_from_onnx(
     in_degree, out_degree = build_node_degrees(len(node_names), raw_edges)
     node_features = [
         build_node_feature_vector(
+            graph,
             graph.nodemap[node_name],
             in_degree=in_degree[node_name_to_index[node_name]],
             out_degree=out_degree[node_name_to_index[node_name]],
         )
         for node_name in node_names
     ]
+    op_type_ids = torch.tensor(
+        build_op_type_ids(graph.nodemap[node_name] for node_name in node_names),
+        dtype=torch.long,
+    )
     edge_features = [
         build_edge_feature_vector(
             graph,
@@ -100,6 +169,9 @@ def build_graph_data_from_onnx(
         gpu_name=gpu_name,
         parameter_input_stats=parameter_input_stats,
         graph=graph,
+        node_infos=list(graph.nodemap.values()),
+        raw_edges=raw_edges,
+        runtime_inputs=runtime_inputs,
     )
 
     edge_index = (
@@ -126,6 +198,7 @@ def build_graph_data_from_onnx(
         edge_index=edge_index,
         edge_attr=edge_attr,
         graph_features=torch.tensor(graph_features, dtype=torch.float32).unsqueeze(0),
+        op_type_ids=op_type_ids,
         onnx_path=str(model_path),
     )
 
@@ -291,6 +364,7 @@ def build_node_degrees(
 
 
 def build_node_feature_vector(
+    graph: Any,
     node_info: Any,
     *,
     in_degree: int,
@@ -305,10 +379,22 @@ def build_node_feature_vector(
         float(len(node_info.attr)),
         float(in_degree),
         float(out_degree),
+        *build_node_shape_feature_vector(graph, node_info),
     ]
     assert len(feature_vector) == NODE_FEATURE_DIM
     return feature_vector
 
+
+def resolve_op_type_category(op_type: str) -> str:
+    return OP_TYPE_CATEGORY_BY_RAW_OP.get(op_type, "op_other")
+
+
+def resolve_op_type_index(op_type: str) -> int:
+    return OP_TYPE_TO_INDEX[resolve_op_type_category(op_type)]
+
+
+def build_op_type_ids(node_infos: Iterable[Any]) -> list[int]:
+    return [resolve_op_type_index(node_info.op_type) for node_info in node_infos]
 
 def build_edge_feature_vector(
     graph: Any,
@@ -328,9 +414,132 @@ def build_edge_feature_vector(
         float(element_count),
         float(out_degree[source_index]),
         float(in_degree[target_index]),
+        *build_edge_shape_feature_vector(shape, tensor_info),
     ]
     assert len(feature_vector) == EDGE_FEATURE_DIM
     return feature_vector
+
+
+def build_node_shape_feature_vector(graph: Any, node_info: Any) -> list[float]:
+    input_names = tuple(tensor_name for tensor_name in node_info.input if tensor_name)
+    output_names = tuple(tensor_name for tensor_name in node_info.output if tensor_name)
+    output_shape = (
+        resolve_profile_tensor_shape(graph.tensormap[output_names[0]])
+        if output_names
+        else ()
+    )
+    output_itemsize = (
+        resolve_profile_tensor_itemsize(graph.tensormap[output_names[0]])
+        if output_names
+        else 0
+    )
+    return [
+        safe_log1p(sum_tensor_bytes(graph, input_names)),
+        safe_log1p(sum_tensor_bytes(graph, output_names)),
+        safe_log1p(sum_tensor_elements(graph, input_names)),
+        safe_log1p(sum_tensor_elements(graph, output_names)),
+        float(max_tensor_rank(graph, input_names)),
+        float(max_tensor_rank(graph, output_names)),
+        safe_log1p(sum_nonbatch_elements(graph, output_names)),
+        *build_shape_dimension_logs(output_shape),
+        float(output_itemsize),
+    ]
+
+
+def build_edge_shape_feature_vector(
+    shape: tuple[int, ...],
+    tensor_info: object,
+) -> list[float]:
+    return [
+        *build_shape_dimension_logs(shape),
+        safe_log1p(count_nonbatch_elements(shape)),
+        float(resolve_profile_tensor_itemsize(tensor_info)),
+        float(not shape),
+        float(any(dimension == 0 for dimension in shape)),
+    ]
+
+
+def build_graph_shape_feature_vector(
+    graph: Any,
+    *,
+    node_infos: list[Any],
+    raw_edges: list[tuple[int, int, str]],
+    runtime_inputs: dict[str, np.ndarray],
+) -> list[float]:
+    activation_tensor_names = {
+        tensor_name
+        for node_info in node_infos
+        for tensor_name in node_info.output
+        if tensor_name
+    }
+    tensor_shapes = [
+        resolve_profile_tensor_shape(tensor_info)
+        for tensor_info in graph.tensormap.values()
+    ]
+    runtime_input_shapes = [
+        tuple(int(dimension) for dimension in value.shape)
+        for value in runtime_inputs.values()
+    ]
+    return [
+        safe_log1p(len(node_infos)),
+        safe_log1p(len(raw_edges)),
+        safe_log1p(sum_tensor_bytes(graph, activation_tensor_names)),
+        safe_log1p(sum_tensor_elements(graph, activation_tensor_names)),
+        float(max((len(shape) for shape in tensor_shapes), default=0)),
+        safe_log1p(
+            max(
+                (dimension for shape in tensor_shapes for dimension in shape),
+                default=0,
+            )
+        ),
+        float(len(runtime_inputs)),
+        safe_log1p(sum(count_elements(shape) for shape in runtime_input_shapes)),
+        safe_log1p(
+            sum(count_nonbatch_elements(shape) for shape in runtime_input_shapes)
+        ),
+    ]
+
+
+def build_shape_dimension_logs(shape: tuple[int, ...]) -> list[float]:
+    dimensions = list(shape[:MAX_SHAPE_RANK])
+    dimensions.extend([0] * (MAX_SHAPE_RANK - len(dimensions)))
+    return [safe_log1p(dimension) for dimension in dimensions]
+
+
+def sum_tensor_bytes(graph: Any, tensor_names: Iterable[str]) -> int:
+    total = 0
+    for tensor_name in tensor_names:
+        tensor_info = graph.tensormap[tensor_name]
+        total += count_elements(resolve_profile_tensor_shape(tensor_info)) * (
+            resolve_profile_tensor_itemsize(tensor_info)
+        )
+    return total
+
+
+def sum_tensor_elements(graph: Any, tensor_names: Iterable[str]) -> int:
+    return sum(
+        count_elements(resolve_profile_tensor_shape(graph.tensormap[tensor_name]))
+        for tensor_name in tensor_names
+    )
+
+
+def sum_nonbatch_elements(graph: Any, tensor_names: Iterable[str]) -> int:
+    return sum(
+        count_nonbatch_elements(
+            resolve_profile_tensor_shape(graph.tensormap[tensor_name])
+        )
+        for tensor_name in tensor_names
+    )
+
+
+def max_tensor_rank(graph: Any, tensor_names: Iterable[str]) -> int:
+    return max(
+        (
+            len(resolve_profile_tensor_shape(graph.tensormap[tensor_name]))
+            for tensor_name in tensor_names
+        ),
+        default=0,
+    )
 
 
 def build_graph_feature_vector(
@@ -341,6 +550,9 @@ def build_graph_feature_vector(
     gpu_name: str,
     parameter_input_stats: dict[str, float],
     graph: Any,
+    node_infos: list[Any],
+    raw_edges: list[tuple[int, int, str]],
+    runtime_inputs: dict[str, np.ndarray],
 ) -> list[float]:
     normalized_phase = phase.strip().lower()
     assert normalized_phase in PHASE_TO_INDEX, phase
@@ -359,6 +571,12 @@ def build_graph_feature_vector(
         total_macs * 2.0,
         float(graph.memory),
         float(graph.params),
+        *build_graph_shape_feature_vector(
+            graph,
+            node_infos=node_infos,
+            raw_edges=raw_edges,
+            runtime_inputs=runtime_inputs,
+        ),
     ]
     assert len(feature_vector) == GRAPH_FEATURE_DIM
     return feature_vector
@@ -410,19 +628,24 @@ def resolve_profile_tensor_itemsize(tensor_info: object) -> int:
     return int(np.dtype(dtype).itemsize)
 
 
-def normalize_gpu_name(value: object) -> str:
-    normalized = str(value).strip().lower()
-    if "a100" in normalized:
-        return "a100"
-    if "v100" in normalized:
-        return "v100"
-    raise AssertionError(f"unsupported gpu_name: {value}")
-
-
 def count_elements(shape: tuple[int, ...]) -> int:
     if not shape:
         return 1
     return math.prod(shape)
+
+
+def count_nonbatch_elements(shape: tuple[int, ...]) -> int:
+    if not shape:
+        return 0
+    if len(shape) == 1:
+        return 1
+    return count_elements(shape[1:])
+
+
+def safe_log1p(value: int | float) -> float:
+    parsed = float(value)
+    assert parsed >= 0.0 and math.isfinite(parsed), value
+    return math.log1p(parsed)
 
 
 def sum_profile_values(values: object) -> float:

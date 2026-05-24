@@ -29,9 +29,9 @@ class SplitDataConfig(StrictModel):
         default_factory=lambda: [
             "duration_sec_avg",
             "cpu_cores_p95",
-            "memory_gb_p95",
             "memory_delta_gb_p95",
             "gpu_util_percent_p95",
+            "gpu_sm_active_percent_p95",
             "gpu_sm_occupancy_percent_p95",
             "gpu_mem_used_mb_p95",
         ]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import shutil
 from types import SimpleNamespace
 from pathlib import Path
@@ -12,9 +13,13 @@ import torch
 from gnn_model.config import PreparedDataConfig, SplitDataConfig
 from gnn_model.data.constants import (
     EDGE_FEATURE_DIM,
+    EDGE_FEATURE_NAMES,
     GRAPH_FEATURE_DIM,
     GRAPH_FEATURE_NAMES,
     NODE_FEATURE_DIM,
+    NODE_FEATURE_NAMES,
+    OP_TYPE_NAMES,
+    OP_TYPE_TO_INDEX,
 )
 from gnn_model.data.dataset import load_split_graph_datasets
 from gnn_model.data.extract import (
@@ -36,6 +41,7 @@ from gnn_model_test_utils import (
     build_synthetic_graph,
     build_toy_model,
     export_architecture_only_onnx,
+    write_result_json,
     write_split_dataset,
 )
 
@@ -67,6 +73,44 @@ def test_build_graph_data_from_onnx_returns_expected_shapes(tmp_path: Path) -> N
     assert data.graph_features[0, profile_macs_index] > 0
     assert not hasattr(data, "graph_metrics")
     assert data.edge_index.shape[0] == 2
+
+
+def test_build_graph_data_from_onnx_adds_op_ids_and_shape_features(
+    tmp_path: Path,
+) -> None:
+    architecture_only_path = tmp_path / "toy_architecture.onnx"
+    export_architecture_only_onnx(
+        build_toy_model(0),
+        architecture_only_path,
+        (1, 3, 32, 32),
+    )
+
+    data = build_graph_data_from_onnx(
+        architecture_only_path,
+        batch_size=4,
+        gpu_name="v100",
+        phase="inference",
+        sample_count=1,
+    )
+
+    assert isinstance(data.op_type_ids, torch.Tensor)
+    assert data.op_type_ids.shape == (data.x.size(0),)
+    assert data.op_type_ids.dtype == torch.long
+    assert OP_TYPE_TO_INDEX["op_conv"] in data.op_type_ids.tolist()
+    assert OP_TYPE_TO_INDEX["op_activation"] in data.op_type_ids.tolist()
+    assert OP_TYPE_TO_INDEX["op_dense"] in data.op_type_ids.tolist()
+    assert all(name not in NODE_FEATURE_NAMES for name in OP_TYPE_NAMES)
+
+    edge_channel_index = EDGE_FEATURE_NAMES.index("tensor_dim1_log")
+    assert data.edge_attr[:, edge_channel_index].max().item() >= math.log1p(4)
+    activation_index = GRAPH_FEATURE_NAMES.index("activation_bytes_sum_log")
+    assert data.graph_features[0, activation_index].item() > 0
+
+
+def test_unknown_op_type_uses_other_category() -> None:
+    from gnn_model.data.onnx_graph import resolve_op_type_index
+
+    assert resolve_op_type_index("CustomExperimentalOp") == OP_TYPE_TO_INDEX["op_other"]
 
 
 def test_resolve_profile_tensor_shape_keeps_scalar_and_zero_length_shapes() -> None:
@@ -259,8 +303,37 @@ def test_load_split_graph_datasets_rejects_bad_feature_dim(tmp_path: Path) -> No
         )
 
 
+def test_load_prepared_graph_datasets_rejects_feature_name_mismatch(
+    tmp_path: Path,
+) -> None:
+    data_dir = write_split_dataset(tmp_path / "prepared")
+    manifest_path = data_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "3.0.0",
+                "target_names": list(TARGET_NAMES),
+                "node_feature_names": ["bad_node_feature"],
+                "op_type_names": list(OP_TYPE_NAMES),
+                "edge_feature_names": list(EDGE_FEATURE_NAMES),
+                "graph_feature_names": list(GRAPH_FEATURE_NAMES),
+                "split_files": {
+                    "train": "train.pt",
+                    "val": "val.pt",
+                    "test": "test.pt",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="node_feature_names mismatch"):
+        load_prepared_graph_datasets(PreparedDataConfig(manifest_path=str(manifest_path)))
+
+
 def test_build_model_record_info_resolves_path_and_targets(tmp_path: Path) -> None:
     model_path = tmp_path / "res/demo/onnx_models/variant_a.onnx"
+    write_result_json(tmp_path / "res", "demo", ("variant_a",))
     row = {
         **build_monitor_row(tmp_path / "res", "variant_a", "training", 12.5),
         "row_number": 2,
@@ -280,7 +353,7 @@ def test_build_model_record_info_resolves_path_and_targets(tmp_path: Path) -> No
     assert info.sample_id == "variant_a::training"
     assert info.batch_size == 2
     assert info.gpu_name == "v100"
-    assert info.target == pytest.approx((2.5, 4.25, 1.5, 1.25, 75.0, 12.5, 2048.0))
+    assert info.target == pytest.approx((2.5, 4.25, 1.25, 75.0, 65.0, 12.5, 2048.0))
 
 
 def test_process_csv_builds_graphs_with_hardcoded_targets(tmp_path: Path) -> None:
@@ -292,18 +365,71 @@ def test_process_csv_builds_graphs_with_hardcoded_targets(tmp_path: Path) -> Non
         [build_monitor_row(res_root, "variant_a", "training", 12.0)],
     )
 
-    graphs = process_csv(csv_path)
+    graphs = process_csv(csv_path).records
 
     assert len(graphs) == 1
     graph = graphs[0]
     assert graph.y.shape == (1, len(TARGET_FIELDS))
     assert graph.y[0].tolist() == pytest.approx(
-        [4.0, 4.25, 1.5, 1.25, 75.0, 12.5, 2048.0]
+        [4.0, 4.25, 1.25, 75.0, 65.0, 12.5, 2048.0]
     )
     assert graph.batch_size == 2
     assert graph.gpu_node == "v100"
     assert graph.gpu_name == "v100"
     assert graph.graph_features.shape == (1, GRAPH_FEATURE_DIM)
+
+
+def test_process_csv_filters_untrusted_gpu_metrics(tmp_path: Path) -> None:
+    res_root = tmp_path / "res"
+    variant_names = (
+        "keep_normal",
+        "bad_gpu_mem_zero",
+        "bad_gpu_util_with_mem",
+        "bad_gpu_util_with_sm",
+        "bad_gpu_sm_with_util",
+        "keep_high_gpu_mem_tail",
+    )
+    write_variant_onnx_files(res_root, "demo", variant_names)
+    rows = [
+        build_monitor_row(res_root, "keep_normal", "training", 12.0),
+        {
+            **build_monitor_row(res_root, "bad_gpu_mem_zero", "training", 12.0),
+            "gpu_mem_used_mb_p95": 0.0,
+        },
+        {
+            **build_monitor_row(res_root, "bad_gpu_util_with_mem", "training", 12.0),
+            "gpu_util_percent_p95": 0.0,
+        },
+        {
+            **build_monitor_row(res_root, "bad_gpu_util_with_sm", "training", 12.0),
+            "gpu_util_percent_p95": 0.0,
+            "gpu_sm_occupancy_percent_p95": 0.08,
+        },
+        {
+            **build_monitor_row(res_root, "bad_gpu_sm_with_util", "training", 12.0),
+            "gpu_util_percent_p95": 5.0,
+            "gpu_sm_occupancy_percent_p95": 0.0,
+        },
+        {
+            **build_monitor_row(res_root, "keep_high_gpu_mem_tail", "training", 12.0),
+            "memory_delta_gb_p95": 12.0,
+            "gpu_mem_used_mb_p95": 28347.0,
+        },
+    ]
+    csv_path = tmp_path / "demo_monitor.csv"
+    write_monitor_csv(csv_path, rows)
+
+    graphs = process_csv(csv_path).records
+
+    assert [graph.variant_name for graph in graphs] == [
+        "keep_normal",
+        "keep_high_gpu_mem_tail",
+    ]
+    high_tail = graphs[1]
+    memory_delta_index = TARGET_FIELDS.index("memory_delta_gb_p95")
+    gpu_mem_index = TARGET_FIELDS.index("gpu_mem_used_mb_p95")
+    assert high_tail.y[0, memory_delta_index].item() == pytest.approx(12.0)
+    assert high_tail.y[0, gpu_mem_index].item() == pytest.approx(28347.0)
 
 
 def test_build_prepared_dataset_writes_manifest_and_loads(tmp_path: Path) -> None:
@@ -332,9 +458,13 @@ def test_build_prepared_dataset_writes_manifest_and_loads(tmp_path: Path) -> Non
     )
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == "2.0.0"
-    assert manifest["feature_source"] == "onnx_tool_profile"
+    assert manifest["schema_version"] == "3.0.0"
+    assert manifest["feature_source"] == "onnx_tool_profile_p0_features"
     assert manifest["target_names"] == list(TARGET_FIELDS)
+    assert manifest["node_feature_names"] == list(NODE_FEATURE_NAMES)
+    assert manifest["op_type_names"] == list(OP_TYPE_NAMES)
+    assert manifest["edge_feature_names"] == list(EDGE_FEATURE_NAMES)
+    assert manifest["graph_feature_names"] == list(GRAPH_FEATURE_NAMES)
     assert "extract_config_path" not in manifest
     assert manifest["sample_count"] == 3
 
@@ -384,6 +514,7 @@ def build_monitor_row(
         "memory_gb_p95": 1.5,
         "memory_delta_gb_p95": 1.25,
         "gpu_util_percent_p95": 75.0,
+        "gpu_sm_active_percent_p95": 65.0,
         "gpu_sm_occupancy_percent_p95": 12.5,
         "gpu_mem_used_mb_p95": 2048.0,
     }
@@ -404,3 +535,4 @@ def write_variant_onnx_files(
     )
     for variant_name in variant_names[1:]:
         shutil.copyfile(first_path, onnx_dir / f"{variant_name}.onnx")
+    write_result_json(res_root, target_name, variant_names)

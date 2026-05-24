@@ -1,10 +1,65 @@
 from __future__ import annotations
 
+MAX_SHAPE_RANK = 6
+
 GRAPH_PROFILE_FEATURE_NAMES = (
     "profile_total_macs",
     "profile_total_flops",
     "profile_memory_bytes",
     "profile_params",
+)
+
+OP_TYPE_NAMES = (
+    "op_conv",
+    "op_dense",
+    "op_embedding",
+    "op_attention",
+    "op_norm",
+    "op_pool",
+    "op_activation",
+    "op_elementwise",
+    "op_reduce",
+    "op_shape",
+    "op_layout",
+    "op_join_split",
+    "op_cast",
+    "op_constant",
+    "op_other",
+)
+OP_TYPE_TO_INDEX = {name: index for index, name in enumerate(OP_TYPE_NAMES)}
+OP_TYPE_COUNT = len(OP_TYPE_NAMES)
+OP_TYPE_EMBEDDING_DIM = 8
+
+NODE_SHAPE_FEATURE_NAMES = (
+    "input_tensor_bytes_sum_log",
+    "output_tensor_bytes_sum_log",
+    "input_tensor_elements_sum_log",
+    "output_tensor_elements_sum_log",
+    "input_tensor_rank_max",
+    "output_tensor_rank_max",
+    "output_tensor_nonbatch_elements_log",
+    *(f"output_tensor_dim{index}_log" for index in range(MAX_SHAPE_RANK)),
+    "output_tensor_dtype_itemsize",
+)
+
+EDGE_SHAPE_FEATURE_NAMES = (
+    *(f"tensor_dim{index}_log" for index in range(MAX_SHAPE_RANK)),
+    "tensor_nonbatch_element_count_log",
+    "tensor_dtype_itemsize",
+    "tensor_is_scalar",
+    "tensor_is_zero_sized",
+)
+
+GRAPH_SHAPE_FEATURE_NAMES = (
+    "node_count_log",
+    "edge_count_log",
+    "activation_bytes_sum_log",
+    "activation_elements_sum_log",
+    "max_tensor_rank",
+    "max_tensor_dim_log",
+    "runtime_input_count",
+    "runtime_input_elements_sum_log",
+    "runtime_input_nonbatch_elements_sum_log",
 )
 
 NODE_FEATURE_NAMES = (
@@ -16,6 +71,7 @@ NODE_FEATURE_NAMES = (
     "attr_count",
     "in_degree",
     "out_degree",
+    *NODE_SHAPE_FEATURE_NAMES,
 )
 
 EDGE_FEATURE_NAMES = (
@@ -24,6 +80,7 @@ EDGE_FEATURE_NAMES = (
     "tensor_element_count",
     "source_out_degree",
     "target_in_degree",
+    *EDGE_SHAPE_FEATURE_NAMES,
 )
 
 GPU_SPEC_FIELDS = (
@@ -49,6 +106,7 @@ GRAPH_FEATURE_NAMES = (
     "parameter_input_element_count",
     "parameter_input_bytes",
     *GRAPH_PROFILE_FEATURE_NAMES,
+    *GRAPH_SHAPE_FEATURE_NAMES,
 )
 
 GPU_SPECS = {
@@ -84,6 +142,15 @@ PHASE_TO_INDEX = {
     "training": 0,
     "inference": 1,
 }
+
+
+def normalize_gpu_name(value: object) -> str:
+    normalized = str(value).strip().lower()
+    if "a100" in normalized:
+        return "a100"
+    if "v100" in normalized:
+        return "v100"
+    raise AssertionError(f"unsupported gpu_name: {value}")
 
 NODE_FEATURE_DIM = len(NODE_FEATURE_NAMES)
 EDGE_FEATURE_DIM = len(EDGE_FEATURE_NAMES)

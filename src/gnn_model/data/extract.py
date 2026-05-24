@@ -15,15 +15,22 @@ import torch
 from torch_geometric.data import Data
 
 from common.log import get_logger
+from gnn_model.data.constants import (
+    EDGE_FEATURE_NAMES,
+    GRAPH_FEATURE_NAMES,
+    NODE_FEATURE_NAMES,
+    OP_TYPE_NAMES,
+    normalize_gpu_name,
+)
 from gnn_model.data.dataset import SPLIT_FILE_NAMES, resolve_split_counts
 
 ID_FIELDS = ("variant_name", "phase")
 TARGET_FIELDS = (
     "duration_sec_avg",
     "cpu_cores_p95",
-    "memory_gb_p95",
     "memory_delta_gb_p95",
     "gpu_util_percent_p95",
+    "gpu_sm_active_percent_p95",
     "gpu_sm_occupancy_percent_p95",
     "gpu_mem_used_mb_p95",
 )
@@ -52,6 +59,9 @@ REQUIRED_COLUMNS = (
 )
 
 logger = get_logger(Path(__file__).name)
+GPU_SM_OCCUPANCY_CONFLICT_THRESHOLD = 0.05
+GPU_UTIL_CONFLICT_THRESHOLD = 5.0
+MEMORY_DELTA_LOG_THRESHOLD_GB = 10.0
 
 
 @dataclass(frozen=True)
@@ -70,6 +80,13 @@ class ModelRecordInfo:
     @property
     def sample_id(self) -> str:
         return f"{self.variant_name}::{self.phase}"
+
+
+@dataclass(frozen=True)
+class CsvProcessResult:
+    records: list[Data]
+    gpu_quality_filtered_count: int
+    high_memory_delta_count: int
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -129,8 +146,20 @@ def build_dataset(
 ) -> Path:
     csv_paths = sorted(Path(csv_dir).glob("*.csv"))
     assert csv_paths, f"No csv files found in {csv_dir}"
-    graphs = [graph for csv_path in csv_paths for graph in process_csv(csv_path)]
+    csv_results = [process_csv(csv_path) for csv_path in csv_paths]
+    graphs = [graph for result in csv_results for graph in result.records]
     assert graphs
+    total_gpu_quality_filtered_count = sum(
+        result.gpu_quality_filtered_count for result in csv_results
+    )
+    total_high_memory_delta_count = sum(
+        result.high_memory_delta_count for result in csv_results
+    )
+    logger.info(
+        f"GPU metric quality filter total: CSVs: {len(csv_results)}, "
+        f"Filtered: {total_gpu_quality_filtered_count}, "
+        f"HighMemoryDeltaGt10: {total_high_memory_delta_count}"
+    )
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -165,7 +194,7 @@ def build_dataset(
     return manifest_path
 
 
-def process_csv(csv_file: str | Path) -> list[Data]:
+def process_csv(csv_file: str | Path) -> CsvProcessResult:
     logger.info(f"Processing CSV: {csv_file}")
     start_time = time.time()
     csv_path = Path(csv_file)
@@ -193,10 +222,20 @@ def process_csv(csv_file: str | Path) -> list[Data]:
         )
     )
     assert df.height > 0, csv_path
+    pre_gpu_quality_count = df.height
+    high_memory_delta_count = df.filter(
+        pl.col("memory_delta_gb_p95") > MEMORY_DELTA_LOG_THRESHOLD_GB
+    ).height
+    df = df.filter(~invalid_gpu_metric_expr())
+    gpu_quality_filtered_count = pre_gpu_quality_count - df.height
     assert df.unique(ID_FIELDS).height == df.height, csv_path
     records = [
         extract_feature_target(
-            build_model_record_info(record, row_number=i, csv_path=csv_path)
+            build_model_record_info(
+                record,
+                row_number=i,
+                csv_path=csv_path,
+            )
         )
         for i, record in enumerate(df.to_dicts())
     ]
@@ -205,9 +244,30 @@ def process_csv(csv_file: str | Path) -> list[Data]:
     duration = end_time - start_time
     logger.info(
         f"Processed CSV: {csv_file}, Records: {len(records)}, "
+        f"GPUQualityFiltered: {gpu_quality_filtered_count}, "
+        f"HighMemoryDeltaGt10: {high_memory_delta_count}, "
         f"Duration: {duration:.2f} seconds"
     )
-    return records
+    return CsvProcessResult(
+        records=records,
+        gpu_quality_filtered_count=gpu_quality_filtered_count,
+        high_memory_delta_count=high_memory_delta_count,
+    )
+
+
+def invalid_gpu_metric_expr() -> pl.Expr:
+    gpu_mem = pl.col("gpu_mem_used_mb_p95")
+    gpu_util = pl.col("gpu_util_percent_p95")
+    gpu_sm_occupancy = pl.col("gpu_sm_occupancy_percent_p95")
+    return (
+        (gpu_mem <= 0)
+        | ((gpu_util <= 0) & (gpu_mem > 0))
+        | (
+            (gpu_util <= 0)
+            & (gpu_sm_occupancy > GPU_SM_OCCUPANCY_CONFLICT_THRESHOLD)
+        )
+        | ((gpu_sm_occupancy <= 0) & (gpu_util >= GPU_UTIL_CONFLICT_THRESHOLD))
+    )
 
 
 def build_model_record_info(
@@ -242,15 +302,6 @@ def resolve_onnx_path(result_json: object, variant_name: object) -> Path:
     result_path = Path(str(result_json).strip())
     variant = str(variant_name).strip()
     return result_path.parent.parent / "onnx_models" / f"{variant}.onnx"
-
-
-def normalize_gpu_name(value: object) -> str:
-    normalized = str(value).strip().lower()
-    if "a100" in normalized:
-        return "a100"
-    if "v100" in normalized:
-        return "v100"
-    raise AssertionError(f"unsupported gpu_node: {value}")
 
 
 def parse_int_value(value: object) -> int:
@@ -339,11 +390,15 @@ def build_manifest(
     seed: int,
 ) -> dict[str, Any]:
     return {
-        "schema_version": "2.0.0",
-        "feature_source": "onnx_tool_profile",
+        "schema_version": "3.0.0",
+        "feature_source": "onnx_tool_profile_p0_features",
         "csv_dir": str(Path(csv_dir).resolve()),
         "id_fields": list(ID_FIELDS),
         "target_names": list(TARGET_FIELDS),
+        "node_feature_names": list(NODE_FEATURE_NAMES),
+        "op_type_names": list(OP_TYPE_NAMES),
+        "edge_feature_names": list(EDGE_FEATURE_NAMES),
+        "graph_feature_names": list(GRAPH_FEATURE_NAMES),
         "split_files": SPLIT_FILE_NAMES,
         "split_counts": {
             split_name: len(graphs) for split_name, graphs in split_data.items()

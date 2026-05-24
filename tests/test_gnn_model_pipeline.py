@@ -7,6 +7,12 @@ import torch
 import yaml
 
 from gnn_model.data.extract import TARGET_FIELDS
+from gnn_model.data.constants import (
+    EDGE_FEATURE_NAMES,
+    GRAPH_FEATURE_NAMES,
+    NODE_FEATURE_NAMES,
+    OP_TYPE_NAMES,
+)
 from gnn_model.runner import run_experiment
 from gnn_model_test_utils import (
     TARGET_NAMES,
@@ -114,8 +120,12 @@ def write_prepared_manifest(path: Path) -> Path:
     manifest_path.write_text(
         json.dumps(
             {
-                "schema_version": "1.0.0",
+                "schema_version": "3.0.0",
                 "target_names": list(TARGET_FIELDS),
+                "node_feature_names": list(NODE_FEATURE_NAMES),
+                "op_type_names": list(OP_TYPE_NAMES),
+                "edge_feature_names": list(EDGE_FEATURE_NAMES),
+                "graph_feature_names": list(GRAPH_FEATURE_NAMES),
                 "split_files": split_files,
             }
         ),

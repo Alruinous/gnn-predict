@@ -5,6 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from gnn_model.config import PreparedDataConfig
+from gnn_model.data.constants import (
+    EDGE_FEATURE_NAMES,
+    GRAPH_FEATURE_NAMES,
+    NODE_FEATURE_NAMES,
+    OP_TYPE_NAMES,
+)
 from gnn_model.data.dataset import (
     GraphDatasetBundle,
     load_graph_split,
@@ -14,6 +20,14 @@ from gnn_model.data.dataset import (
 def load_prepared_graph_datasets(config: PreparedDataConfig) -> GraphDatasetBundle:
     manifest_path = Path(config.manifest_path)
     manifest = load_manifest(manifest_path)
+    if require_string_tuple(manifest, "node_feature_names") != NODE_FEATURE_NAMES:
+        raise ValueError("prepared manifest node_feature_names mismatch")
+    if require_string_tuple(manifest, "op_type_names") != OP_TYPE_NAMES:
+        raise ValueError("prepared manifest op_type_names mismatch")
+    if require_string_tuple(manifest, "edge_feature_names") != EDGE_FEATURE_NAMES:
+        raise ValueError("prepared manifest edge_feature_names mismatch")
+    if require_string_tuple(manifest, "graph_feature_names") != GRAPH_FEATURE_NAMES:
+        raise ValueError("prepared manifest graph_feature_names mismatch")
     target_names = require_string_tuple(manifest, "target_names")
     split_files = require_split_files(manifest)
     train_data = load_graph_split(

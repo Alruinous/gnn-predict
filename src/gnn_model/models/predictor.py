@@ -15,6 +15,8 @@ class IntelliGraphLargeModelPredictor(nn.Module):
         node_dim: int,
         edge_dim: int,
         graph_dim: int,
+        op_type_count: int,
+        op_type_embedding_dim: int,
         hidden_dim: int,
         targets: list[str],
         num_heads: int,
@@ -23,7 +25,12 @@ class IntelliGraphLargeModelPredictor(nn.Module):
     ) -> None:
         super().__init__()
         self.targets = targets
-        self.node_encoder = nn.Linear(node_dim, hidden_dim)
+        if op_type_count <= 0:
+            raise ValueError("op_type_count must be positive")
+        if op_type_embedding_dim <= 0:
+            raise ValueError("op_type_embedding_dim must be positive")
+        self.op_type_embedding = nn.Embedding(op_type_count, op_type_embedding_dim)
+        self.node_encoder = nn.Linear(node_dim + op_type_embedding_dim, hidden_dim)
         self.edge_encoder = nn.Linear(edge_dim, hidden_dim)
         self.graph_encoder = nn.Linear(graph_dim, hidden_dim)
         self.layers = nn.ModuleList(
@@ -52,6 +59,10 @@ class IntelliGraphLargeModelPredictor(nn.Module):
         assert isinstance(edge_attr_input, torch.Tensor)
         graph_features = getattr(data, "graph_features", None)
         assert isinstance(graph_features, torch.Tensor)
+        op_type_ids = getattr(data, "op_type_ids", None)
+        assert isinstance(op_type_ids, torch.Tensor)
+        op_type_embeddings = self.op_type_embedding(op_type_ids.long())
+        x_input = torch.cat([x_input.float(), op_type_embeddings], dim=-1)
 
         batch_value = getattr(data, "batch", None)
         batch = (
@@ -62,7 +73,7 @@ class IntelliGraphLargeModelPredictor(nn.Module):
         if graph_features.dim() == 1:
             graph_features = graph_features.unsqueeze(0)
 
-        x = self.node_encoder(x_input.float())
+        x = self.node_encoder(x_input)
         edge_attr = self.edge_encoder(edge_attr_input.float())
         graph_state = self.graph_encoder(graph_features.float())
         for layer in self.layers:

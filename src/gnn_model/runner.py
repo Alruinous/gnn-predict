@@ -20,6 +20,8 @@ from .data.constants import (
     EDGE_FEATURE_DIM,
     GRAPH_FEATURE_DIM,
     NODE_FEATURE_DIM,
+    OP_TYPE_COUNT,
+    OP_TYPE_EMBEDDING_DIM,
 )
 from .data.prepared_dataset import load_prepared_graph_datasets
 from .data.scaler import load_target_scalers
@@ -194,6 +196,8 @@ def build_model(
         node_dim=NODE_FEATURE_DIM,
         edge_dim=EDGE_FEATURE_DIM,
         graph_dim=GRAPH_FEATURE_DIM,
+        op_type_count=OP_TYPE_COUNT,
+        op_type_embedding_dim=OP_TYPE_EMBEDDING_DIM,
         hidden_dim=config.model.hidden_dim,
         targets=target_names,
         num_heads=config.model.num_heads,

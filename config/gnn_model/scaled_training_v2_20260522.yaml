@@ -1,16 +1,16 @@
-experiment_name: gnn_model_scaled_train_7targets_memory_delta
+experiment_name: gnn_model_scaled_v2_20260522
 data:
   kind: split
-  data_dir: data/scaled
+  data_dir: data/scaled_v2
   target_names:
     - duration_sec_avg
     - cpu_cores_p95
-    - memory_gb_p95
     - memory_delta_gb_p95
     - gpu_util_percent_p95
+    - gpu_sm_active_percent_p95
     - gpu_sm_occupancy_percent_p95
     - gpu_mem_used_mb_p95
-  scaler_dir: data/scalers
+  scaler_dir: data/scalers_v2
 model:
   hidden_dim: 128
   num_layers: 2

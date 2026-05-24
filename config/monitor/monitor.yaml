@@ -2,7 +2,7 @@ defaults:
   prometheus_url: "http://192.168.5.60:31110"
   namespace: "crater-workspace"
   cpu_rate_window: "22s"
-  query_step_seconds: 1
+  query_step_seconds: 3a
   memory_baseline_window_seconds: 5
 
 targets:
@@ -79,7 +79,7 @@ targets:
     output_csv: csv/resnet152_monitor.csv
 
   yolov8:
-    enabled: false
+    enabled: true
     result_json: res/yolov8/results/yolov8_variants_v100_1777297814_results.json
     node_name: "dell-67"
     pod_name: "sg-wangjh-260427-2b036-default0-0"
@@ -151,7 +151,7 @@ targets:
     output_csv: "csv/efficientnet_monitor.csv"
 
   inception: # DONE
-    enabled: true
+    enabled: false
     result_json: res/inception_v3/results/inception_v3_variants_v100_1779260815_results.json
     node_name: dell-68
     pod_name: sg-wangjh-260520-bde88-default0-0
@@ -159,7 +159,7 @@ targets:
     output_csv: "csv/inception_monitor.csv"
     
   swin:
-    enabled: true
+    enabled: false
     result_json: res/swin/results/swin_variants_v100_1778131253_results.json
     node_name: dell-68
     pod_name: sg-wangjh-260507-b8bc4-default0-0
@@ -181,36 +181,3 @@ targets:
     pod_name: sg-wangjh-260520-34f13-default0-0
     gpu_id: "1"
     output_csv: "csv/t5_monitor.csv"
-  
-  deepfm:
-    enabled: true
-    result_json: res/deepfm/results/deepfm_variants_v100_1779097964_results.json
-    node_name: dell-67
-    pod_name: sg-wangjh-260518-3c1d7-default0-0
-    gpu_id: "0"
-    output_csv: "csv/deepfm_monitor.csv"
-  
-  dcn:
-    enabled: true
-    result_json: res/dcn/results/dcn_variants_v100_1779097964_results.json
-    node_name: dell-67
-    pod_name: sg-wangjh-260518-c52af-default0-0
-    gpu_id: "1"
-    output_csv: "csv/dcn_monitor.csv"
-  
-  dcnv2:
-    enabled: true
-    result_json: res/dcnv2/results/dcnv2_variants_v100_1779104355_results.json
-    node_name: dell-68
-    pod_name: sg-wangjh-260518-1404c-default0-0
-    gpu_id: "2"
-    output_csv: "csv/dcnv2_monitor.csv"
-  
-  edcn:
-    enabled: true
-    result_json: res/edcn/results/edcn_variants_v100_1779104354_results.json
-    node_name: dell-68
-    pod_name: sg-wangjh-260518-043b1-default0-0
-    gpu_id: "0"
-    output_csv: "csv/edcn_monitor.csv"
-  

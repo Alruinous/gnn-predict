@@ -7,6 +7,8 @@ from gnn_model.data.constants import (
     EDGE_FEATURE_DIM,
     GRAPH_FEATURE_DIM,
     NODE_FEATURE_DIM,
+    OP_TYPE_COUNT,
+    OP_TYPE_EMBEDDING_DIM,
 )
 from gnn_model.models import IntelliGraphLargeModelPredictor
 from gnn_model_test_utils import TARGET_NAMES, build_synthetic_graph
@@ -19,6 +21,8 @@ def test_intelligraph_large_model_predictor_forward_is_finite() -> None:
         node_dim=NODE_FEATURE_DIM,
         edge_dim=EDGE_FEATURE_DIM,
         graph_dim=GRAPH_FEATURE_DIM,
+        op_type_count=OP_TYPE_COUNT,
+        op_type_embedding_dim=OP_TYPE_EMBEDDING_DIM,
         hidden_dim=64,
         targets=list(TARGET_NAMES),
         num_heads=4,

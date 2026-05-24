@@ -13,6 +13,7 @@ from gnn_model_test_utils import (
     TARGET_NAMES,
     build_toy_model,
     export_architecture_only_onnx,
+    write_result_json,
     write_split_config,
     write_split_dataset,
     write_target_scalers,
@@ -92,8 +93,8 @@ def test_gnn_model_cli_extract_writes_manifest(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
     manifest_path = output_dir / "manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "2.0.0"
-    assert payload["feature_source"] == "onnx_tool_profile"
+    assert payload["schema_version"] == "3.0.0"
+    assert payload["feature_source"] == "onnx_tool_profile_p0_features"
     assert payload["sample_count"] == 3
     assert payload["target_names"] == list(TARGET_FIELDS)
     assert "extract_config_path" not in payload
@@ -132,6 +133,7 @@ def build_monitor_row(
         "memory_gb_p95": 1.5,
         "memory_delta_gb_p95": 1.25,
         "gpu_util_percent_p95": 75.0,
+        "gpu_sm_active_percent_p95": 65.0,
         "gpu_sm_occupancy_percent_p95": 12.5,
         "gpu_mem_used_mb_p95": 2048.0,
     }
@@ -152,3 +154,4 @@ def write_variant_onnx_files(
     )
     for variant_name in variant_names[1:]:
         shutil.copyfile(first_path, onnx_dir / f"{variant_name}.onnx")
+    write_result_json(res_root, target_name, variant_names)

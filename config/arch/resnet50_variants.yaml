@@ -8,7 +8,7 @@ base_model_groups:
     output_classes:
     - 10
     base_variant_config_template:
-      export_onnx: false
+      export_onnx: true
       onnx_export_mode: architecture_only
       example_input_shape:
       - 1

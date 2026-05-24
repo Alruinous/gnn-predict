@@ -11,6 +11,7 @@ from gnn_model.data.constants import (
     EDGE_FEATURE_DIM,
     GRAPH_FEATURE_DIM,
     NODE_FEATURE_DIM,
+    OP_TYPE_COUNT,
 )
 
 SPLIT_FILE_NAMES = {
@@ -72,6 +73,16 @@ def validate_graph_data(graph: object, *, target_dim: int, split_path: Path) -> 
         raise ValueError(f"node feature dim mismatch in {split_path}")
     if x.dim() != 2 or x.size(1) != NODE_FEATURE_DIM:
         raise ValueError(f"node feature dim mismatch in {split_path}")
+    op_type_ids = getattr(graph, "op_type_ids", None)
+    if not isinstance(op_type_ids, torch.Tensor):
+        raise ValueError(f"op type ids missing in {split_path}")
+    if op_type_ids.dim() != 1 or op_type_ids.size(0) != x.size(0):
+        raise ValueError(f"op type ids shape mismatch in {split_path}")
+    if op_type_ids.numel() > 0 and (
+        int(op_type_ids.min().item()) < 0
+        or int(op_type_ids.max().item()) >= OP_TYPE_COUNT
+    ):
+        raise ValueError(f"op type ids out of range in {split_path}")
     edge_attr = graph.edge_attr
     if not isinstance(edge_attr, torch.Tensor) or edge_attr.size(1) != EDGE_FEATURE_DIM:
         raise ValueError(f"edge feature dim mismatch in {split_path}")
