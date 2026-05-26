@@ -21,7 +21,7 @@ from gnn_model.data.constants import (
     OP_TYPE_NAMES,
     OP_TYPE_TO_INDEX,
 )
-from gnn_model.data.dataset import load_split_graph_datasets
+from gnn_model.data.dataset import load_graph_split, load_split_graph_datasets
 from gnn_model.data.extract import (
     TARGET_FIELDS,
     ModelRecordInfo,
@@ -29,11 +29,15 @@ from gnn_model.data.extract import (
     build_dataset,
     process_csv,
     resolve_onnx_path,
+    resolve_profile_summary,
 )
 from gnn_model.data.onnx_graph import (
     build_graph_data_from_onnx,
     count_elements,
+    estimate_peak_live_activation_bytes,
     resolve_profile_tensor_shape,
+    sum_tensor_bytes,
+    validate_or_build_execution_order,
 )
 from gnn_model.data.prepared_dataset import load_prepared_graph_datasets
 from gnn_model_test_utils import (
@@ -69,6 +73,8 @@ def test_build_graph_data_from_onnx_returns_expected_shapes(tmp_path: Path) -> N
     assert data.graph_features[0, 0].item() == 1.0
     assert data.graph_features[0, 1].item() == 8.0
     assert data.graph_features[0, 2].item() == 3.0
+    profile_available_index = GRAPH_FEATURE_NAMES.index("profile_available")
+    assert data.graph_features[0, profile_available_index].item() == 0.0
     profile_macs_index = GRAPH_FEATURE_NAMES.index("profile_total_macs")
     assert data.graph_features[0, profile_macs_index] > 0
     assert not hasattr(data, "graph_metrics")
@@ -104,13 +110,144 @@ def test_build_graph_data_from_onnx_adds_op_ids_and_shape_features(
     edge_channel_index = EDGE_FEATURE_NAMES.index("tensor_dim1_log")
     assert data.edge_attr[:, edge_channel_index].max().item() >= math.log1p(4)
     activation_index = GRAPH_FEATURE_NAMES.index("activation_bytes_sum_log")
+    peak_activation_index = GRAPH_FEATURE_NAMES.index("peak_live_activation_bytes_log")
     assert data.graph_features[0, activation_index].item() > 0
+    activation_bytes = math.expm1(data.graph_features[0, activation_index].item())
+    peak_live_bytes = math.expm1(
+        data.graph_features[0, peak_activation_index].item()
+    )
+    assert 0 <= peak_live_bytes <= activation_bytes
+
+
+def test_build_graph_data_from_onnx_adds_variant_context_features(
+    tmp_path: Path,
+) -> None:
+    architecture_only_path = tmp_path / "yolo11_tiny_ic3_oc80_activation_relu.onnx"
+    export_architecture_only_onnx(
+        build_toy_model(0),
+        architecture_only_path,
+        (1, 3, 32, 32),
+    )
+
+    data = build_graph_data_from_onnx(
+        architecture_only_path,
+        batch_size=4,
+        gpu_name="v100",
+        phase="inference",
+        sample_count=1,
+        model_name="yolo11_tiny",
+        variant_name="yolo11_tiny_ic3_oc80_activation_relu",
+    )
+
+    family_index = GRAPH_FEATURE_NAMES.index("variant_family_yolov11")
+    size_index = GRAPH_FEATURE_NAMES.index("variant_size_tiny")
+    activation_index = GRAPH_FEATURE_NAMES.index("variant_activation_relu")
+    input_channels_index = GRAPH_FEATURE_NAMES.index(
+        "variant_numeric_input_channels_log"
+    )
+    output_classes_index = GRAPH_FEATURE_NAMES.index(
+        "variant_numeric_output_classes_log"
+    )
+    assert data.graph_features[0, family_index].item() == 1.0
+    assert data.graph_features[0, size_index].item() == 1.0
+    assert data.graph_features[0, activation_index].item() == 1.0
+    assert data.graph_features[0, input_channels_index].item() == pytest.approx(
+        math.log1p(3.0)
+    )
+    assert data.graph_features[0, output_classes_index].item() == pytest.approx(
+        math.log1p(80.0)
+    )
+
+
+def test_build_graph_data_from_onnx_adds_runtime_profile_features(
+    tmp_path: Path,
+) -> None:
+    architecture_only_path = tmp_path / "toy_architecture.onnx"
+    export_architecture_only_onnx(
+        build_toy_model(0),
+        architecture_only_path,
+        (1, 3, 32, 32),
+    )
+
+    data = build_graph_data_from_onnx(
+        architecture_only_path,
+        batch_size=4,
+        gpu_name="v100",
+        phase="inference",
+        sample_count=1,
+        profile_summary={
+            "profiled_steps": 2,
+            "wall_time_sec": 1.5,
+            "event_count": 10,
+            "op_count": 7,
+            "launch_event_count": 12,
+            "kernel_event_count": 15,
+            "total_device_time_us": 1000.0,
+            "total_self_device_time_us": 700.0,
+            "total_device_memory_pos": 2048.0,
+            "max_event_device_memory": 1024.0,
+            "peak_device_memory": 4096.0,
+            "total_flops": 123456.0,
+            "conv_device_time_share": 0.4,
+            "matmul_device_time_share": 0.2,
+            "top_events": [
+                {"key": "kernel_a", "device_time_us": 500.0},
+                {"key": "kernel_b", "device_time_us": 300.0},
+            ],
+        },
+    )
+
+    profile_available_index = GRAPH_FEATURE_NAMES.index("profile_available")
+    steps_index = GRAPH_FEATURE_NAMES.index("profiled_steps")
+    launch_index = GRAPH_FEATURE_NAMES.index("profile_launch_event_count_log")
+    top1_index = GRAPH_FEATURE_NAMES.index("profile_top1_device_time_us_log")
+    top_share_index = GRAPH_FEATURE_NAMES.index("profile_top_event_time_share")
+    top3_share_index = GRAPH_FEATURE_NAMES.index("profile_top3_event_time_share")
+    top_category_count_index = GRAPH_FEATURE_NAMES.index(
+        "profile_top_event_category_count"
+    )
+    top_other_index = GRAPH_FEATURE_NAMES.index("profile_top_other_device_time_share")
+    assert data.graph_features.shape == (1, GRAPH_FEATURE_DIM)
+    assert data.graph_features[0, profile_available_index].item() == 1.0
+    assert data.graph_features[0, steps_index].item() == 2.0
+    assert data.graph_features[0, launch_index].item() == pytest.approx(
+        math.log1p(12.0)
+    )
+    assert data.graph_features[0, top1_index].item() == pytest.approx(
+        math.log1p(500.0)
+    )
+    assert data.graph_features[0, top_share_index].item() == pytest.approx(0.5)
+    assert data.graph_features[0, top3_share_index].item() == pytest.approx(0.8)
+    assert data.graph_features[0, top_category_count_index].item() == 1.0
+    assert data.graph_features[0, top_other_index].item() == pytest.approx(0.8)
 
 
 def test_unknown_op_type_uses_other_category() -> None:
     from gnn_model.data.onnx_graph import resolve_op_type_index
 
     assert resolve_op_type_index("CustomExperimentalOp") == OP_TYPE_TO_INDEX["op_other"]
+
+
+def test_resolve_profile_summary_reads_phase_specific_result(tmp_path: Path) -> None:
+    result_json = tmp_path / "result.json"
+    result_json.write_text(
+        json.dumps(
+            {
+                "variants": [
+                    {
+                        "name": "variant_a",
+                        "training": {"profile_summary": {"event_count": 3}},
+                        "inference": {"profile_summary": {"event_count": 5}},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = resolve_profile_summary(result_json, "variant_a", "inference")
+
+    assert summary == {"event_count": 5}
 
 
 def test_resolve_profile_tensor_shape_keeps_scalar_and_zero_length_shapes() -> None:
@@ -121,6 +258,100 @@ def test_resolve_profile_tensor_shape_keeps_scalar_and_zero_length_shapes() -> N
     assert count_elements(scalar_shape) == 1
     assert zero_length_shape == (0,)
     assert count_elements(zero_length_shape) == 0
+
+
+def test_estimate_peak_live_activation_bytes_keeps_branch_tensor_until_last_use() -> None:
+    graph = build_lifetime_graph(
+        {
+            "a": ((), ("a_out",)),
+            "b": (("a_out",), ("b_out",)),
+            "c": (("a_out",), ("c_out",)),
+            "d": (("b_out", "c_out"), ("d_out",)),
+        },
+        {
+            "a_out": (100,),
+            "b_out": (40,),
+            "c_out": (60,),
+            "d_out": (20,),
+        },
+    )
+
+    peak_bytes = estimate_peak_live_activation_bytes(
+        graph=graph,
+        node_names=["a", "b", "c", "d"],
+        raw_edges=[
+            (0, 1, "a_out"),
+            (0, 2, "a_out"),
+            (1, 3, "b_out"),
+            (2, 3, "c_out"),
+        ],
+        graph_output_names={"d_out"},
+    )
+
+    assert peak_bytes == 200
+    assert peak_bytes <= sum_tensor_bytes(graph, graph.tensormap)
+
+
+def test_estimate_peak_live_activation_bytes_keeps_graph_output_live() -> None:
+    graph = build_lifetime_graph(
+        {
+            "a": ((), ("graph_out",)),
+            "b": ((), ("orphan",)),
+        },
+        {
+            "graph_out": (100,),
+            "orphan": (20,),
+        },
+    )
+
+    peak_bytes = estimate_peak_live_activation_bytes(
+        graph=graph,
+        node_names=["a", "b"],
+        raw_edges=[],
+        graph_output_names={"graph_out"},
+    )
+
+    assert peak_bytes == 120
+
+
+def test_estimate_peak_live_activation_bytes_handles_zero_sized_tensor() -> None:
+    graph = build_lifetime_graph(
+        {"a": ((), ("zero_out",))},
+        {"zero_out": (0,)},
+    )
+
+    peak_bytes = estimate_peak_live_activation_bytes(
+        graph=graph,
+        node_names=["a"],
+        raw_edges=[],
+        graph_output_names={"zero_out"},
+    )
+
+    assert peak_bytes == 0
+
+
+def test_estimate_peak_live_activation_bytes_falls_back_to_topological_order() -> None:
+    graph = build_lifetime_graph(
+        {
+            "consumer": (("producer_out",), ("consumer_out",)),
+            "producer": ((), ("producer_out",)),
+        },
+        {
+            "producer_out": (8,),
+            "consumer_out": (8,),
+        },
+    )
+    raw_edges = [(1, 0, "producer_out")]
+
+    peak_bytes = estimate_peak_live_activation_bytes(
+        graph=graph,
+        node_names=["consumer", "producer"],
+        raw_edges=raw_edges,
+        graph_output_names={"consumer_out"},
+    )
+
+    assert validate_or_build_execution_order(2, raw_edges) == [1, 0]
+    assert peak_bytes == 16
 
 
 def test_build_graph_data_from_onnx_supports_squeeze_without_axes(
@@ -379,6 +610,23 @@ def test_process_csv_builds_graphs_with_hardcoded_targets(tmp_path: Path) -> Non
     assert graph.graph_features.shape == (1, GRAPH_FEATURE_DIM)
 
 
+def test_load_graph_split_pads_legacy_graph_features(tmp_path: Path) -> None:
+    graph = build_synthetic_graph(0)
+    legacy_dim = GRAPH_FEATURE_DIM - 3
+    graph.graph_features = graph.graph_features[:, :legacy_dim]
+    split_path = tmp_path / "train.pt"
+    torch.save([graph], split_path)
+
+    loaded_graphs = load_graph_split(split_path, target_dim=len(TARGET_NAMES))
+
+    loaded_graph = loaded_graphs[0]
+    assert loaded_graph.graph_features.shape == (1, GRAPH_FEATURE_DIM)
+    assert loaded_graph.graph_features[0, :legacy_dim].tolist() == pytest.approx(
+        graph.graph_features[0].tolist()
+    )
+    assert loaded_graph.graph_features[0, legacy_dim:].tolist() == [0.0, 0.0, 0.0]
+
+
 def test_process_csv_filters_untrusted_gpu_metrics(tmp_path: Path) -> None:
     res_root = tmp_path / "res"
     variant_names = (
@@ -479,6 +727,22 @@ def test_build_prepared_dataset_writes_manifest_and_loads(tmp_path: Path) -> Non
     assert bundle.train_data[0].y.shape == (1, len(TARGET_FIELDS))
     assert bundle.train_data[0].x.shape[1] == NODE_FEATURE_DIM
     assert bundle.train_data[0].phase in {"training", "inference"}
+
+
+def build_lifetime_graph(
+    nodes: dict[str, tuple[tuple[str, ...], tuple[str, ...]]],
+    tensor_shapes: dict[str, tuple[int, ...]],
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        nodemap={
+            name: SimpleNamespace(input=inputs, output=outputs)
+            for name, (inputs, outputs) in nodes.items()
+        },
+        tensormap={
+            name: SimpleNamespace(shape=shape, dtype="uint8")
+            for name, shape in tensor_shapes.items()
+        },
+    )
 
 
 def write_monitor_csv(path: Path, rows: list[dict[str, object]]) -> None:

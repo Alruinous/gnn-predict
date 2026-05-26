@@ -65,6 +65,22 @@ def load_graph_split(path: Path, *, target_dim: int) -> list[Data]:
     return graphs
 
 
+def normalize_graph_feature_dim(graph: Data, *, split_path: Path) -> None:
+    graph_features = getattr(graph, "graph_features", None)
+    if not isinstance(graph_features, torch.Tensor) or graph_features.dim() != 2:
+        raise ValueError(f"graph feature dim mismatch in {split_path}")
+    if graph_features.shape == (1, GRAPH_FEATURE_DIM):
+        return
+    if graph_features.size(0) != 1 or graph_features.size(1) > GRAPH_FEATURE_DIM:
+        raise ValueError(f"graph feature dim mismatch in {split_path}")
+    padding = torch.zeros(
+        (1, GRAPH_FEATURE_DIM - graph_features.size(1)),
+        dtype=graph_features.dtype,
+        device=graph_features.device,
+    )
+    graph.graph_features = torch.cat([graph_features, padding], dim=1)
+
+
 def validate_graph_data(graph: object, *, target_dim: int, split_path: Path) -> None:
     if not isinstance(graph, Data):
         raise TypeError(f"split contains non-Data object: {split_path}")
@@ -86,12 +102,7 @@ def validate_graph_data(graph: object, *, target_dim: int, split_path: Path) -> 
     edge_attr = graph.edge_attr
     if not isinstance(edge_attr, torch.Tensor) or edge_attr.size(1) != EDGE_FEATURE_DIM:
         raise ValueError(f"edge feature dim mismatch in {split_path}")
-    graph_features = getattr(graph, "graph_features", None)
-    if (
-        not isinstance(graph_features, torch.Tensor)
-        or graph_features.shape != (1, GRAPH_FEATURE_DIM)
-    ):
-        raise ValueError(f"graph feature dim mismatch in {split_path}")
+    normalize_graph_feature_dim(graph, split_path=split_path)
     y = graph.y
     if not isinstance(y, torch.Tensor) or y.shape != (1, target_dim):
         raise ValueError(f"target dim mismatch in {split_path}")

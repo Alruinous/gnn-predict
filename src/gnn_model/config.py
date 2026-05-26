@@ -74,6 +74,11 @@ class ModelConfig(StrictModel):
     num_layers: int = 2
     num_heads: int = 4
     dropout_rate: float = 0.1
+    readout_mode: Literal["mean", "mean_sum_max"] = "mean"
+    target_readout_modes: dict[str, Literal["mean", "mean_sum_max"]] = Field(
+        default_factory=dict
+    )
+    structural_context_mode: Literal["none", "basic"] = "none"
 
     @model_validator(mode="after")
     def validate_model_config(self) -> ModelConfig:

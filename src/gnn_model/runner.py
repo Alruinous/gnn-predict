@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import time
@@ -125,6 +126,12 @@ def run_experiment(
             ),
             "hidden_dim": config.model.hidden_dim,
             "num_layers": config.model.num_layers,
+            "readout_mode": config.model.readout_mode,
+            "target_readout_modes": json.dumps(
+                config.model.target_readout_modes,
+                sort_keys=True,
+            ),
+            "structural_context_mode": config.model.structural_context_mode,
             **build_data_metadata(config),
         },
     )
@@ -203,6 +210,9 @@ def build_model(
         num_heads=config.model.num_heads,
         num_layers=config.model.num_layers,
         dropout_rate=config.model.dropout_rate,
+        readout_mode=config.model.readout_mode,
+        target_readout_modes=config.model.target_readout_modes,
+        structural_context_mode=config.model.structural_context_mode,
     )
 
 

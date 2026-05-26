@@ -1,0 +1,33 @@
+experiment_name: gnn_model_scaled_v3_variant_context_20260526
+data:
+  kind: split
+  data_dir: data/scaled_v3_variant_context
+  target_names:
+    - duration_sec_avg
+    - cpu_cores_p95
+    - memory_delta_gb_p95
+    - gpu_util_percent_p95
+    - gpu_sm_active_percent_p95
+    - gpu_sm_occupancy_percent_p95
+    - gpu_mem_used_mb_p95
+  scaler_dir: data/scalers_v3_variant_context
+model:
+  hidden_dim: 128
+  num_layers: 2
+  num_heads: 8
+  dropout_rate: 0.1
+  readout_mode: mean_sum_max
+  structural_context_mode: basic
+training:
+  batch_size: 32
+  num_epochs: 100
+  learning_rate: 0.0008
+  weight_decay: 0.0001
+  loss_weights:
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 2.0
+    - 1.0

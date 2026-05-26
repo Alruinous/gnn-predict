@@ -6,7 +6,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from gnn_model.config import load_experiment_config
+from gnn_model.config import SplitDataConfig, load_experiment_config
 from gnn_model.data.dataset import SPLIT_FILE_NAMES
 from gnn_model_test_utils import TARGET_NAMES
 
@@ -31,11 +31,14 @@ def test_gnn_model_config_loads_split_defaults(tmp_path: Path) -> None:
     config = load_experiment_config(config_path)
 
     assert config.experiment_name == "config_defaults"
-    assert config.data.kind == "split"
+    assert isinstance(config.data, SplitDataConfig)
     assert config.data.data_dir == "data/scaled"
     assert config.data.target_names == list(TARGET_NAMES)
     assert config.data.split_files == SPLIT_FILE_NAMES
     assert config.model.hidden_dim == 64
+    assert config.model.readout_mode == "mean"
+    assert config.model.target_readout_modes == {}
+    assert config.model.structural_context_mode == "none"
     assert config.training.num_epochs == 1
 
 

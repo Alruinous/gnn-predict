@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from gnn_model.data.variant_context import VARIANT_CONTEXT_FEATURE_NAMES
+
 MAX_SHAPE_RANK = 6
 
 GRAPH_PROFILE_FEATURE_NAMES = (
@@ -54,12 +56,53 @@ GRAPH_SHAPE_FEATURE_NAMES = (
     "node_count_log",
     "edge_count_log",
     "activation_bytes_sum_log",
+    "peak_live_activation_bytes_log",
     "activation_elements_sum_log",
     "max_tensor_rank",
     "max_tensor_dim_log",
     "runtime_input_count",
     "runtime_input_elements_sum_log",
     "runtime_input_nonbatch_elements_sum_log",
+)
+
+RUNTIME_PROFILE_FEATURE_NAMES = (
+    "profile_available",
+    "profiled_steps",
+    "profile_wall_sec_log",
+    "profile_event_count_log",
+    "profile_op_count_log",
+    "profile_launch_event_count_log",
+    "profile_kernel_event_count_log",
+    "profile_total_count_log",
+    "profile_total_cpu_time_us_log",
+    "profile_total_self_cpu_time_us_log",
+    "profile_total_device_time_us_log",
+    "profile_total_self_device_time_us_log",
+    "profile_total_device_memory_pos_log",
+    "profile_max_event_device_memory_log",
+    "profile_peak_device_memory_log",
+    "profile_total_flops_log",
+    "profile_conv_device_time_share",
+    "profile_matmul_device_time_share",
+    "profile_copy_device_time_share",
+    "profile_activation_device_time_share",
+    "profile_norm_device_time_share",
+    "profile_top1_device_time_us_log",
+    "profile_top2_device_time_us_log",
+    "profile_top3_device_time_us_log",
+    "profile_top_event_time_share",
+    "profile_top3_event_time_share",
+    "profile_top_event_category_entropy",
+    "profile_top_event_dominant_category_share",
+    "profile_top_event_category_count",
+    "profile_top_conv_device_time_share",
+    "profile_top_matmul_device_time_share",
+    "profile_top_copy_device_time_share",
+    "profile_top_activation_device_time_share",
+    "profile_top_norm_device_time_share",
+    "profile_top_memory_device_time_share",
+    "profile_top_kernel_device_time_share",
+    "profile_top_other_device_time_share",
 )
 
 NODE_FEATURE_NAMES = (
@@ -107,6 +150,8 @@ GRAPH_FEATURE_NAMES = (
     "parameter_input_bytes",
     *GRAPH_PROFILE_FEATURE_NAMES,
     *GRAPH_SHAPE_FEATURE_NAMES,
+    *RUNTIME_PROFILE_FEATURE_NAMES,
+    *VARIANT_CONTEXT_FEATURE_NAMES,
 )
 
 GPU_SPECS = {

@@ -7,8 +7,9 @@ import random
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 import torch
@@ -339,6 +340,13 @@ def extract_feature_target(info: ModelRecordInfo) -> Data:
         gpu_name=info.gpu_name,
         phase=info.phase,
         sample_count=parse_int_value(info.metadata["sample_count"]),
+        profile_summary=resolve_profile_summary(
+            Path(str(info.metadata["result_json"])),
+            info.variant_name,
+            info.phase,
+        ),
+        model_name=info.model_name,
+        variant_name=info.variant_name,
     )
     data.y = torch.tensor(info.target, dtype=torch.float32).unsqueeze(0)
     data.source_csv = str(info.csv_path)
@@ -351,6 +359,40 @@ def extract_feature_target(info: ModelRecordInfo) -> Data:
     for field, value in info.metadata.items():
         setattr(data, field, value)
     return data
+
+
+@lru_cache(maxsize=256)
+def load_result_json(result_json: Path) -> dict[str, object]:
+    with result_json.open(encoding="utf-8") as file:
+        data = json.load(file)
+    assert isinstance(data, dict), result_json
+    return data
+
+
+def resolve_profile_summary(
+    result_json: Path,
+    variant_name: str,
+    phase: str,
+) -> dict[str, object] | None:
+    document = load_result_json(result_json)
+    variants = document.get("variants", [])
+    if not isinstance(variants, list):
+        return None
+    for variant in variants:
+        if not isinstance(variant, Mapping):
+            continue
+        variant_data = cast(Mapping[str, object], variant)
+        if variant_data.get("name") != variant_name:
+            continue
+        phase_result = variant_data.get(phase)
+        if not isinstance(phase_result, Mapping):
+            return None
+        phase_data = cast(Mapping[str, object], phase_result)
+        profile_summary = phase_data.get("profile_summary")
+        if not isinstance(profile_summary, Mapping):
+            return None
+        return dict(cast(Mapping[str, object], profile_summary))
+    return None
 
 
 def split_graphs(
