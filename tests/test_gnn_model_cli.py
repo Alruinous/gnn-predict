@@ -93,8 +93,10 @@ def test_gnn_model_cli_extract_writes_manifest(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
     manifest_path = output_dir / "manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "3.0.0"
-    assert payload["feature_source"] == "onnx_tool_profile_p0_features"
+    assert payload["schema_version"] == "4.0.0"
+    assert payload["feature_source"] == (
+        "onnx_tool_static_metrics_shape_topology_features"
+    )
     assert payload["sample_count"] == 3
     assert payload["target_names"] == list(TARGET_FIELDS)
     assert "extract_config_path" not in payload

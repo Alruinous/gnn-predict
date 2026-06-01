@@ -120,7 +120,7 @@ def write_prepared_manifest(path: Path) -> Path:
     manifest_path.write_text(
         json.dumps(
             {
-                "schema_version": "3.0.0",
+                "schema_version": "4.0.0",
                 "target_names": list(TARGET_FIELDS),
                 "node_feature_names": list(NODE_FEATURE_NAMES),
                 "op_type_names": list(OP_TYPE_NAMES),

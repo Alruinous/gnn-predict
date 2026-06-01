@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import onnx
@@ -33,10 +33,8 @@ from gnn_model.data.constants import (
     NODE_FEATURE_DIM,
     OP_TYPE_TO_INDEX,
     PHASE_TO_INDEX,
-    RUNTIME_PROFILE_FEATURE_NAMES,
     normalize_gpu_name,
 )
-from gnn_model.data.variant_context import build_variant_context_feature_vector
 
 OP_TYPE_CATEGORY_BY_RAW_OP = {
     "Conv": "op_conv",
@@ -98,17 +96,6 @@ OP_TYPE_CATEGORY_BY_RAW_OP = {
     "Constant": "op_constant",
 }
 
-PROFILE_TOP_EVENT_CATEGORIES = (
-    "conv",
-    "matmul",
-    "copy",
-    "activation",
-    "norm",
-    "memory",
-    "kernel",
-    "other",
-)
-
 
 def build_graph_data_from_onnx(
     onnx_path: str | Path,
@@ -117,27 +104,23 @@ def build_graph_data_from_onnx(
     gpu_name: str = "v100",
     phase: str = "training",
     sample_count: int = 1,
-    profile_summary: dict[str, object] | None = None,
-    model_name: str | None = None,
-    variant_name: str | None = None,
 ) -> Data:
     assert batch_size > 0
     assert sample_count > 0
     model_path = Path(onnx_path)
     model = onnx.load(model_path)
     runtime_input_names = load_runtime_input_names(model)
-    parameter_input_stats = collect_parameter_input_stats(
-        model,
-        runtime_input_names=runtime_input_names,
-    )
     runtime_inputs = build_runtime_inputs(
         model,
         runtime_input_names=runtime_input_names,
         batch_size=batch_size,
     )
-    graph_output_names = build_graph_output_name_set(model)
+    graph_output_names = {output.name for output in model.graph.output if output.name}
 
-    register_onnx_tool_extensions()
+    replace_onnx_tool_node(SqueezeNode)
+    for node_class in (SoftplusNode, EluNode, SeluNode):
+        if NODE_REGISTRY.get(node_class.__name__) is None:
+            NODE_REGISTRY.register(node_class)
     tool_model = onnx_tool.loadmodel(str(model_path))
     graph = tool_model.graph
     graph.shape_infer(runtime_inputs)
@@ -181,19 +164,17 @@ def build_graph_data_from_onnx(
         for source_index, target_index, tensor_name in raw_edges
     ]
     graph_features = build_graph_feature_vector(
+        model=model,
+        runtime_input_names=runtime_input_names,
         phase=phase,
         batch_size=batch_size,
         sample_count=sample_count,
         gpu_name=gpu_name,
-        parameter_input_stats=parameter_input_stats,
         graph=graph,
         node_infos=list(graph.nodemap.values()),
         raw_edges=raw_edges,
         runtime_inputs=runtime_inputs,
         graph_output_names=graph_output_names,
-        profile_summary=profile_summary,
-        model_name=model_name,
-        variant_name=variant_name or model_path.stem,
     )
 
     edge_index = (
@@ -223,13 +204,6 @@ def build_graph_data_from_onnx(
         op_type_ids=op_type_ids,
         onnx_path=str(model_path),
     )
-
-
-def register_onnx_tool_extensions() -> None:
-    replace_onnx_tool_node(SqueezeNode)
-    for node_class in (SoftplusNode, EluNode, SeluNode):
-        if NODE_REGISTRY.get(node_class.__name__) is None:
-            NODE_REGISTRY.register(node_class)
 
 
 def replace_onnx_tool_node(node_class: type[Any]) -> None:
@@ -312,30 +286,6 @@ class SeluNode(PWNode):
         outtensors[0].update_tensor(np.where(x > 0, self.gamma * x, negative))
 
 
-def collect_parameter_input_stats(
-    model: onnx.ModelProto,
-    *,
-    runtime_input_names: list[str],
-) -> dict[str, float]:
-    runtime_input_name_set = set(runtime_input_names)
-    parameter_inputs = [
-        value for value in model.graph.input if value.name not in runtime_input_name_set
-    ]
-    element_count = 0
-    byte_count = 0
-    for value in parameter_inputs:
-        shape = resolve_static_tensor_shape(value)
-        dtype = resolve_tensor_np_dtype(value)
-        elements = count_elements(shape)
-        element_count += elements
-        byte_count += elements * np.dtype(dtype).itemsize
-    return {
-        "parameter_input_count": float(len(parameter_inputs)),
-        "parameter_input_element_count": float(element_count),
-        "parameter_input_bytes": float(byte_count),
-    }
-
-
 def build_runtime_inputs(
     model: onnx.ModelProto,
     *,
@@ -393,7 +343,7 @@ def build_node_feature_vector(
     out_degree: int,
 ) -> list[float]:
     feature_vector = [
-        float(sum_profile_values(node_info.macs)),
+        float(sum(node_info.macs)),
         float(node_info.memory),
         float(node_info.params),
         float(len(node_info.input)),
@@ -419,10 +369,6 @@ def build_op_type_ids(node_infos: Iterable[Any]) -> list[int]:
     return [resolve_op_type_index(node_info.op_type) for node_info in node_infos]
 
 
-def build_graph_output_name_set(model: onnx.ModelProto) -> set[str]:
-    return {output.name for output in model.graph.output if output.name}
-
-
 def build_edge_feature_vector(
     graph: Any,
     tensor_name: str,
@@ -432,9 +378,9 @@ def build_edge_feature_vector(
     out_degree: list[int],
 ) -> list[float]:
     tensor_info = graph.tensormap[tensor_name]
-    shape = resolve_profile_tensor_shape(tensor_info)
+    shape = resolve_tensor_shape(tensor_info)
     element_count = count_elements(shape)
-    byte_count = element_count * resolve_profile_tensor_itemsize(tensor_info)
+    byte_count = element_count * resolve_tensor_itemsize(tensor_info)
     feature_vector = [
         float(byte_count),
         float(len(shape)),
@@ -451,14 +397,10 @@ def build_node_shape_feature_vector(graph: Any, node_info: Any) -> list[float]:
     input_names = tuple(tensor_name for tensor_name in node_info.input if tensor_name)
     output_names = tuple(tensor_name for tensor_name in node_info.output if tensor_name)
     output_shape = (
-        resolve_profile_tensor_shape(graph.tensormap[output_names[0]])
-        if output_names
-        else ()
+        resolve_tensor_shape(graph.tensormap[output_names[0]]) if output_names else ()
     )
     output_itemsize = (
-        resolve_profile_tensor_itemsize(graph.tensormap[output_names[0]])
-        if output_names
-        else 0
+        resolve_tensor_itemsize(graph.tensormap[output_names[0]]) if output_names else 0
     )
     return [
         safe_log1p(sum_tensor_bytes(graph, input_names)),
@@ -480,7 +422,7 @@ def build_edge_shape_feature_vector(
     return [
         *build_shape_dimension_logs(shape),
         safe_log1p(count_nonbatch_elements(shape)),
-        float(resolve_profile_tensor_itemsize(tensor_info)),
+        float(resolve_tensor_itemsize(tensor_info)),
         float(not shape),
         float(any(dimension == 0 for dimension in shape)),
     ]
@@ -501,8 +443,7 @@ def build_graph_shape_feature_vector(
         if tensor_name
     }
     tensor_shapes = [
-        resolve_profile_tensor_shape(tensor_info)
-        for tensor_info in graph.tensormap.values()
+        resolve_tensor_shape(tensor_info) for tensor_info in graph.tensormap.values()
     ]
     runtime_input_shapes = [
         tuple(int(dimension) for dimension in value.shape)
@@ -623,8 +564,8 @@ def validate_or_build_execution_order(
 
 def tensor_byte_count(graph: Any, tensor_name: str) -> int:
     tensor_info = graph.tensormap[tensor_name]
-    return count_elements(resolve_profile_tensor_shape(tensor_info)) * (
-        resolve_profile_tensor_itemsize(tensor_info)
+    return count_elements(resolve_tensor_shape(tensor_info)) * (
+        resolve_tensor_itemsize(tensor_info)
     )
 
 
@@ -643,16 +584,14 @@ def sum_tensor_bytes(graph: Any, tensor_names: Iterable[str]) -> int:
 
 def sum_tensor_elements(graph: Any, tensor_names: Iterable[str]) -> int:
     return sum(
-        count_elements(resolve_profile_tensor_shape(graph.tensormap[tensor_name]))
+        count_elements(resolve_tensor_shape(graph.tensormap[tensor_name]))
         for tensor_name in tensor_names
     )
 
 
 def sum_nonbatch_elements(graph: Any, tensor_names: Iterable[str]) -> int:
     return sum(
-        count_nonbatch_elements(
-            resolve_profile_tensor_shape(graph.tensormap[tensor_name])
-        )
+        count_nonbatch_elements(resolve_tensor_shape(graph.tensormap[tensor_name]))
         for tensor_name in tensor_names
     )
 
@@ -660,7 +599,7 @@ def sum_nonbatch_elements(graph: Any, tensor_names: Iterable[str]) -> int:
 def max_tensor_rank(graph: Any, tensor_names: Iterable[str]) -> int:
     return max(
         (
-            len(resolve_profile_tensor_shape(graph.tensormap[tensor_name]))
+            len(resolve_tensor_shape(graph.tensormap[tensor_name]))
             for tensor_name in tensor_names
         ),
         default=0,
@@ -669,35 +608,43 @@ def max_tensor_rank(graph: Any, tensor_names: Iterable[str]) -> int:
 
 def build_graph_feature_vector(
     *,
+    model: onnx.ModelProto,
+    runtime_input_names: list[str],
     phase: str,
     batch_size: int,
     sample_count: int,
     gpu_name: str,
-    parameter_input_stats: dict[str, float],
     graph: Any,
     node_infos: list[Any],
     raw_edges: list[tuple[int, int, str]],
     runtime_inputs: dict[str, np.ndarray],
     graph_output_names: set[str],
-    profile_summary: dict[str, object] | None,
-    model_name: str | None,
-    variant_name: str | None,
 ) -> list[float]:
     normalized_phase = phase.strip().lower()
     assert normalized_phase in PHASE_TO_INDEX, phase
     normalized_gpu_name = normalize_gpu_name(gpu_name)
     assert normalized_gpu_name in GPU_SPECS, gpu_name
-    total_macs = float(sum_profile_values(graph.macs))
+    parameter_inputs = list(
+        filter(lambda x: x.name not in set(runtime_input_names), model.graph.input)
+    )
+    parameter_input_count = len(parameter_inputs)
+    element_count = 0
+    byte_count = 0
+    for value in parameter_inputs:
+        shape = tuple(map(lambda x: int(x.dim_value), value.type.tensor_type.shape.dim))
+        dtype = resolve_tensor_np_dtype(value)
+        elements = count_elements(shape)
+        element_count += elements
+        byte_count += elements * np.dtype(dtype).itemsize
     feature_vector = [
         float(PHASE_TO_INDEX[normalized_phase]),
         float(batch_size),
         float(sample_count),
         *GPU_SPECS[normalized_gpu_name],
-        parameter_input_stats["parameter_input_count"],
-        parameter_input_stats["parameter_input_element_count"],
-        parameter_input_stats["parameter_input_bytes"],
-        total_macs,
-        total_macs * 2.0,
+        float(parameter_input_count),
+        float(element_count),
+        float(byte_count),
+        float(sum(graph.macs)),
         float(graph.memory),
         float(graph.params),
         *build_graph_shape_feature_vector(
@@ -707,138 +654,9 @@ def build_graph_feature_vector(
             runtime_inputs=runtime_inputs,
             graph_output_names=graph_output_names,
         ),
-        *build_runtime_profile_feature_vector(profile_summary),
-        *build_variant_context_feature_vector(
-            model_name=model_name or "",
-            variant_name=variant_name or "",
-        ),
     ]
     assert len(feature_vector) == GRAPH_FEATURE_DIM
     return feature_vector
-
-
-def build_runtime_profile_feature_vector(
-    profile_summary: dict[str, object] | None,
-) -> list[float]:
-    if not profile_summary:
-        return [0.0] * len(RUNTIME_PROFILE_FEATURE_NAMES)
-
-    def value(name: str) -> float:
-        raw_value = profile_summary.get(name, 0.0)
-        if isinstance(raw_value, bool):
-            return float(raw_value)
-        if isinstance(raw_value, (int, float, np.number)):
-            parsed = float(raw_value)
-            return parsed if math.isfinite(parsed) else 0.0
-        return 0.0
-
-    top_events = profile_summary.get("top_events", [])
-    top_device_times: list[float] = []
-    top_event_features = build_top_event_feature_vector(
-        top_events,
-        total_device_time_us=max(value("total_device_time_us"), 1.0),
-    )
-    if isinstance(top_events, list):
-        for event in top_events[:3]:
-            if isinstance(event, dict):
-                raw_time = event.get("device_time_us", 0.0)
-                if isinstance(raw_time, (int, float, np.number)):
-                    top_device_times.append(max(float(raw_time), 0.0))
-    while len(top_device_times) < 3:
-        top_device_times.append(0.0)
-
-    return [
-        1.0,
-        value("profiled_steps"),
-        safe_log1p(max(value("wall_time_sec"), 0.0)),
-        safe_log1p(max(value("event_count"), 0.0)),
-        safe_log1p(max(value("op_count"), 0.0)),
-        safe_log1p(max(value("launch_event_count"), 0.0)),
-        safe_log1p(max(value("kernel_event_count"), 0.0)),
-        safe_log1p(max(value("total_count"), 0.0)),
-        safe_log1p(max(value("total_cpu_time_us"), 0.0)),
-        safe_log1p(max(value("total_self_cpu_time_us"), 0.0)),
-        safe_log1p(max(value("total_device_time_us"), 0.0)),
-        safe_log1p(max(value("total_self_device_time_us"), 0.0)),
-        safe_log1p(max(value("total_device_memory_pos"), 0.0)),
-        safe_log1p(max(value("max_event_device_memory"), 0.0)),
-        safe_log1p(max(value("peak_device_memory"), 0.0)),
-        safe_log1p(max(value("total_flops"), 0.0)),
-        value("conv_device_time_share"),
-        value("matmul_device_time_share"),
-        value("copy_device_time_share"),
-        value("activation_device_time_share"),
-        value("norm_device_time_share"),
-        safe_log1p(top_device_times[0]),
-        safe_log1p(top_device_times[1]),
-        safe_log1p(top_device_times[2]),
-        *top_event_features,
-    ]
-
-
-def build_top_event_feature_vector(
-    top_events: object,
-    *,
-    total_device_time_us: float,
-) -> list[float]:
-    category_times = {category: 0.0 for category in PROFILE_TOP_EVENT_CATEGORIES}
-    top_times: list[float] = []
-    if isinstance(top_events, list):
-        for event in top_events:
-            if not isinstance(event, Mapping):
-                continue
-            event_map = cast(Mapping[str, object], event)
-            raw_time = event_map.get("device_time_us")
-            if not isinstance(raw_time, (int, float, np.number)):
-                continue
-            device_time = max(float(raw_time), 0.0)
-            top_times.append(device_time)
-            raw_key = event_map.get("key")
-            category = classify_profile_event(str(raw_key) if raw_key else "")
-            category_times[category] += device_time
-    shares = [
-        category_times[category] / total_device_time_us
-        for category in PROFILE_TOP_EVENT_CATEGORIES
-    ]
-    positive_shares = [share for share in shares if share > 0.0]
-    entropy = -sum(share * math.log(share) for share in positive_shares)
-    return [
-        (top_times[0] / total_device_time_us) if top_times else 0.0,
-        sum(top_times[:3]) / total_device_time_us,
-        entropy,
-        max(shares, default=0.0),
-        float(len(positive_shares)),
-        *shares,
-    ]
-
-
-def classify_profile_event(key: str) -> str:
-    lower_key = key.lower()
-    if "conv" in lower_key or "cudnn" in lower_key:
-        return "conv"
-    if any(token in lower_key for token in ("mm", "matmul", "gemm", "bmm")):
-        return "matmul"
-    if any(token in lower_key for token in ("copy", "memcpy", "memset")):
-        return "copy"
-    if any(
-        token in lower_key
-        for token in ("relu", "silu", "gelu", "sigmoid", "softmax")
-    ):
-        return "activation"
-    if "norm" in lower_key:
-        return "norm"
-    if lower_key.startswith("mem"):
-        return "memory"
-    if (
-        key == "cudaLaunchKernel"
-        or key.startswith("void ")
-        or key.startswith("ampere_")
-        or key.startswith("volta_")
-        or key.startswith("maxwell_")
-        or key.startswith("cutlass")
-    ):
-        return "kernel"
-    return "other"
 
 
 def resolve_static_tensor_shape(value: onnx.ValueInfoProto) -> tuple[int, ...]:
@@ -870,7 +688,7 @@ def resolve_tensor_np_dtype(value: onnx.ValueInfoProto) -> np.dtype:
     return np.dtype(onnx.helper.tensor_dtype_to_np_dtype(elem_type))
 
 
-def resolve_profile_tensor_shape(tensor_info: object) -> tuple[int, ...]:
+def resolve_tensor_shape(tensor_info: object) -> tuple[int, ...]:
     shape = getattr(tensor_info, "shape", None)
     assert shape is not None
     if isinstance(shape, int):
@@ -881,7 +699,7 @@ def resolve_profile_tensor_shape(tensor_info: object) -> tuple[int, ...]:
     return parsed_shape
 
 
-def resolve_profile_tensor_itemsize(tensor_info: object) -> int:
+def resolve_tensor_itemsize(tensor_info: object) -> int:
     dtype = getattr(tensor_info, "dtype", None)
     assert dtype is not None, type(tensor_info)
     return int(np.dtype(dtype).itemsize)
@@ -905,14 +723,3 @@ def safe_log1p(value: int | float) -> float:
     parsed = float(value)
     assert parsed >= 0.0 and math.isfinite(parsed), value
     return math.log1p(parsed)
-
-
-def sum_profile_values(values: object) -> float:
-    if isinstance(values, (list, tuple)):
-        total = 0.0
-        for value in values:
-            assert isinstance(value, (int, float, np.number)), type(value)
-            total += float(value)
-        return total
-    assert isinstance(values, (int, float, np.number)), type(values)
-    return float(values)

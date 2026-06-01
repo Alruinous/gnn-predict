@@ -11,7 +11,7 @@ from torch_geometric.nn import global_add_pool, global_max_pool, global_mean_poo
 
 from .fusion import GraphFusionLayer, RegressionHead
 
-NODE_PROFILE_FEATURE_COUNT = 3
+NODE_ONNX_TOOL_METRIC_COUNT = 3
 STRUCTURAL_TOPOLOGY_FEATURE_COUNT = 8
 ReadoutMode = Literal["mean", "mean_sum_max"]
 StructuralContextMode = Literal["none", "basic"]
@@ -200,7 +200,7 @@ class IntelliGraphLargeModelPredictor(nn.Module):
 def structural_context_dim(op_type_count: int) -> int:
     return (
         op_type_count * 2
-        + op_type_count * NODE_PROFILE_FEATURE_COUNT
+        + op_type_count * NODE_ONNX_TOOL_METRIC_COUNT
         + op_type_count * op_type_count
         + STRUCTURAL_TOPOLOGY_FEATURE_COUNT
     )
@@ -231,15 +231,15 @@ def build_structural_context(
     op_counts.index_add_(0, batch, op_one_hot)
     op_count_features = op_counts.log1p()
     op_ratios = op_counts / node_count.clamp_min(1.0)
-    profile = data_x[:, :NODE_PROFILE_FEATURE_COUNT]
-    op_profile = torch.zeros(
+    metrics = data_x[:, :NODE_ONNX_TOOL_METRIC_COUNT]
+    op_metrics = torch.zeros(
         graph_count_int * op_type_count,
-        NODE_PROFILE_FEATURE_COUNT,
+        NODE_ONNX_TOOL_METRIC_COUNT,
         dtype=dtype,
         device=device,
     )
-    op_profile.index_add_(0, batch * op_type_count + op_ids, profile)
-    op_profile = signed_log1p(op_profile.reshape(graph_count_int, -1))
+    op_metrics.index_add_(0, batch * op_type_count + op_ids, metrics)
+    op_metrics = signed_log1p(op_metrics.reshape(graph_count_int, -1))
     transitions, edge_count, edge_batch = build_transition_context(
         edge_index=edge_index,
         op_ids=op_ids,
@@ -258,7 +258,7 @@ def build_structural_context(
         dtype=dtype,
     )
     return torch.cat(
-        [op_count_features, op_ratios, op_profile, transitions, topology],
+        [op_count_features, op_ratios, op_metrics, transitions, topology],
         dim=1,
     )
 
