@@ -37,6 +37,7 @@ def compute_regression_metrics(
         "mae": float(absolute_error.mean().item()),
         "mse": float(squared_error.mean().item()),
         "rmse": float(squared_error.mean().sqrt().item()),
+        "r2": compute_r2(predictions, targets),
         "wape": wape,
         "max_abs_error": float(absolute_error.max().item()),
     }
@@ -54,8 +55,13 @@ def compute_regression_metrics(
         else:
             target_wape = float((target_error_sum / target_sum).item())
         metrics[f"{target_name}_mae"] = float(target_absolute_error.mean().item())
+        metrics[f"{target_name}_mse"] = float(target_squared_error.mean().item())
         metrics[f"{target_name}_rmse"] = float(
             target_squared_error.mean().sqrt().item()
+        )
+        metrics[f"{target_name}_r2"] = compute_r2(
+            predictions[:, index],
+            targets[:, index],
         )
         metrics[f"{target_name}_wape"] = target_wape
         metrics[f"{target_name}_max_abs_error"] = float(
@@ -113,3 +119,11 @@ def inverse_transform_targets(
         column = torch.from_numpy(transformed).float()
         columns.append(column)
     return torch.cat(columns, dim=1)
+
+
+def compute_r2(predictions: torch.Tensor, targets: torch.Tensor) -> float:
+    residual_sum = (predictions - targets).pow(2).sum()
+    total_sum = (targets - targets.mean()).pow(2).sum()
+    if float(total_sum.item()) == 0.0:
+        return 1.0 if float(residual_sum.item()) == 0.0 else 0.0
+    return float((1.0 - residual_sum / total_sum).item())

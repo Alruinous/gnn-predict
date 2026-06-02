@@ -31,14 +31,19 @@ def test_compute_regression_metrics_includes_wape_and_max_error() -> None:
     assert metrics["mae"] == pytest.approx(1.75)
     assert metrics["mse"] == pytest.approx(3.75)
     assert metrics["rmse"] == pytest.approx(math.sqrt(3.75))
+    assert metrics["r2"] == pytest.approx(1.0 - 15.0 / 44.75)
     assert metrics["wape"] == pytest.approx(7.0 / 19.0)
     assert metrics["max_abs_error"] == pytest.approx(3.0)
     assert metrics["duration_sec_avg_mae"] == pytest.approx(2.0)
+    assert metrics["duration_sec_avg_mse"] == pytest.approx(5.0)
     assert metrics["duration_sec_avg_rmse"] == pytest.approx(math.sqrt(5.0))
+    assert metrics["duration_sec_avg_r2"] == pytest.approx(-4.0)
     assert metrics["duration_sec_avg_wape"] == pytest.approx(1.0)
     assert metrics["duration_sec_avg_max_abs_error"] == pytest.approx(3.0)
     assert metrics["gpu_mem_used_mb_p95_mae"] == pytest.approx(1.5)
+    assert metrics["gpu_mem_used_mb_p95_mse"] == pytest.approx(2.5)
     assert metrics["gpu_mem_used_mb_p95_rmse"] == pytest.approx(math.sqrt(2.5))
+    assert metrics["gpu_mem_used_mb_p95_r2"] == pytest.approx(0.6)
     assert metrics["gpu_mem_used_mb_p95_wape"] == pytest.approx(0.2)
     assert metrics["gpu_mem_used_mb_p95_max_abs_error"] == pytest.approx(2.0)
 
@@ -59,8 +64,10 @@ def test_compute_original_scale_metrics_prefixes_new_metrics() -> None:
     )
 
     assert metrics["original_scale_wape"] == pytest.approx(7.0 / 19.0)
+    assert metrics["original_scale_r2"] == pytest.approx(1.0 - 15.0 / 44.75)
     assert metrics["original_scale_max_abs_error"] == pytest.approx(3.0)
     assert metrics["original_scale_duration_sec_avg_wape"] == pytest.approx(1.0)
+    assert metrics["original_scale_duration_sec_avg_r2"] == pytest.approx(-4.0)
     assert metrics["original_scale_duration_sec_avg_max_abs_error"] == pytest.approx(
         3.0
     )
