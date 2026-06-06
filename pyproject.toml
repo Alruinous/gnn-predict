@@ -27,12 +27,20 @@ dependencies = [
     "torch-geometric>=2.7.0",
     "torch-pruning>=1.6.1",
     "torch-rechub==0.8.0",
-    "transformers==4.57.1",
+    "transformers>=5.2.0",
     "ty>=0.0.25",
     "polars>=1.39.3",
     "ray>=2.55.0",
     "ultralytics>=8.4.39",
     "pip>=26.1.1",
+    "datasets>=4.8.5",
+    "accelerate>=1.13.0",
+    "trl>=1.5.1",
+    "peft>=0.19.1",
+    "safetensors>=0.7.0",
+    "torchvision>=0.24.0",
+    "pillow>=12.2.0",
+    "flash-linear-attention>=0.5.0",
 ]
 
 [dependency-groups]

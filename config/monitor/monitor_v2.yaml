@@ -189,6 +189,14 @@ targets:
     pod_name: sg-wangjh-260520-34f13-default0-0
     gpu_id: "1"
     output_csv: "csv_v2/t5_monitor.csv"
+
+  qwen: # DONE
+    enabled: true
+    result_json: res/qwen/results/qwen_variants_v100_1780581450_results.json
+    node_name: dell-67
+    pod_name: sg-wangjh-260604-bdc24-default0-0
+    gpu_id: "0"
+    output_csv: "csv_v2/qwen_monitor.csv"
   
   deepfm:
     enabled: true

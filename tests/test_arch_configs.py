@@ -42,6 +42,9 @@ GPT2_CONFIG_VARIANT_COUNTS = {
 T5_CONFIG_VARIANT_COUNTS = {
     "t5_variants.yaml": 240,
 }
+QWEN_CONFIG_VARIANT_COUNTS = {
+    "qwen_variants.yaml": 105,
+}
 RECOMMENDER_CONFIG_VARIANT_COUNTS = {
     "deepfm_variants.yaml": 252,
     "dcn_variants.yaml": 252,
@@ -257,6 +260,62 @@ def test_t5_arch_configs_expand_to_expected_counts(
         >= variant.variant_config.example_input_shape[1]
         for variant in variants
         for t5_config in [variant.variant_config.t5_config]
+    )
+
+
+@pytest.mark.parametrize(
+    ("config_name", "expected_count"),
+    QWEN_CONFIG_VARIANT_COUNTS.items(),
+)
+def test_qwen_arch_configs_expand_to_expected_counts(
+    config_name: str, expected_count: int
+) -> None:
+    config = load_arch_config(ARCH_CONFIG_DIR / config_name)
+
+    variants = expand_arch_config(config)
+    full_flow_variants = [
+        variant for variant in variants if variant.variant_config.run_training
+    ]
+    prefill_only_variants = [
+        variant for variant in variants if not variant.variant_config.run_training
+    ]
+
+    assert len(variants) == expected_count
+    assert len(full_flow_variants) == 84
+    assert len(prefill_only_variants) == 21
+    assert all(variant.source == "variant_config_grid" for variant in variants)
+    assert all(variant.variant_config.run_prefill for variant in variants)
+    assert all(not variant.variant_config.run_inference for variant in variants)
+    assert all(not variant.mutations for variant in variants)
+    assert all(
+        variant.variant_config.target_input_channels is None for variant in variants
+    )
+    assert all(
+        variant.variant_config.target_output_classes is None for variant in variants
+    )
+    assert {
+        variant.variant_config.example_input_shape[1] for variant in full_flow_variants
+    } == {128, 256, 512, 1024}
+    assert {
+        variant.variant_config.example_input_shape[0] for variant in full_flow_variants
+    } == {1, 2, 4}
+    assert {
+        variant.variant_config.example_input_shape[1]
+        for variant in prefill_only_variants
+    } == {128, 512, 1024}
+    assert {
+        variant.variant_config.example_input_shape[0]
+        for variant in prefill_only_variants
+    } == {1}
+    assert all(
+        variant.variant_config.max_sequence_length
+        == variant.variant_config.example_input_shape[1]
+        for variant in variants
+    )
+    assert all(
+        variant.variant_config.example_input_shape[0]
+        == variant.variant_config.training_batch_sizes[0]
+        for variant in variants
     )
 
 

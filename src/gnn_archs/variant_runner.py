@@ -15,6 +15,7 @@ from transformers import BertConfig, BertForSequenceClassification
 
 from gnn_archs.config import (
     is_detection_model_name,
+    is_qwen_model_name,
     is_recommender_model_name,
     is_text_model_name,
     normalize_model_identifier,
@@ -26,6 +27,7 @@ from gnn_archs.mutations import (
     apply_text_config_mutations,
     validate_mutation_types,
 )
+from gnn_archs.qwen_builder import QwenOnnxLogitsExport
 from gnn_archs.result import (
     InferenceResult,
     OnnxExportResult,
@@ -130,6 +132,7 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
     onnx_result: OnnxExportResult | None = None
     training_result: TrainingResult | None = None
     inference_result: InferenceResult | None = None
+    prefill_result: InferenceResult | None = None
     try:
         model_build_started_at = time.time()
         model = build_variant_model(spec)
@@ -180,6 +183,15 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
             )
             timings["inference"] = inference_result.timings
 
+        if spec.variant_config.run_prefill:
+            if training_result is not None or inference_result is not None:
+                wait_for_inference_cooldown(
+                    spec.variant_config.pre_prefill_cooldown_seconds,
+                    context.device,
+                )
+            prefill_result = run_prefill(spec, model, context.device)
+            timings["prefill"] = prefill_result.timings
+
         timings["full"] = build_time_window(run_started_at, time.time())
 
         return VariantResult(
@@ -193,6 +205,7 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
             timings=timings,
             training=training_result,
             inference=inference_result,
+            prefill=prefill_result,
             onnx_export=onnx_result,
             metadata={
                 "device": str(context.device),
@@ -203,13 +216,17 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
                     else (
                         "recommender"
                         if is_recommender_model
-                        else ("text" if is_text_model else "image")
+                        else (
+                            "qwen"
+                            if is_qwen_model_name(spec.base_model.name)
+                            else ("text" if is_text_model else "image")
+                        )
                     )
                 ),
                 "parameter_count": count_parameters(model),
                 "validation_batch_size": validation_metrics["batch_size"],
                 "validation_num_outputs": validation_metrics["num_outputs"],
-                "pretrained_weights_loaded": False,
+                "pretrained_weights_loaded": is_qwen_model_name(spec.base_model.name),
             },
         )
     finally:
@@ -242,14 +259,14 @@ def wait_for_inference_cooldown(
 
 
 def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
-    assert spec.variant_config.target_output_classes is not None
-
     if is_detection_model_name(spec.base_model.name):
+        assert spec.variant_config.target_output_classes is not None
         from gnn_archs.yolo_builder import build_detection_model
 
         return build_detection_model(spec)
 
     if is_recommender_model_name(spec.base_model.name):
+        assert spec.variant_config.target_output_classes is not None
         model_name = normalize_model_identifier(spec.base_model.name)
         if model_name == "deepfm":
             from gnn_archs.deepfm_builder import build_deepfm_model
@@ -269,17 +286,25 @@ def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
             return build_edcn_model(spec)
         raise ValueError(f"unsupported recommender model: {spec.base_model.name}")
 
+    if is_qwen_model_name(spec.base_model.name):
+        from gnn_archs.qwen_builder import build_qwen_variant_model
+
+        return build_qwen_variant_model(spec)
+
     if normalize_model_identifier(spec.base_model.name) == "gpt2":
+        assert spec.variant_config.target_output_classes is not None
         from gnn_archs.gpt2_builder import build_gpt2_variant_model
 
         return build_gpt2_variant_model(spec)
 
     if normalize_model_identifier(spec.base_model.name) == "t5":
+        assert spec.variant_config.target_output_classes is not None
         from gnn_archs.t5_builder import build_t5_variant_model
 
         return build_t5_variant_model(spec)
 
     if is_text_model_name(spec.base_model.name):
+        assert spec.variant_config.target_output_classes is not None
         validate_mutation_types(spec.mutations, TEXT_MUTATION_TYPES, "text")
         config = build_bert_config(
             base_model=spec.base_model,
@@ -289,6 +314,7 @@ def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
         return BertForSequenceClassification(config)
 
     validate_mutation_types(spec.mutations, IMAGE_MUTATION_TYPES, "image")
+    assert spec.variant_config.target_output_classes is not None
     target_input_channels = spec.variant_config.target_input_channels
     if target_input_channels is None:
         raise ValueError("image variants require target_input_channels")
@@ -371,6 +397,11 @@ def export_onnx_model(
         return export_detection_onnx(spec, model, context)
 
     model.eval()
+    if is_qwen_model_name(spec.base_model.name):
+        batch = build_example_batch(spec.variant_config, model, is_text_model)
+        batch = {name: tensor.to(context.device) for name, tensor in batch.items()}
+        return export_qwen_onnx_model(spec, model, context, batch)
+
     recommender_feature_names: list[str] | None = None
     if is_recommender_model:
         from gnn_archs.recommender.common import get_recommender_feature_names
@@ -408,6 +439,112 @@ def export_onnx_model(
         dynamo=False,
         export_params=export_mode == "full",
     )
+
+    onnx_model = onnx.load(export_path)
+    set_model_metadata_value(
+        onnx_model,
+        RUNTIME_INPUT_NAMES_METADATA_KEY,
+        json.dumps(input_names),
+    )
+    set_model_metadata_value(
+        onnx_model,
+        ONNX_EXPORT_MODE_METADATA_KEY,
+        export_mode,
+    )
+    onnx.save(onnx_model, export_path)
+    onnx.checker.check_model(onnx_model)
+    graph_input_names = [value.name for value in onnx_model.graph.input]
+    parameter_input_names = [
+        name for name in graph_input_names if name not in input_names
+    ]
+    initializer_names = [value.name for value in onnx_model.graph.initializer]
+    graph_info: dict[str, int | float | str | list[str]] = {
+        "node_count": len(onnx_model.graph.node),
+        "input_names": graph_input_names,
+        "output_names": [value.name for value in onnx_model.graph.output],
+        "op_types": sorted({node.op_type for node in onnx_model.graph.node}),
+        "runtime_input_names": input_names,
+        "parameter_input_names": parameter_input_names,
+        "initializer_names": initializer_names,
+        "initializer_count": len(initializer_names),
+    }
+    return OnnxExportResult(
+        path=str(export_path),
+        opset_version=opset_version,
+        file_size_bytes=export_path.stat().st_size,
+        graph_info=graph_info,
+    )
+
+
+def export_qwen_onnx_model(
+    spec: ResolvedVariantSpec,
+    model: nn.Module,
+    context: RunContext,
+    batch: dict[str, torch.Tensor],
+) -> OnnxExportResult:
+    export_path = context.output_layout.onnx_models_dir / f"{spec.name}.onnx"
+    input_names = ["input_ids", "attention_mask"]
+    opset_version = 14
+    export_mode = spec.variant_config.onnx_export_mode
+    export_model = QwenOnnxLogitsExport(model).to(context.device)
+    patched_qwen35_modules = []
+    config = getattr(model, "config", None)
+    text_config = getattr(config, "text_config", None)
+    is_qwen35_model = (
+        getattr(config, "model_type", None) == "qwen3_5"
+        or getattr(config, "model_type", None) == "qwen3_5_text"
+        or getattr(text_config, "model_type", None) == "qwen3_5_text"
+    )
+    if is_qwen35_model:
+        from transformers.models.qwen3_5 import modeling_qwen3_5
+
+        for module in model.modules():
+            if module.__class__.__name__ == "Qwen3_5GatedDeltaNet":
+                norm_weight = module.norm.weight
+                export_norm = modeling_qwen3_5.Qwen3_5RMSNormGated(
+                    module.head_v_dim,
+                    eps=module.layer_norm_epsilon,
+                ).to(device=norm_weight.device, dtype=norm_weight.dtype)
+                export_norm.weight.data.copy_(norm_weight.data)
+                patched_qwen35_modules.append(
+                    (
+                        module,
+                        module.causal_conv1d_fn,
+                        module.chunk_gated_delta_rule,
+                        module.recurrent_gated_delta_rule,
+                        module.norm,
+                    )
+                )
+                module.causal_conv1d_fn = None
+                module.chunk_gated_delta_rule = (
+                    modeling_qwen3_5.torch_chunk_gated_delta_rule
+                )
+                module.recurrent_gated_delta_rule = (
+                    modeling_qwen3_5.torch_recurrent_gated_delta_rule
+                )
+                module.norm = export_norm
+    torch.onnx.export(
+        export_model,
+        (batch["input_ids"], batch["attention_mask"]),
+        export_path,
+        input_names=input_names,
+        output_names=["logits"],
+        opset_version=opset_version,
+        dynamo=False,
+        export_params=export_mode == "full",
+        do_constant_folding=not is_qwen35_model,
+    )
+    for (
+        module,
+        causal_conv1d_fn,
+        chunk_gated_delta_rule,
+        recurrent_gated_delta_rule,
+        norm,
+    ) in patched_qwen35_modules:
+        module.causal_conv1d_fn = causal_conv1d_fn
+        module.chunk_gated_delta_rule = chunk_gated_delta_rule
+        module.recurrent_gated_delta_rule = recurrent_gated_delta_rule
+        module.norm = norm
 
     onnx_model = onnx.load(export_path)
     set_model_metadata_value(
@@ -591,15 +728,59 @@ def run_inference(
     )
 
 
+def run_prefill(
+    spec: ResolvedVariantSpec,
+    model: nn.Module,
+    device: torch.device,
+) -> InferenceResult:
+    if not is_qwen_model_name(spec.base_model.name):
+        raise ValueError("prefill phase is only supported for qwen variants")
+
+    batch = build_example_batch(spec.variant_config, model, True)
+    batch = {name: tensor.to(device) for name, tensor in batch.items()}
+    measurement_min_seconds = spec.variant_config.prefill_measurement_min_seconds
+    iterations = 0
+
+    model.eval()
+    with torch.no_grad():
+        for _ in range(2):
+            _ = forward_model(model, batch, True)
+
+        synchronize_device(device)
+
+        started_at = time.time()
+        ended_at = started_at
+        outputs: Any | None = None
+        while ended_at - started_at < measurement_min_seconds:
+            outputs = forward_model(model, batch, True)
+            synchronize_device(device)
+            iterations += 1
+            ended_at = time.time()
+
+    assert outputs is not None
+    logits = extract_logits(outputs)
+    total_duration = ended_at - started_at
+    return InferenceResult(
+        metrics={
+            "iterations": iterations,
+            "batch_size": spec.variant_config.example_input_shape[0],
+            "sequence_length": spec.variant_config.example_input_shape[1],
+            "avg_latency_ms": round(total_duration / iterations * 1000, 4),
+            "num_outputs": int(logits.shape[-1]),
+        },
+        timings=build_time_window(started_at, ended_at),
+    )
+
+
 def build_training_batch(
     spec: ResolvedVariantSpec,
     model: nn.Module,
     batch_size: int,
     generator: torch.Generator,
 ) -> tuple[Any, ...]:
-    output_classes = spec.variant_config.target_output_classes
-    assert output_classes is not None
     if is_recommender_model_name(spec.base_model.name):
+        output_classes = spec.variant_config.target_output_classes
+        assert output_classes is not None
         from gnn_archs.recommender.common import build_recommender_batch
 
         return (
@@ -607,7 +788,20 @@ def build_training_batch(
             torch.randint(0, 2, (batch_size,), generator=generator).float(),
         )
 
+    if is_qwen_model_name(spec.base_model.name):
+        sequence_length = spec.variant_config.example_input_shape[1]
+        input_ids = build_text_input_ids(
+            model,
+            batch_size,
+            sequence_length,
+            generator,
+        )
+        attention_mask = torch.ones((batch_size, sequence_length), dtype=torch.long)
+        return input_ids, attention_mask, input_ids.clone()
+
     if is_text_model_name(spec.base_model.name):
+        output_classes = spec.variant_config.target_output_classes
+        assert output_classes is not None
         sequence_length = spec.variant_config.example_input_shape[1]
         return (
             build_text_input_ids(model, batch_size, sequence_length, generator),
@@ -615,6 +809,8 @@ def build_training_batch(
             torch.randint(0, output_classes, (batch_size,), generator=generator),
         )
 
+    output_classes = spec.variant_config.target_output_classes
+    assert output_classes is not None
     _, channels, height, width = spec.variant_config.example_input_shape
     return (
         torch.randn((batch_size, channels, height, width), generator=generator),
@@ -704,6 +900,9 @@ def get_model_config_int(model: nn.Module, field_name: str) -> int:
     config = getattr(model, "config", None)
     value = getattr(config, field_name, None)
     if not isinstance(value, int):
+        text_config = getattr(config, "text_config", None)
+        value = getattr(text_config, field_name, None)
+    if not isinstance(value, int):
         raise ValueError(f"model config {field_name} must be an integer")
     return value
 
@@ -773,6 +972,7 @@ def summarize_variant_results(variant_results: list[VariantResult]) -> dict[str,
         "inference_count": sum(
             result.inference is not None for result in variant_results
         ),
+        "prefill_count": sum(result.prefill is not None for result in variant_results),
         "onnx_export_count": sum(
             result.onnx_export is not None for result in variant_results
         ),
