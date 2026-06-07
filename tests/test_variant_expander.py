@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from gnn_archs.config import ArchConfig, is_text_model_name
+from gnn_archs.config import (
+    ArchConfig,
+    get_causal_lm_family,
+    is_causal_lm_model_name,
+    is_text_model_name,
+)
 from gnn_archs.util.variant_expander import expand_arch_config, expand_group_variants
 
 
@@ -429,7 +434,19 @@ def test_variant_config_rejects_fake_dataset_size_field() -> None:
 def test_is_text_model_name_uses_normalized_prefixes() -> None:
     assert is_text_model_name("bert-base-uncased")
     assert is_text_model_name("google/flan-t5-base")
+    assert is_text_model_name("unsloth/Llama-3.2-1B")
+    assert is_text_model_name("unsloth/gemma-3-1b-pt")
     assert not is_text_model_name("resnet50")
+
+
+def test_causal_lm_model_name_uses_normalized_prefixes() -> None:
+    assert is_causal_lm_model_name("Qwen3-1.7B")
+    assert is_causal_lm_model_name("unsloth/Llama-3.2-1B")
+    assert is_causal_lm_model_name("unsloth/gemma-3-1b-pt")
+    assert get_causal_lm_family("Qwen3-1.7B") == "qwen"
+    assert get_causal_lm_family("unsloth/Llama-3.2-1B") == "llama"
+    assert get_causal_lm_family("unsloth/gemma-3-1b-pt") == "gemma"
+    assert not is_causal_lm_model_name("gpt2")
 
 
 def test_expand_arch_config_keeps_resnet50_as_image_model() -> None:

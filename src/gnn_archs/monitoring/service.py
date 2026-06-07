@@ -172,9 +172,27 @@ def extract_phase_records(
                     batch_size=int(variant.inference.metrics["batch_size"]),
                 )
             )
+        if variant.prefill is not None:
+            records.append(
+                _build_phase_record(
+                    target_name=target_name,
+                    result_json=result_json,
+                    document=document,
+                    variant=variant,
+                    namespace=namespace,
+                    node_name=node_name,
+                    pod_name=pod_name,
+                    phase="prefill",
+                    timings=variant.prefill.timings,
+                    gpu_id=gpu_id,
+                    batch_size=int(variant.prefill.metrics["batch_size"]),
+                )
+            )
 
     if not records:
-        raise ValueError(f"no training or inference phases found in {result_json}")
+        raise ValueError(
+            f"no training, inference, or prefill phases found in {result_json}"
+        )
 
     return document, records
 
@@ -308,11 +326,15 @@ def _build_phase_record(
         training = variant.training
         assert training is not None
         phase_rounds = training.metrics.get("total_steps")
-    else:
-        assert phase == "inference", phase
+    elif phase == "inference":
         inference = variant.inference
         assert inference is not None
         phase_rounds = inference.metrics.get("iterations")
+    else:
+        assert phase == "prefill", phase
+        prefill = variant.prefill
+        assert prefill is not None
+        phase_rounds = prefill.metrics.get("iterations")
     assert isinstance(phase_rounds, int) and not isinstance(phase_rounds, bool), (
         f"{phase} phase_rounds must be int for variant {variant.name}"
     )

@@ -274,7 +274,7 @@ def build_model_record_info(
     csv_path: Path,
 ) -> ModelRecordInfo:
     phase = str(record["phase"]).strip()
-    assert phase in {"training", "inference"}
+    assert phase in {"training", "inference", "prefill"}
     batch_size = parse_int_value(record["batch_size"])
     assert batch_size > 0
     gpu_name = normalize_gpu_name(record["gpu_node"])

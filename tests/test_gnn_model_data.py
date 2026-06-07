@@ -81,6 +81,26 @@ def test_build_graph_data_from_onnx_returns_expected_shapes(tmp_path: Path) -> N
     assert data.edge_index.shape[0] == 2
 
 
+def test_build_graph_data_from_onnx_accepts_prefill_phase(tmp_path: Path) -> None:
+    architecture_only_path = tmp_path / "toy_architecture.onnx"
+    export_architecture_only_onnx(
+        build_toy_model(0),
+        architecture_only_path,
+        (1, 3, 32, 32),
+    )
+
+    data = build_graph_data_from_onnx(
+        architecture_only_path,
+        batch_size=2,
+        gpu_name="v100",
+        phase="prefill",
+        sample_count=3,
+    )
+
+    assert data.graph_features.shape == (1, GRAPH_FEATURE_DIM)
+    assert data.graph_features[0, 0].item() == 2.0
+
+
 def test_build_graph_data_from_onnx_adds_op_ids_and_shape_features(
     tmp_path: Path,
 ) -> None:

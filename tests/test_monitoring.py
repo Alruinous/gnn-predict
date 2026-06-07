@@ -383,6 +383,50 @@ def test_extract_phase_records_reads_training_and_inference(tmp_path: Path) -> N
     assert [record.phase_rounds for record in records] == [3, 42]
 
 
+def test_extract_phase_records_reads_prefill(tmp_path: Path) -> None:
+    variant = VariantResult(
+        name="qwen_prefill_smoke",
+        base_model_name="Qwen3.5-0.8B",
+        base_model_pretrained=True,
+        source="variant_config_grid",
+        group_total_variants_defined=1,
+        variant_config={},
+        mutations=[],
+        prefill=InferenceResult(
+            metrics={"iterations": 11, "batch_size": 2},
+            timings=TimeWindow(
+                started_at_ts=120.0,
+                ended_at_ts=124.0,
+                started_at_text="2026-03-31T13:27:33+00:00",
+                ended_at_text="2026-03-31T13:27:37+00:00",
+            ),
+        ),
+        metadata={"gpu_node": "v100"},
+    )
+    document = ResultDocument(
+        config_path="/tmp/qwen_variants.yaml",
+        gpu_node="v100",
+        variants=[variant],
+        summary={"variant_count": 1, "prefill_count": 1},
+    )
+    result_json = tmp_path / "results.json"
+    write_result_document(result_json, document)
+
+    _, records = extract_phase_records(
+        "qwen",
+        result_json,
+        namespace="crater-workspace",
+        node_name="dell-67",
+        pod_name="sg-wangjh-260331-bbed6-default0-0",
+        gpu_id="1",
+    )
+
+    assert [record.phase for record in records] == ["prefill"]
+    assert records[0].duration_sec == 4.0
+    assert records[0].phase_rounds == 11
+    assert records[0].batch_size == 2
+
+
 def test_extract_phase_records_fails_when_phase_timing_missing(tmp_path: Path) -> None:
     result_json = _write_result_document(tmp_path, missing_training_timing=True)
 

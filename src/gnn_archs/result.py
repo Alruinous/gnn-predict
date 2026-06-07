@@ -47,6 +47,7 @@ class VariantResult(StrictModel):
     timings: dict[str, TimeWindow] = Field(default_factory=dict)
     training: TrainingResult | None = None
     inference: InferenceResult | None = None
+    prefill: InferenceResult | None = None
     onnx_export: OnnxExportResult | None = None
     metadata: dict[str, JsonScalar] = Field(default_factory=dict)
 

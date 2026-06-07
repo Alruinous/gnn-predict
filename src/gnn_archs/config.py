@@ -11,13 +11,18 @@ TEXT_MODEL_PREFIXES = (
     "distilbert",
     "electra",
     "flan-t5",
+    "gemma",
     "gpt",
+    "llama",
     "mt5",
+    "qwen",
     "roberta",
     "t5",
     "xlnet",
     "xlm",
 )
+
+CAUSAL_LM_MODEL_PREFIXES = ("qwen", "llama", "gemma")
 
 
 def normalize_model_identifier(model_name: str) -> str:
@@ -27,6 +32,25 @@ def normalize_model_identifier(model_name: str) -> str:
 def is_text_model_name(model_name: str) -> bool:
     normalized_name = normalize_model_identifier(model_name)
     return any(normalized_name.startswith(prefix) for prefix in TEXT_MODEL_PREFIXES)
+
+
+def is_qwen_model_name(model_name: str) -> bool:
+    return normalize_model_identifier(model_name).startswith("qwen")
+
+
+def is_causal_lm_model_name(model_name: str) -> bool:
+    normalized_name = normalize_model_identifier(model_name)
+    return any(
+        normalized_name.startswith(prefix) for prefix in CAUSAL_LM_MODEL_PREFIXES
+    )
+
+
+def get_causal_lm_family(model_name: str) -> str:
+    normalized_name = normalize_model_identifier(model_name)
+    for prefix in CAUSAL_LM_MODEL_PREFIXES:
+        if normalized_name.startswith(prefix):
+            return prefix
+    raise ValueError(f"unsupported causal lm model: {model_name}")
 
 
 DETECTION_MODEL_PREFIXES = (
@@ -300,8 +324,11 @@ class VariantConfig(StrictModel):
     example_input_shape: list[int]
     run_training: bool = False
     run_inference: bool = False
+    run_prefill: bool = False
     pre_inference_cooldown_seconds: float = 3.0
+    pre_prefill_cooldown_seconds: float = 3.0
     inference_measurement_min_seconds: float = 5.0
+    prefill_measurement_min_seconds: float = 5.0
     export_onnx: bool = False
     onnx_export_mode: Literal["full", "architecture_only"] = "full"
     training_batch_sizes: list[int] = Field(default_factory=lambda: [32])
@@ -353,8 +380,12 @@ class VariantConfig(StrictModel):
             raise ValueError("max_sequence_length must be positive")
         if self.pre_inference_cooldown_seconds < 0:
             raise ValueError("pre_inference_cooldown_seconds must be non-negative")
+        if self.pre_prefill_cooldown_seconds < 0:
+            raise ValueError("pre_prefill_cooldown_seconds must be non-negative")
         if self.inference_measurement_min_seconds <= 0:
             raise ValueError("inference_measurement_min_seconds must be positive")
+        if self.prefill_measurement_min_seconds <= 0:
+            raise ValueError("prefill_measurement_min_seconds must be positive")
         if any(batch_size <= 0 for batch_size in self.training_batch_sizes):
             raise ValueError("training_batch_sizes must only contain positive integers")
         recommender_config_count = count_recommender_configs(self)
@@ -398,21 +429,6 @@ class SingleVariantDefinition(StrictModel):
         if not normalized_value:
             raise ValueError("variant name must not be empty")
         return normalized_value
-
-    @model_validator(mode="after")
-    def require_explicit_targets(self) -> SingleVariantDefinition:
-        if (
-            not has_recommender_config(self.variant_config)
-            and self.variant_config.target_input_channels is None
-        ):
-            raise ValueError(
-                "single_variant_define.variant_config.target_input_channels is required"
-            )
-        if self.variant_config.target_output_classes is None:
-            raise ValueError(
-                "single_variant_define.variant_config.target_output_classes is required"
-            )
-        return self
 
 
 class CombinatorialVariantGrid(StrictModel):
@@ -535,7 +551,30 @@ class BaseModelGroup(StrictModel):
             raise ValueError(
                 "base_model_group must define single_variant_define or a variant grid"
             )
+        for variant in self.single_variant_define:
+            self.validate_single_variant_targets(variant)
         return self
+
+    def validate_single_variant_targets(
+        self,
+        variant: SingleVariantDefinition,
+    ) -> None:
+        if has_recommender_config(variant.variant_config):
+            return
+        if is_causal_lm_model_name(self.base_model.name):
+            if variant.variant_config.target_input_channels is not None:
+                raise ValueError("causal lm variants must omit target_input_channels")
+            if variant.variant_config.target_output_classes is not None:
+                raise ValueError("causal lm variants must omit target_output_classes")
+            return
+        if variant.variant_config.target_input_channels is None:
+            raise ValueError(
+                "single_variant_define.variant_config.target_input_channels is required"
+            )
+        if variant.variant_config.target_output_classes is None:
+            raise ValueError(
+                "single_variant_define.variant_config.target_output_classes is required"
+            )
 
 
 class ArchConfig(StrictModel):

@@ -141,6 +141,7 @@ GPU_SPECS = {
 PHASE_TO_INDEX = {
     "training": 0,
     "inference": 1,
+    "prefill": 2,
 }
 
 
