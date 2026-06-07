@@ -3,6 +3,8 @@ from __future__ import annotations
 import gc
 import json
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -13,9 +15,11 @@ import torch
 import torch.nn as nn
 from transformers import BertConfig, BertForSequenceClassification
 
+from gnn_archs.causal_lm_builder import CausalLMOnnxLogitsExport
 from gnn_archs.config import (
+    get_causal_lm_family,
+    is_causal_lm_model_name,
     is_detection_model_name,
-    is_qwen_model_name,
     is_recommender_model_name,
     is_text_model_name,
     normalize_model_identifier,
@@ -27,7 +31,6 @@ from gnn_archs.mutations import (
     apply_text_config_mutations,
     validate_mutation_types,
 )
-from gnn_archs.qwen_builder import QwenOnnxLogitsExport
 from gnn_archs.result import (
     InferenceResult,
     OnnxExportResult,
@@ -210,28 +213,41 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
             metadata={
                 "device": str(context.device),
                 "gpu_node": context.gpu_node,
-                "model_kind": (
-                    "detection"
-                    if is_detection_model
-                    else (
-                        "recommender"
-                        if is_recommender_model
-                        else (
-                            "qwen"
-                            if is_qwen_model_name(spec.base_model.name)
-                            else ("text" if is_text_model else "image")
-                        )
-                    )
+                "model_kind": resolve_model_kind(
+                    spec.base_model.name,
+                    is_detection_model=is_detection_model,
+                    is_recommender_model=is_recommender_model,
+                    is_text_model=is_text_model,
                 ),
                 "parameter_count": count_parameters(model),
                 "validation_batch_size": validation_metrics["batch_size"],
                 "validation_num_outputs": validation_metrics["num_outputs"],
-                "pretrained_weights_loaded": is_qwen_model_name(spec.base_model.name),
+                "pretrained_weights_loaded": is_causal_lm_model_name(
+                    spec.base_model.name
+                ),
             },
         )
     finally:
         model = None
         cleanup_workload_boundary(context.device)
+
+
+def resolve_model_kind(
+    model_name: str,
+    *,
+    is_detection_model: bool,
+    is_recommender_model: bool,
+    is_text_model: bool,
+) -> str:
+    if is_detection_model:
+        return "detection"
+    if is_recommender_model:
+        return "recommender"
+    if is_causal_lm_model_name(model_name):
+        return get_causal_lm_family(model_name)
+    if is_text_model:
+        return "text"
+    return "image"
 
 
 def cleanup_workload_boundary(device: torch.device) -> None:
@@ -286,10 +302,10 @@ def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
             return build_edcn_model(spec)
         raise ValueError(f"unsupported recommender model: {spec.base_model.name}")
 
-    if is_qwen_model_name(spec.base_model.name):
-        from gnn_archs.qwen_builder import build_qwen_variant_model
+    if is_causal_lm_model_name(spec.base_model.name):
+        from gnn_archs.causal_lm_builder import build_causal_lm_variant_model
 
-        return build_qwen_variant_model(spec)
+        return build_causal_lm_variant_model(spec)
 
     if normalize_model_identifier(spec.base_model.name) == "gpt2":
         assert spec.variant_config.target_output_classes is not None
@@ -397,10 +413,10 @@ def export_onnx_model(
         return export_detection_onnx(spec, model, context)
 
     model.eval()
-    if is_qwen_model_name(spec.base_model.name):
+    if is_causal_lm_model_name(spec.base_model.name):
         batch = build_example_batch(spec.variant_config, model, is_text_model)
         batch = {name: tensor.to(context.device) for name, tensor in batch.items()}
-        return export_qwen_onnx_model(spec, model, context, batch)
+        return export_causal_lm_onnx_model(spec, model, context, batch)
 
     recommender_feature_names: list[str] | None = None
     if is_recommender_model:
@@ -476,7 +492,7 @@ def export_onnx_model(
     )
 
 
-def export_qwen_onnx_model(
+def export_causal_lm_onnx_model(
     spec: ResolvedVariantSpec,
     model: nn.Module,
     context: RunContext,
@@ -486,65 +502,24 @@ def export_qwen_onnx_model(
     input_names = ["input_ids", "attention_mask"]
     opset_version = 14
     export_mode = spec.variant_config.onnx_export_mode
-    export_model = QwenOnnxLogitsExport(model).to(context.device)
-    patched_qwen35_modules = []
-    config = getattr(model, "config", None)
-    text_config = getattr(config, "text_config", None)
-    is_qwen35_model = (
-        getattr(config, "model_type", None) == "qwen3_5"
-        or getattr(config, "model_type", None) == "qwen3_5_text"
-        or getattr(text_config, "model_type", None) == "qwen3_5_text"
-    )
-    if is_qwen35_model:
-        from transformers.models.qwen3_5 import modeling_qwen3_5
-
-        for module in model.modules():
-            if module.__class__.__name__ == "Qwen3_5GatedDeltaNet":
-                norm_weight = module.norm.weight
-                export_norm = modeling_qwen3_5.Qwen3_5RMSNormGated(
-                    module.head_v_dim,
-                    eps=module.layer_norm_epsilon,
-                ).to(device=norm_weight.device, dtype=norm_weight.dtype)
-                export_norm.weight.data.copy_(norm_weight.data)
-                patched_qwen35_modules.append(
-                    (
-                        module,
-                        module.causal_conv1d_fn,
-                        module.chunk_gated_delta_rule,
-                        module.recurrent_gated_delta_rule,
-                        module.norm,
-                    )
-                )
-                module.causal_conv1d_fn = None
-                module.chunk_gated_delta_rule = (
-                    modeling_qwen3_5.torch_chunk_gated_delta_rule
-                )
-                module.recurrent_gated_delta_rule = (
-                    modeling_qwen3_5.torch_recurrent_gated_delta_rule
-                )
-                module.norm = export_norm
-    torch.onnx.export(
-        export_model,
-        (batch["input_ids"], batch["attention_mask"]),
-        export_path,
-        input_names=input_names,
-        output_names=["logits"],
-        opset_version=opset_version,
-        dynamo=False,
-        export_params=export_mode == "full",
-        do_constant_folding=not is_qwen35_model,
-    )
-    for (
-        module,
-        causal_conv1d_fn,
-        chunk_gated_delta_rule,
-        recurrent_gated_delta_rule,
-        norm,
-    ) in patched_qwen35_modules:
-        module.causal_conv1d_fn = causal_conv1d_fn
-        module.chunk_gated_delta_rule = chunk_gated_delta_rule
-        module.recurrent_gated_delta_rule = recurrent_gated_delta_rule
-        module.norm = norm
+    export_model = CausalLMOnnxLogitsExport(model).to(context.device)
+    qwen35_model = is_qwen35_model(model)
+    patched_qwen35_modules = patch_qwen35_export_modules(model) if qwen35_model else []
+    try:
+        with temporary_causal_lm_export_attention(model):
+            torch.onnx.export(
+                export_model,
+                (batch["input_ids"], batch["attention_mask"]),
+                export_path,
+                input_names=input_names,
+                output_names=["logits"],
+                opset_version=opset_version,
+                dynamo=False,
+                export_params=export_mode == "full",
+                do_constant_folding=not qwen35_model,
+            )
+    finally:
+        restore_qwen35_export_modules(patched_qwen35_modules)
 
     onnx_model = onnx.load(export_path)
     set_model_metadata_value(
@@ -580,6 +555,94 @@ def export_qwen_onnx_model(
         file_size_bytes=export_path.stat().st_size,
         graph_info=graph_info,
     )
+
+
+def export_qwen_onnx_model(
+    spec: ResolvedVariantSpec,
+    model: nn.Module,
+    context: RunContext,
+    batch: dict[str, torch.Tensor],
+) -> OnnxExportResult:
+    return export_causal_lm_onnx_model(spec, model, context, batch)
+
+
+@contextmanager
+def temporary_causal_lm_export_attention(model: nn.Module) -> Iterator[None]:
+    previous_values: list[tuple[Any, Any]] = []
+    for config in iter_causal_lm_export_configs(model):
+        if hasattr(config, "_attn_implementation"):
+            previous_values.append((config, config._attn_implementation))
+            config._attn_implementation = "eager"
+    try:
+        yield
+    finally:
+        for config, value in previous_values:
+            config._attn_implementation = value
+
+
+def iter_causal_lm_export_configs(model: nn.Module) -> tuple[Any, ...]:
+    config = getattr(model, "config", None)
+    if config is None:
+        return ()
+    text_config = getattr(config, "text_config", None)
+    if text_config is None:
+        return (config,)
+    return (config, text_config)
+
+
+def is_qwen35_model(model: nn.Module) -> bool:
+    config = getattr(model, "config", None)
+    text_config = getattr(config, "text_config", None)
+    return (
+        getattr(config, "model_type", None) == "qwen3_5"
+        or getattr(config, "model_type", None) == "qwen3_5_text"
+        or getattr(text_config, "model_type", None) == "qwen3_5_text"
+    )
+
+
+def patch_qwen35_export_modules(model: nn.Module) -> list[tuple[Any, ...]]:
+    from transformers.models.qwen3_5 import modeling_qwen3_5
+
+    patched_modules = []
+    for module in model.modules():
+        if module.__class__.__name__ != "Qwen3_5GatedDeltaNet":
+            continue
+        norm_weight = module.norm.weight
+        export_norm = modeling_qwen3_5.Qwen3_5RMSNormGated(
+            module.head_v_dim,
+            eps=module.layer_norm_epsilon,
+        ).to(device=norm_weight.device, dtype=norm_weight.dtype)
+        export_norm.weight.data.copy_(norm_weight.data)
+        patched_modules.append(
+            (
+                module,
+                module.causal_conv1d_fn,
+                module.chunk_gated_delta_rule,
+                module.recurrent_gated_delta_rule,
+                module.norm,
+            )
+        )
+        module.causal_conv1d_fn = None
+        module.chunk_gated_delta_rule = modeling_qwen3_5.torch_chunk_gated_delta_rule
+        module.recurrent_gated_delta_rule = (
+            modeling_qwen3_5.torch_recurrent_gated_delta_rule
+        )
+        module.norm = export_norm
+    return patched_modules
+
+
+def restore_qwen35_export_modules(patched_modules: list[tuple[Any, ...]]) -> None:
+    for (
+        module,
+        causal_conv1d_fn,
+        chunk_gated_delta_rule,
+        recurrent_gated_delta_rule,
+        norm,
+    ) in patched_modules:
+        module.causal_conv1d_fn = causal_conv1d_fn
+        module.chunk_gated_delta_rule = chunk_gated_delta_rule
+        module.recurrent_gated_delta_rule = recurrent_gated_delta_rule
+        module.norm = norm
 
 
 def train_model(
@@ -733,8 +796,8 @@ def run_prefill(
     model: nn.Module,
     device: torch.device,
 ) -> InferenceResult:
-    if not is_qwen_model_name(spec.base_model.name):
-        raise ValueError("prefill phase is only supported for qwen variants")
+    if not is_causal_lm_model_name(spec.base_model.name):
+        raise ValueError("prefill phase is only supported for causal lm variants")
 
     batch = build_example_batch(spec.variant_config, model, True)
     batch = {name: tensor.to(device) for name, tensor in batch.items()}
@@ -788,7 +851,7 @@ def build_training_batch(
             torch.randint(0, 2, (batch_size,), generator=generator).float(),
         )
 
-    if is_qwen_model_name(spec.base_model.name):
+    if is_causal_lm_model_name(spec.base_model.name):
         sequence_length = spec.variant_config.example_input_shape[1]
         input_ids = build_text_input_ids(
             model,

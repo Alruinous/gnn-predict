@@ -12,6 +12,7 @@ from gnn_archs.config import (
     BaseModelGroup,
     MutationSet,
     ResolvedVariantSpec,
+    is_causal_lm_model_name,
     is_detection_model_name,
     is_recommender_model_name,
     is_text_model_name,
@@ -43,7 +44,26 @@ T5_CONFIG_VARIANT_COUNTS = {
     "t5_variants.yaml": 240,
 }
 QWEN_CONFIG_VARIANT_COUNTS = {
-    "qwen_variants.yaml": 105,
+    "qwen_variants.yaml": 159,
+}
+LLAMA_CONFIG_VARIANT_COUNTS = {
+    "llama_variants.yaml": 22,
+}
+GEMMA_CONFIG_VARIANT_COUNTS = {
+    "gemma_variants.yaml": 22,
+}
+CAUSAL_LM_FULL_FLOW_SHAPES = {
+    (1, 128),
+    (1, 256),
+    (1, 384),
+    (1, 512),
+    (2, 128),
+    (2, 256),
+    (2, 384),
+    (3, 128),
+    (3, 256),
+    (4, 128),
+    (4, 256),
 }
 RECOMMENDER_CONFIG_VARIANT_COUNTS = {
     "deepfm_variants.yaml": 252,
@@ -279,10 +299,34 @@ def test_qwen_arch_configs_expand_to_expected_counts(
     prefill_only_variants = [
         variant for variant in variants if not variant.variant_config.run_training
     ]
+    non_qwen35_full_flow_variants = [
+        variant
+        for variant in full_flow_variants
+        if not variant.base_model.name.startswith("Qwen3.5")
+    ]
+    non_qwen35_prefill_only_variants = [
+        variant
+        for variant in prefill_only_variants
+        if not variant.base_model.name.startswith("Qwen3.5")
+    ]
+    qwen35_full_flow_variants = [
+        variant
+        for variant in full_flow_variants
+        if variant.base_model.name.startswith("Qwen3.5")
+    ]
+    qwen35_prefill_only_variants = [
+        variant
+        for variant in prefill_only_variants
+        if variant.base_model.name.startswith("Qwen3.5")
+    ]
 
     assert len(variants) == expected_count
-    assert len(full_flow_variants) == 84
-    assert len(prefill_only_variants) == 21
+    assert len(full_flow_variants) == 125
+    assert len(prefill_only_variants) == 34
+    assert len(non_qwen35_full_flow_variants) == 114
+    assert len(non_qwen35_prefill_only_variants) == 20
+    assert len(qwen35_full_flow_variants) == 11
+    assert len(qwen35_prefill_only_variants) == 14
     assert all(variant.source == "variant_config_grid" for variant in variants)
     assert all(variant.variant_config.run_prefill for variant in variants)
     assert all(not variant.variant_config.run_inference for variant in variants)
@@ -294,19 +338,84 @@ def test_qwen_arch_configs_expand_to_expected_counts(
         variant.variant_config.target_output_classes is None for variant in variants
     )
     assert {
-        variant.variant_config.example_input_shape[1] for variant in full_flow_variants
-    } == {128, 256, 512, 1024}
+        tuple(variant.variant_config.example_input_shape)
+        for variant in non_qwen35_full_flow_variants
+    } == {
+        (1, 128),
+        (1, 256),
+        (1, 384),
+        (1, 512),
+        (1, 768),
+        (1, 1024),
+        (2, 128),
+        (2, 256),
+        (2, 384),
+        (2, 512),
+        (2, 768),
+        (2, 1024),
+        (3, 128),
+        (3, 256),
+        (3, 512),
+        (4, 128),
+        (4, 256),
+        (4, 384),
+        (4, 512),
+    }
     assert {
-        variant.variant_config.example_input_shape[0] for variant in full_flow_variants
-    } == {1, 2, 4}
+        tuple(variant.variant_config.example_input_shape)
+        for variant in qwen35_full_flow_variants
+    } == {
+        (1, 128),
+        (1, 256),
+        (1, 512),
+        (1, 1024),
+        (2, 128),
+        (2, 256),
+        (2, 512),
+        (2, 1024),
+        (4, 128),
+        (4, 256),
+        (4, 512),
+    }
     assert {
-        variant.variant_config.example_input_shape[1]
-        for variant in prefill_only_variants
-    } == {128, 512, 1024}
+        tuple(variant.variant_config.example_input_shape)
+        for variant in non_qwen35_prefill_only_variants
+    } == {
+        (1, 64),
+        (1, 128),
+        (1, 192),
+        (1, 256),
+        (1, 384),
+        (1, 512),
+        (2, 64),
+        (2, 128),
+        (2, 192),
+        (2, 256),
+    }
     assert {
+        tuple(variant.variant_config.example_input_shape)
+        for variant in qwen35_prefill_only_variants
+    } == {
+        (1, 64),
+        (1, 128),
+        (1, 256),
+        (1, 512),
+        (2, 64),
+        (2, 128),
+        (2, 256),
+    }
+    assert all(
         variant.variant_config.example_input_shape[0]
-        for variant in prefill_only_variants
-    } == {1}
+        * variant.variant_config.example_input_shape[1]
+        <= 2048
+        for variant in non_qwen35_full_flow_variants
+    )
+    assert all(
+        variant.variant_config.example_input_shape[0]
+        * variant.variant_config.example_input_shape[1]
+        <= 512
+        for variant in non_qwen35_prefill_only_variants
+    )
     assert all(
         variant.variant_config.max_sequence_length
         == variant.variant_config.example_input_shape[1]
@@ -317,6 +426,44 @@ def test_qwen_arch_configs_expand_to_expected_counts(
         == variant.variant_config.training_batch_sizes[0]
         for variant in variants
     )
+
+
+@pytest.mark.parametrize(
+    ("config_name", "expected_count"),
+    LLAMA_CONFIG_VARIANT_COUNTS.items(),
+)
+def test_llama_arch_configs_expand_to_expected_counts(
+    config_name: str, expected_count: int
+) -> None:
+    config = load_arch_config(ARCH_CONFIG_DIR / config_name)
+
+    variants = expand_arch_config(config)
+
+    assert len(variants) == expected_count
+    assert {variant.base_model.name for variant in variants} == {
+        "Llama-3.2-1B",
+        "Llama-3.2-3B",
+    }
+    assert_causal_lm_full_flow_variants(variants)
+
+
+@pytest.mark.parametrize(
+    ("config_name", "expected_count"),
+    GEMMA_CONFIG_VARIANT_COUNTS.items(),
+)
+def test_gemma_arch_configs_expand_to_expected_counts(
+    config_name: str, expected_count: int
+) -> None:
+    config = load_arch_config(ARCH_CONFIG_DIR / config_name)
+
+    variants = expand_arch_config(config)
+
+    assert len(variants) == expected_count
+    assert {variant.base_model.name for variant in variants} == {
+        "gemma-2-2b",
+        "gemma-3-1b-pt",
+    }
+    assert_causal_lm_full_flow_variants(variants)
 
 
 @pytest.mark.parametrize(
@@ -438,6 +585,43 @@ def build_recommender_structural_signatures(
             )
         )
     return signatures
+
+
+def assert_causal_lm_full_flow_variants(
+    variants: list[ResolvedVariantSpec],
+) -> None:
+    assert all(is_causal_lm_model_name(variant.base_model.name) for variant in variants)
+    assert all(variant.source == "variant_config_grid" for variant in variants)
+    assert all(variant.variant_config.run_training for variant in variants)
+    assert all(variant.variant_config.run_prefill for variant in variants)
+    assert all(not variant.variant_config.run_inference for variant in variants)
+    assert all(variant.variant_config.use_fake_text_dataset for variant in variants)
+    assert all(not variant.mutations for variant in variants)
+    assert all(
+        variant.variant_config.target_input_channels is None for variant in variants
+    )
+    assert all(
+        variant.variant_config.target_output_classes is None for variant in variants
+    )
+    assert {
+        tuple(variant.variant_config.example_input_shape) for variant in variants
+    } == CAUSAL_LM_FULL_FLOW_SHAPES
+    assert all(
+        variant.variant_config.max_sequence_length
+        == variant.variant_config.example_input_shape[1]
+        for variant in variants
+    )
+    assert all(
+        variant.variant_config.training_batch_sizes
+        == [variant.variant_config.example_input_shape[0]]
+        for variant in variants
+    )
+    assert all(
+        variant.variant_config.example_input_shape[0]
+        * variant.variant_config.example_input_shape[1]
+        <= 1024
+        for variant in variants
+    )
 
 
 def test_gpt2_batch_sweep_variants_define_batch_in_name_and_config() -> None:

@@ -11,7 +11,9 @@ TEXT_MODEL_PREFIXES = (
     "distilbert",
     "electra",
     "flan-t5",
+    "gemma",
     "gpt",
+    "llama",
     "mt5",
     "qwen",
     "roberta",
@@ -19,6 +21,8 @@ TEXT_MODEL_PREFIXES = (
     "xlnet",
     "xlm",
 )
+
+CAUSAL_LM_MODEL_PREFIXES = ("qwen", "llama", "gemma")
 
 
 def normalize_model_identifier(model_name: str) -> str:
@@ -32,6 +36,21 @@ def is_text_model_name(model_name: str) -> bool:
 
 def is_qwen_model_name(model_name: str) -> bool:
     return normalize_model_identifier(model_name).startswith("qwen")
+
+
+def is_causal_lm_model_name(model_name: str) -> bool:
+    normalized_name = normalize_model_identifier(model_name)
+    return any(
+        normalized_name.startswith(prefix) for prefix in CAUSAL_LM_MODEL_PREFIXES
+    )
+
+
+def get_causal_lm_family(model_name: str) -> str:
+    normalized_name = normalize_model_identifier(model_name)
+    for prefix in CAUSAL_LM_MODEL_PREFIXES:
+        if normalized_name.startswith(prefix):
+            return prefix
+    raise ValueError(f"unsupported causal lm model: {model_name}")
 
 
 DETECTION_MODEL_PREFIXES = (
@@ -542,11 +561,11 @@ class BaseModelGroup(StrictModel):
     ) -> None:
         if has_recommender_config(variant.variant_config):
             return
-        if is_qwen_model_name(self.base_model.name):
+        if is_causal_lm_model_name(self.base_model.name):
             if variant.variant_config.target_input_channels is not None:
-                raise ValueError("qwen variants must omit target_input_channels")
+                raise ValueError("causal lm variants must omit target_input_channels")
             if variant.variant_config.target_output_classes is not None:
-                raise ValueError("qwen variants must omit target_output_classes")
+                raise ValueError("causal lm variants must omit target_output_classes")
             return
         if variant.variant_config.target_input_channels is None:
             raise ValueError(

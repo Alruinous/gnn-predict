@@ -25,22 +25,38 @@ base_model_groups:
         overrides: {example_input_shape: [1, 128], max_sequence_length: 128, training_batch_sizes: [1]}
       - name: bs1_s256
         overrides: {example_input_shape: [1, 256], max_sequence_length: 256, training_batch_sizes: [1]}
+      - name: bs1_s384
+        overrides: {example_input_shape: [1, 384], max_sequence_length: 384, training_batch_sizes: [1]}
       - name: bs1_s512
         overrides: {example_input_shape: [1, 512], max_sequence_length: 512, training_batch_sizes: [1]}
+      - name: bs1_s768
+        overrides: {example_input_shape: [1, 768], max_sequence_length: 768, training_batch_sizes: [1]}
       - name: bs1_s1024
         overrides: {example_input_shape: [1, 1024], max_sequence_length: 1024, training_batch_sizes: [1]}
       - name: bs2_s128
         overrides: {example_input_shape: [2, 128], max_sequence_length: 128, training_batch_sizes: [2]}
       - name: bs2_s256
         overrides: {example_input_shape: [2, 256], max_sequence_length: 256, training_batch_sizes: [2]}
+      - name: bs2_s384
+        overrides: {example_input_shape: [2, 384], max_sequence_length: 384, training_batch_sizes: [2]}
       - name: bs2_s512
         overrides: {example_input_shape: [2, 512], max_sequence_length: 512, training_batch_sizes: [2]}
+      - name: bs2_s768
+        overrides: {example_input_shape: [2, 768], max_sequence_length: 768, training_batch_sizes: [2]}
       - name: bs2_s1024
         overrides: {example_input_shape: [2, 1024], max_sequence_length: 1024, training_batch_sizes: [2]}
+      - name: bs3_s128
+        overrides: {example_input_shape: [3, 128], max_sequence_length: 128, training_batch_sizes: [3]}
+      - name: bs3_s256
+        overrides: {example_input_shape: [3, 256], max_sequence_length: 256, training_batch_sizes: [3]}
+      - name: bs3_s512
+        overrides: {example_input_shape: [3, 512], max_sequence_length: 512, training_batch_sizes: [3]}
       - name: bs4_s128
         overrides: {example_input_shape: [4, 128], max_sequence_length: 128, training_batch_sizes: [4]}
       - name: bs4_s256
         overrides: {example_input_shape: [4, 256], max_sequence_length: 256, training_batch_sizes: [4]}
+      - name: bs4_s384
+        overrides: {example_input_shape: [4, 384], max_sequence_length: 384, training_batch_sizes: [4]}
       - name: bs4_s512
         overrides: {example_input_shape: [4, 512], max_sequence_length: 512, training_batch_sizes: [4]}
 - base_model:
@@ -90,7 +106,29 @@ base_model_groups:
     base_variant_config_template: *qwen_full_template
     axes:
     - name: shape
-      values: *qwen_full_shapes
+      values:
+      - name: bs1_s128
+        overrides: {example_input_shape: [1, 128], max_sequence_length: 128, training_batch_sizes: [1]}
+      - name: bs1_s256
+        overrides: {example_input_shape: [1, 256], max_sequence_length: 256, training_batch_sizes: [1]}
+      - name: bs1_s512
+        overrides: {example_input_shape: [1, 512], max_sequence_length: 512, training_batch_sizes: [1]}
+      - name: bs1_s1024
+        overrides: {example_input_shape: [1, 1024], max_sequence_length: 1024, training_batch_sizes: [1]}
+      - name: bs2_s128
+        overrides: {example_input_shape: [2, 128], max_sequence_length: 128, training_batch_sizes: [2]}
+      - name: bs2_s256
+        overrides: {example_input_shape: [2, 256], max_sequence_length: 256, training_batch_sizes: [2]}
+      - name: bs2_s512
+        overrides: {example_input_shape: [2, 512], max_sequence_length: 512, training_batch_sizes: [2]}
+      - name: bs2_s1024
+        overrides: {example_input_shape: [2, 1024], max_sequence_length: 1024, training_batch_sizes: [2]}
+      - name: bs4_s128
+        overrides: {example_input_shape: [4, 128], max_sequence_length: 128, training_batch_sizes: [4]}
+      - name: bs4_s256
+        overrides: {example_input_shape: [4, 256], max_sequence_length: 256, training_batch_sizes: [4]}
+      - name: bs4_s512
+        overrides: {example_input_shape: [4, 512], max_sequence_length: 512, training_batch_sizes: [4]}
 - base_model:
     name: Qwen2.5-3B
     pretrained: true
@@ -117,14 +155,20 @@ base_model_groups:
         overrides: {example_input_shape: [1, 64], max_sequence_length: 64, training_batch_sizes: [1]}
       - name: bs1_s128
         overrides: {example_input_shape: [1, 128], max_sequence_length: 128, training_batch_sizes: [1]}
+      - name: bs1_s192
+        overrides: {example_input_shape: [1, 192], max_sequence_length: 192, training_batch_sizes: [1]}
       - name: bs1_s256
         overrides: {example_input_shape: [1, 256], max_sequence_length: 256, training_batch_sizes: [1]}
+      - name: bs1_s384
+        overrides: {example_input_shape: [1, 384], max_sequence_length: 384, training_batch_sizes: [1]}
       - name: bs1_s512
         overrides: {example_input_shape: [1, 512], max_sequence_length: 512, training_batch_sizes: [1]}
       - name: bs2_s64
         overrides: {example_input_shape: [2, 64], max_sequence_length: 64, training_batch_sizes: [2]}
       - name: bs2_s128
         overrides: {example_input_shape: [2, 128], max_sequence_length: 128, training_batch_sizes: [2]}
+      - name: bs2_s192
+        overrides: {example_input_shape: [2, 192], max_sequence_length: 192, training_batch_sizes: [2]}
       - name: bs2_s256
         overrides: {example_input_shape: [2, 256], max_sequence_length: 256, training_batch_sizes: [2]}
 - base_model:
@@ -142,7 +186,21 @@ base_model_groups:
     base_variant_config_template: *qwen_prefill_template
     axes:
     - name: shape
-      values: *qwen_prefill_shapes
+      values: &qwen35_prefill_shapes
+      - name: bs1_s64
+        overrides: {example_input_shape: [1, 64], max_sequence_length: 64, training_batch_sizes: [1]}
+      - name: bs1_s128
+        overrides: {example_input_shape: [1, 128], max_sequence_length: 128, training_batch_sizes: [1]}
+      - name: bs1_s256
+        overrides: {example_input_shape: [1, 256], max_sequence_length: 256, training_batch_sizes: [1]}
+      - name: bs1_s512
+        overrides: {example_input_shape: [1, 512], max_sequence_length: 512, training_batch_sizes: [1]}
+      - name: bs2_s64
+        overrides: {example_input_shape: [2, 64], max_sequence_length: 64, training_batch_sizes: [2]}
+      - name: bs2_s128
+        overrides: {example_input_shape: [2, 128], max_sequence_length: 128, training_batch_sizes: [2]}
+      - name: bs2_s256
+        overrides: {example_input_shape: [2, 256], max_sequence_length: 256, training_batch_sizes: [2]}
 - base_model:
     name: Qwen3.5-4B
     pretrained: true
@@ -150,7 +208,7 @@ base_model_groups:
     base_variant_config_template: *qwen_prefill_template
     axes:
     - name: shape
-      values: *qwen_prefill_shapes
+      values: *qwen35_prefill_shapes
 # - base_model:
 #     name: Qwen2-7B
 #     pretrained: true

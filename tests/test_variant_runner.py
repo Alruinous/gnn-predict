@@ -10,8 +10,15 @@ import onnxruntime as ort
 import pytest
 import torch
 import torch.nn as nn
-from transformers import Qwen2Config, Qwen2ForCausalLM, T5ForSequenceClassification
+from transformers import (
+    LlamaConfig,
+    LlamaForCausalLM,
+    Qwen2Config,
+    Qwen2ForCausalLM,
+    T5ForSequenceClassification,
+)
 
+import gnn_archs.causal_lm_builder as causal_lm_builder_module
 import gnn_archs.variant_runner as variant_runner_module
 from gnn_archs.config import ArchConfig, ResolvedVariantSpec
 from gnn_archs.gpt2_builder import Gpt2ForGnnArchsSequenceClassification
@@ -271,6 +278,47 @@ def build_qwen_variant(
     return expand_arch_config(config)[0]
 
 
+def build_llama_variant(
+    *,
+    base_model_name: str = "Llama-3.2-1B",
+    variant_name: str = "llama_runtime_smoke",
+    variant_config_overrides: dict[str, object] | None = None,
+    mutations: list[dict[str, object]] | None = None,
+) -> ResolvedVariantSpec:
+    variant_config: dict[str, object] = {
+        "example_input_shape": [2, 8],
+        "max_sequence_length": 8,
+        "run_training": False,
+        "run_inference": False,
+        "run_prefill": False,
+        "export_onnx": False,
+        "training_batch_sizes": [2],
+        "training_measurement_min_seconds": 1e-9,
+        "prefill_measurement_min_seconds": 1e-9,
+        "use_fake_text_dataset": True,
+    }
+    if variant_config_overrides is not None:
+        variant_config.update(variant_config_overrides)
+
+    config = ArchConfig.model_validate(
+        {
+            "base_model_groups": [
+                {
+                    "base_model": {"name": base_model_name, "pretrained": True},
+                    "single_variant_define": [
+                        {
+                            "name": variant_name,
+                            "variant_config": variant_config,
+                            "mutations": mutations or [],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    return expand_arch_config(config)[0]
+
+
 def build_tiny_qwen_model() -> Qwen2ForCausalLM:
     config = Qwen2Config(
         vocab_size=32,
@@ -283,6 +331,23 @@ def build_tiny_qwen_model() -> Qwen2ForCausalLM:
         use_cache=False,
     )
     return Qwen2ForCausalLM(config)
+
+
+def build_tiny_llama_model() -> LlamaForCausalLM:
+    config = LlamaConfig(
+        vocab_size=32,
+        hidden_size=16,
+        intermediate_size=32,
+        num_hidden_layers=1,
+        num_attention_heads=2,
+        num_key_value_heads=2,
+        max_position_embeddings=16,
+        pad_token_id=0,
+        bos_token_id=1,
+        eos_token_id=2,
+        use_cache=False,
+    )
+    return LlamaForCausalLM(config)
 
 
 def build_recommender_common_config_override(**overrides: object) -> dict[str, object]:
@@ -948,6 +1013,117 @@ def test_qwen_architecture_only_onnx_keeps_full_logits(tmp_path: Path) -> None:
     ]
     assert result.graph_info["output_names"] == ["logits"]
     assert result.graph_info["initializer_names"] == []
+    exported_model = onnx.load(result.path)
+    output_shape = exported_model.graph.output[0].type.tensor_type.shape.dim
+    assert [dimension.dim_value for dimension in output_shape] == [2, 8, 32]
+
+
+def test_build_variant_model_dispatches_llama_to_causal_lm_builder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    variant = build_llama_variant()
+    tiny_model = build_tiny_llama_model()
+    recorded: dict[str, object] = {}
+
+    def fake_from_pretrained(model_path: Path, **kwargs: object) -> LlamaForCausalLM:
+        recorded["model_path"] = model_path
+        recorded.update(kwargs)
+        return tiny_model
+
+    monkeypatch.setattr(
+        causal_lm_builder_module,
+        "resolve_causal_lm_model_path",
+        lambda model_name: tmp_path,
+    )
+    monkeypatch.setattr(
+        causal_lm_builder_module.AutoModelForCausalLM,
+        "from_pretrained",
+        fake_from_pretrained,
+    )
+
+    model = build_variant_model(variant)
+
+    assert model is tiny_model
+    assert recorded["model_path"] == tmp_path
+    assert recorded["dtype"] is torch.float16
+    assert recorded["local_files_only"] is True
+    assert model.config.use_cache is False
+
+
+def test_build_variant_model_rejects_llama_mutations() -> None:
+    variant = build_llama_variant(
+        mutations=[
+            {
+                "type": "HiddenSizeModification",
+                "params": {"hidden_size": 64},
+            }
+        ]
+    )
+
+    with pytest.raises(ValueError, match="do not support mutations"):
+        build_variant_model(variant)
+
+
+def test_causal_lm_variant_runner_records_family_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "llama_variants.yaml"
+    variant = build_llama_variant()
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_llama_variant_runner"),
+    )
+
+    monkeypatch.setattr(
+        variant_runner_module,
+        "build_variant_model",
+        lambda spec: build_tiny_llama_model(),
+    )
+
+    result = run_variant(variant, context)
+
+    assert result.metadata["model_kind"] == "llama"
+    assert result.metadata["pretrained_weights_loaded"] is True
+    assert result.metadata["validation_num_outputs"] == 32
+
+
+def test_causal_lm_architecture_only_onnx_keeps_full_logits(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "llama_variants.yaml"
+    variant = build_llama_variant(
+        variant_name="llama_architecture_only",
+        variant_config_overrides={
+            "export_onnx": True,
+            "onnx_export_mode": "architecture_only",
+        },
+    )
+    model = build_tiny_llama_model()
+    model.config._attn_implementation = "sdpa"
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_llama_architecture_only"),
+    )
+
+    result = export_onnx_model(variant, model, context, True)
+
+    assert result.graph_info["runtime_input_names"] == [
+        "input_ids",
+        "attention_mask",
+    ]
+    assert result.graph_info["output_names"] == ["logits"]
+    assert result.graph_info["initializer_names"] == []
+    assert model.config._attn_implementation == "sdpa"
     exported_model = onnx.load(result.path)
     output_shape = exported_model.graph.output[0].type.tensor_type.shape.dim
     assert [dimension.dim_value for dimension in output_shape] == [2, 8, 32]
@@ -1796,6 +1972,23 @@ def test_run_prefill_measures_qwen_forward() -> None:
     assert result.metrics["num_outputs"] == model.config.vocab_size
 
 
+def test_run_prefill_measures_llama_forward() -> None:
+    variant = build_llama_variant(
+        variant_config_overrides={
+            "run_prefill": True,
+            "prefill_measurement_min_seconds": 1e-9,
+        }
+    )
+    model = build_tiny_llama_model()
+
+    result = run_prefill(variant, model, torch.device("cpu"))
+
+    assert result.metrics["iterations"] >= 1
+    assert result.metrics["batch_size"] == 2
+    assert result.metrics["sequence_length"] == 8
+    assert result.metrics["num_outputs"] == model.config.vocab_size
+
+
 def test_cleanup_workload_boundary_clears_cuda_cache_when_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1894,6 +2087,23 @@ def test_build_training_batch_keeps_fake_tensors_on_cpu() -> None:
     assert qwen_labels.shape == (2, 8)
     assert torch.equal(qwen_labels, qwen_input_ids)
 
+    llama_variant = build_llama_variant(variant_name="llama_cpu_batch")
+    llama_model = build_tiny_llama_model()
+    llama_input_ids, llama_attention_mask, llama_labels = build_training_batch(
+        spec=llama_variant,
+        model=llama_model,
+        batch_size=2,
+        generator=torch.Generator().manual_seed(42),
+    )
+
+    assert llama_input_ids.device.type == "cpu"
+    assert llama_attention_mask.device.type == "cpu"
+    assert llama_labels.device.type == "cpu"
+    assert llama_input_ids.shape == (2, 8)
+    assert llama_attention_mask.shape == (2, 8)
+    assert llama_labels.shape == (2, 8)
+    assert torch.equal(llama_labels, llama_input_ids)
+
 
 def test_build_example_batch_keeps_runtime_inputs_on_cpu() -> None:
     image_variant = build_image_variant(
@@ -1947,6 +2157,19 @@ def test_build_example_batch_keeps_runtime_inputs_on_cpu() -> None:
     assert qwen_batch["attention_mask"].device.type == "cpu"
     assert qwen_batch["input_ids"].shape == (2, 8)
     assert qwen_batch["attention_mask"].shape == (2, 8)
+
+    llama_variant = build_llama_variant(variant_name="llama_cpu_batch")
+    llama_model = build_tiny_llama_model()
+    llama_batch = build_example_batch(
+        llama_variant.variant_config,
+        llama_model,
+        True,
+    )
+
+    assert llama_batch["input_ids"].device.type == "cpu"
+    assert llama_batch["attention_mask"].device.type == "cpu"
+    assert llama_batch["input_ids"].shape == (2, 8)
+    assert llama_batch["attention_mask"].shape == (2, 8)
 
 
 def test_run_variant_cleans_workload_boundary_on_success_and_failure(
