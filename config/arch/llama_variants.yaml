@@ -5,7 +5,6 @@ base_model_groups:
   variant_config_grid:
     base_variant_config_template: &llama_full_template
       example_input_shape: [1, 128]
-      max_sequence_length: 128
       run_training: true
       run_inference: false
       run_prefill: true
@@ -15,34 +14,34 @@ base_model_groups:
       prefill_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [1]
+      batch_size: 1
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
     axes:
     - name: shape
       values: &llama_full_shapes
       - name: bs1_s128
-        overrides: {example_input_shape: [1, 128], max_sequence_length: 128, training_batch_sizes: [1]}
+        overrides: {example_input_shape: [1, 128], batch_size: 1}
       - name: bs1_s256
-        overrides: {example_input_shape: [1, 256], max_sequence_length: 256, training_batch_sizes: [1]}
+        overrides: {example_input_shape: [1, 256], batch_size: 1}
       - name: bs1_s384
-        overrides: {example_input_shape: [1, 384], max_sequence_length: 384, training_batch_sizes: [1]}
+        overrides: {example_input_shape: [1, 384], batch_size: 1}
       - name: bs1_s512
-        overrides: {example_input_shape: [1, 512], max_sequence_length: 512, training_batch_sizes: [1]}
+        overrides: {example_input_shape: [1, 512], batch_size: 1}
       - name: bs2_s128
-        overrides: {example_input_shape: [2, 128], max_sequence_length: 128, training_batch_sizes: [2]}
+        overrides: {example_input_shape: [2, 128], batch_size: 2}
       - name: bs2_s256
-        overrides: {example_input_shape: [2, 256], max_sequence_length: 256, training_batch_sizes: [2]}
+        overrides: {example_input_shape: [2, 256], batch_size: 2}
       - name: bs2_s384
-        overrides: {example_input_shape: [2, 384], max_sequence_length: 384, training_batch_sizes: [2]}
+        overrides: {example_input_shape: [2, 384], batch_size: 2}
       - name: bs3_s128
-        overrides: {example_input_shape: [3, 128], max_sequence_length: 128, training_batch_sizes: [3]}
+        overrides: {example_input_shape: [3, 128], batch_size: 3}
       - name: bs3_s256
-        overrides: {example_input_shape: [3, 256], max_sequence_length: 256, training_batch_sizes: [3]}
+        overrides: {example_input_shape: [3, 256], batch_size: 3}
       - name: bs4_s128
-        overrides: {example_input_shape: [4, 128], max_sequence_length: 128, training_batch_sizes: [4]}
+        overrides: {example_input_shape: [4, 128], batch_size: 4}
       - name: bs4_s256
-        overrides: {example_input_shape: [4, 256], max_sequence_length: 256, training_batch_sizes: [4]}
+        overrides: {example_input_shape: [4, 256], batch_size: 4}
 - base_model:
     name: Llama-3.2-3B
     pretrained: true

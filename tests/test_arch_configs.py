@@ -43,9 +43,6 @@ GPT2_CONFIG_VARIANT_COUNTS = {
 T5_CONFIG_VARIANT_COUNTS = {
     "t5_variants.yaml": 240,
 }
-QWEN_CONFIG_VARIANT_COUNTS = {
-    "qwen_variants.yaml": 159,
-}
 LLAMA_CONFIG_VARIANT_COUNTS = {
     "llama_variants.yaml": 22,
 }
@@ -187,13 +184,8 @@ def test_gpt2_arch_configs_expand_to_expected_counts(
     assert all(not variant.mutations for variant in variants)
     assert all(
         variant.variant_config.example_input_shape[0] == 4
-        and variant.variant_config.training_batch_sizes == [4]
+        and variant.variant_config.batch_size == 4
         for variant in base_variants
-    )
-    assert all(
-        variant.variant_config.max_sequence_length
-        == variant.variant_config.example_input_shape[1]
-        for variant in variants
     )
     assert all(
         variant.variant_config.gpt2_config.n_positions
@@ -243,7 +235,7 @@ def test_t5_arch_configs_expand_to_expected_counts(
     assert all(not variant.mutations for variant in variants)
     assert all(
         variant.variant_config.example_input_shape[0] == 4
-        and variant.variant_config.training_batch_sizes == [4]
+        and variant.variant_config.batch_size == 4
         for variant in base_variants
     )
     assert {
@@ -262,11 +254,6 @@ def test_t5_arch_configs_expand_to_expected_counts(
         for t5_config in [variant.variant_config.t5_config]
     )
     assert all(
-        variant.variant_config.max_sequence_length
-        == variant.variant_config.example_input_shape[1]
-        for variant in variants
-    )
-    assert all(
         t5_config is not None
         and t5_config.d_kv is not None
         and t5_config.d_kv * t5_config.num_heads == t5_config.d_model
@@ -280,151 +267,6 @@ def test_t5_arch_configs_expand_to_expected_counts(
         >= variant.variant_config.example_input_shape[1]
         for variant in variants
         for t5_config in [variant.variant_config.t5_config]
-    )
-
-
-@pytest.mark.parametrize(
-    ("config_name", "expected_count"),
-    QWEN_CONFIG_VARIANT_COUNTS.items(),
-)
-def test_qwen_arch_configs_expand_to_expected_counts(
-    config_name: str, expected_count: int
-) -> None:
-    config = load_arch_config(ARCH_CONFIG_DIR / config_name)
-
-    variants = expand_arch_config(config)
-    full_flow_variants = [
-        variant for variant in variants if variant.variant_config.run_training
-    ]
-    prefill_only_variants = [
-        variant for variant in variants if not variant.variant_config.run_training
-    ]
-    non_qwen35_full_flow_variants = [
-        variant
-        for variant in full_flow_variants
-        if not variant.base_model.name.startswith("Qwen3.5")
-    ]
-    non_qwen35_prefill_only_variants = [
-        variant
-        for variant in prefill_only_variants
-        if not variant.base_model.name.startswith("Qwen3.5")
-    ]
-    qwen35_full_flow_variants = [
-        variant
-        for variant in full_flow_variants
-        if variant.base_model.name.startswith("Qwen3.5")
-    ]
-    qwen35_prefill_only_variants = [
-        variant
-        for variant in prefill_only_variants
-        if variant.base_model.name.startswith("Qwen3.5")
-    ]
-
-    assert len(variants) == expected_count
-    assert len(full_flow_variants) == 125
-    assert len(prefill_only_variants) == 34
-    assert len(non_qwen35_full_flow_variants) == 114
-    assert len(non_qwen35_prefill_only_variants) == 20
-    assert len(qwen35_full_flow_variants) == 11
-    assert len(qwen35_prefill_only_variants) == 14
-    assert all(variant.source == "variant_config_grid" for variant in variants)
-    assert all(variant.variant_config.run_prefill for variant in variants)
-    assert all(not variant.variant_config.run_inference for variant in variants)
-    assert all(not variant.mutations for variant in variants)
-    assert all(
-        variant.variant_config.target_input_channels is None for variant in variants
-    )
-    assert all(
-        variant.variant_config.target_output_classes is None for variant in variants
-    )
-    assert {
-        tuple(variant.variant_config.example_input_shape)
-        for variant in non_qwen35_full_flow_variants
-    } == {
-        (1, 128),
-        (1, 256),
-        (1, 384),
-        (1, 512),
-        (1, 768),
-        (1, 1024),
-        (2, 128),
-        (2, 256),
-        (2, 384),
-        (2, 512),
-        (2, 768),
-        (2, 1024),
-        (3, 128),
-        (3, 256),
-        (3, 512),
-        (4, 128),
-        (4, 256),
-        (4, 384),
-        (4, 512),
-    }
-    assert {
-        tuple(variant.variant_config.example_input_shape)
-        for variant in qwen35_full_flow_variants
-    } == {
-        (1, 128),
-        (1, 256),
-        (1, 512),
-        (1, 1024),
-        (2, 128),
-        (2, 256),
-        (2, 512),
-        (2, 1024),
-        (4, 128),
-        (4, 256),
-        (4, 512),
-    }
-    assert {
-        tuple(variant.variant_config.example_input_shape)
-        for variant in non_qwen35_prefill_only_variants
-    } == {
-        (1, 64),
-        (1, 128),
-        (1, 192),
-        (1, 256),
-        (1, 384),
-        (1, 512),
-        (2, 64),
-        (2, 128),
-        (2, 192),
-        (2, 256),
-    }
-    assert {
-        tuple(variant.variant_config.example_input_shape)
-        for variant in qwen35_prefill_only_variants
-    } == {
-        (1, 64),
-        (1, 128),
-        (1, 256),
-        (1, 512),
-        (2, 64),
-        (2, 128),
-        (2, 256),
-    }
-    assert all(
-        variant.variant_config.example_input_shape[0]
-        * variant.variant_config.example_input_shape[1]
-        <= 2048
-        for variant in non_qwen35_full_flow_variants
-    )
-    assert all(
-        variant.variant_config.example_input_shape[0]
-        * variant.variant_config.example_input_shape[1]
-        <= 512
-        for variant in non_qwen35_prefill_only_variants
-    )
-    assert all(
-        variant.variant_config.max_sequence_length
-        == variant.variant_config.example_input_shape[1]
-        for variant in variants
-    )
-    assert all(
-        variant.variant_config.example_input_shape[0]
-        == variant.variant_config.training_batch_sizes[0]
-        for variant in variants
     )
 
 
@@ -607,13 +449,8 @@ def assert_causal_lm_full_flow_variants(
         tuple(variant.variant_config.example_input_shape) for variant in variants
     } == CAUSAL_LM_FULL_FLOW_SHAPES
     assert all(
-        variant.variant_config.max_sequence_length
-        == variant.variant_config.example_input_shape[1]
-        for variant in variants
-    )
-    assert all(
-        variant.variant_config.training_batch_sizes
-        == [variant.variant_config.example_input_shape[0]]
+        variant.variant_config.batch_size
+        == variant.variant_config.example_input_shape[0]
         for variant in variants
     )
     assert all(
@@ -638,7 +475,7 @@ def test_gpt2_batch_sweep_variants_define_batch_in_name_and_config() -> None:
     assert batch_sizes == {2, 4, 8, 16}
     assert all(
         variant.variant_config.example_input_shape[0]
-        == variant.variant_config.training_batch_sizes[0]
+        == variant.variant_config.batch_size
         for variant in batch_variants
     )
     assert all(

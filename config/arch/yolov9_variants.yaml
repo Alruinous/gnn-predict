@@ -23,10 +23,7 @@ base_model_groups:
       onnx_export_mode: architecture_only
       run_training: true
       training_measurement_min_seconds: 40.0
-      training_batch_sizes:
-      - 4
-      - 8
-      - 16
+      batch_size: 4
       use_fake_imagenet: true
       run_inference: true
       inference_measurement_min_seconds: 40.0

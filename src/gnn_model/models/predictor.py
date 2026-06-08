@@ -219,7 +219,7 @@ def build_structural_context(
     graph_count_int = int(graph_count)
     device = data_x.device
     dtype = data_x.dtype
-    op_ids = op_type_ids.long().clamp(min=0, max=op_type_count - 1)
+    op_ids = op_type_ids.long()
     node_count = torch.bincount(batch, minlength=graph_count_int).to(dtype).unsqueeze(1)
     op_one_hot = F.one_hot(op_ids, num_classes=op_type_count).to(dtype)
     op_counts = torch.zeros(

@@ -43,6 +43,7 @@ METADATA_FIELDS = (
     "gpu_id",
     "batch_size",
     "sample_count",
+    "decode_output_length",
     "resolved_gpu_label",
     "resolved_device_label",
     "result_json",
@@ -95,7 +96,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--csv_dir",
-        default="csv",
+        default="csv_v2/v100",
         help="Directory containing *_monitor.csv files.",
     )
     parser.add_argument(
@@ -214,6 +215,8 @@ def process_csv(csv_file: str | Path) -> CsvProcessResult:
             [
                 pl.col("variant_name").str.len_chars() > 0,
                 ~pl.col("variant_name").str.to_lowercase().str.contains("_elu_"),
+                # onnx_tool cannot parse current Qwen3.5 BFLOAT16 Constant tensors.
+                ~pl.col("base_model_name").str.starts_with("Qwen3.5"),
                 pl.col("variant_path").map_elements(
                     lambda path: Path(path).is_file(),
                     return_dtype=pl.Boolean,
@@ -274,7 +277,7 @@ def build_model_record_info(
     csv_path: Path,
 ) -> ModelRecordInfo:
     phase = str(record["phase"]).strip()
-    assert phase in {"training", "inference", "prefill"}
+    assert phase in {"training", "inference", "prefill", "decode"}
     batch_size = parse_int_value(record["batch_size"])
     assert batch_size > 0
     gpu_name = normalize_gpu_name(record["gpu_node"])
@@ -336,6 +339,7 @@ def extract_feature_target(info: ModelRecordInfo) -> Data:
         gpu_name=info.gpu_name,
         phase=info.phase,
         sample_count=parse_int_value(info.metadata["sample_count"]),
+        decode_output_length=parse_int_value(info.metadata["decode_output_length"]),
     )
     data.y = torch.tensor(info.target, dtype=torch.float32).unsqueeze(0)
     data.source_csv = str(info.csv_path)
@@ -387,8 +391,10 @@ def build_manifest(
     seed: int,
 ) -> dict[str, Any]:
     return {
-        "schema_version": "4.0.0",
-        "feature_source": "onnx_tool_static_metrics_shape_topology_features",
+        "schema_version": "4.1.0",
+        "feature_source": (
+            "onnx_tool_static_metrics_shape_topology_features_op_reclass_identity"
+        ),
         "csv_dir": str(Path(csv_dir).resolve()),
         "id_fields": list(ID_FIELDS),
         "target_names": list(TARGET_FIELDS),

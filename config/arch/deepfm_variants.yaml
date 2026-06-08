@@ -13,8 +13,7 @@ base_model_groups:
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes:
-      - 2048
+      batch_size: 2048
       training_measurement_min_seconds: 40.0
       use_fake_recommender_dataset: true
       deepfm_config:
@@ -362,7 +361,7 @@ base_model_groups:
     variant_config:
       <<: *deepfm_base_variant
       example_input_shape: [1024]
-      training_batch_sizes: [1024]
+      batch_size: 1024
       deepfm_config:
         sparse_features: *deepfm_sparse_f32_e512
         dense_features: *deepfm_dense16
@@ -375,7 +374,7 @@ base_model_groups:
     variant_config:
       <<: *deepfm_base_variant
       example_input_shape: [1024]
-      training_batch_sizes: [1024]
+      batch_size: 1024
       deepfm_config:
         sparse_features: *deepfm_sparse_f32_e512
         dense_features: *deepfm_dense16
@@ -388,7 +387,7 @@ base_model_groups:
     variant_config:
       <<: *deepfm_base_variant
       example_input_shape: [1024]
-      training_batch_sizes: [1024]
+      batch_size: 1024
       deepfm_config:
         sparse_features: *deepfm_sparse_f36_e448
         dense_features: *deepfm_dense20
@@ -401,7 +400,7 @@ base_model_groups:
     variant_config:
       <<: *deepfm_base_variant
       example_input_shape: [1024]
-      training_batch_sizes: [1024]
+      batch_size: 1024
       deepfm_config:
         sparse_features: *deepfm_sparse_f36_e448
         dense_features: *deepfm_dense20
@@ -414,7 +413,7 @@ base_model_groups:
     variant_config:
       <<: *deepfm_base_variant
       example_input_shape: [1024]
-      training_batch_sizes: [1024]
+      batch_size: 1024
       deepfm_config:
         sparse_features: *deepfm_sparse_f32_e512
         dense_features: *deepfm_dense16
@@ -427,7 +426,7 @@ base_model_groups:
     variant_config:
       <<: *deepfm_base_variant
       example_input_shape: [1024]
-      training_batch_sizes: [1024]
+      batch_size: 1024
       deepfm_config:
         sparse_features: *deepfm_sparse_f36_e448
         dense_features: *deepfm_dense20
@@ -440,7 +439,7 @@ base_model_groups:
     variant_config:
       <<: *deepfm_base_variant
       example_input_shape: [4096]
-      training_batch_sizes: [4096]
+      batch_size: 4096
       deepfm_config:
         sparse_features: *deepfm_sparse_f32_e384
         dense_features: *deepfm_dense16
@@ -453,7 +452,7 @@ base_model_groups:
     variant_config:
       <<: *deepfm_base_variant
       example_input_shape: [4096]
-      training_batch_sizes: [4096]
+      batch_size: 4096
       deepfm_config:
         sparse_features: *deepfm_sparse_f32_e384
         dense_features: *deepfm_dense16
@@ -466,7 +465,7 @@ base_model_groups:
     variant_config:
       <<: *deepfm_base_variant
       example_input_shape: [4096]
-      training_batch_sizes: [4096]
+      batch_size: 4096
       deepfm_config:
         sparse_features: *deepfm_sparse_f32_e448
         dense_features: *deepfm_dense16
@@ -479,7 +478,7 @@ base_model_groups:
     variant_config:
       <<: *deepfm_base_variant
       example_input_shape: [4096]
-      training_batch_sizes: [4096]
+      batch_size: 4096
       deepfm_config:
         sparse_features: *deepfm_sparse_f32_e448
         dense_features: *deepfm_dense16
@@ -492,7 +491,7 @@ base_model_groups:
     variant_config:
       <<: *deepfm_base_variant
       example_input_shape: [4096]
-      training_batch_sizes: [4096]
+      batch_size: 4096
       deepfm_config:
         sparse_features: *deepfm_sparse_f32_e512
         dense_features: *deepfm_dense16
@@ -505,7 +504,7 @@ base_model_groups:
     variant_config:
       <<: *deepfm_base_variant
       example_input_shape: [4096]
-      training_batch_sizes: [4096]
+      batch_size: 4096
       deepfm_config:
         sparse_features: *deepfm_sparse_f36_e448
         dense_features: *deepfm_dense20

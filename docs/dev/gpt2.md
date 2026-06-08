@@ -315,11 +315,10 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 2
       example_input_shape: [2, 24]
-      max_sequence_length: 24
       export_onnx: true
       onnx_export_mode: architecture_only
       run_training: true
-      training_batch_sizes: [2]
+      batch_size: 2
       training_measurement_min_seconds: 30.0
       use_fake_text_dataset: true
       run_inference: true

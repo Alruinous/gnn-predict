@@ -8,14 +8,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [2, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [2]
+      batch_size: 2
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -37,14 +36,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [4, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
+      batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -66,14 +64,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [8, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [8]
+      batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -95,14 +92,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [16, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [16]
+      batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -124,14 +120,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [2, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [2]
+      batch_size: 2
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -153,14 +148,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [4, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
+      batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -182,14 +176,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [8, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [8]
+      batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -211,14 +204,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [16, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [16]
+      batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -240,14 +232,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [2, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [2]
+      batch_size: 2
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -269,14 +260,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [4, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
+      batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -298,14 +288,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [8, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [8]
+      batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -327,14 +316,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [16, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [16]
+      batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -356,14 +344,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [2, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [2]
+      batch_size: 2
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -385,14 +372,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [4, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
+      batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -414,14 +400,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [8, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [8]
+      batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -443,14 +428,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [16, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [16]
+      batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -472,14 +456,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [2, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [2]
+      batch_size: 2
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -501,14 +484,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [4, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
+      batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -530,14 +512,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [8, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [8]
+      batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -559,14 +540,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [16, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [16]
+      batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -588,14 +568,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [2, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [2]
+      batch_size: 2
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -617,14 +596,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [4, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
+      batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -646,14 +624,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [8, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [8]
+      batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -675,14 +652,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 10
       example_input_shape: [16, 512]
-      max_sequence_length: 512
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [16]
+      batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -704,14 +680,13 @@ base_model_groups:
       target_input_channels: 1
       target_output_classes: 2
       example_input_shape: [4, 128]
-      max_sequence_length: 128
       run_training: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       export_onnx: true
       onnx_export_mode: architecture_only
-      training_batch_sizes: [4]
+      batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       t5_config:
@@ -952,21 +927,18 @@ base_model_groups:
         overrides:
           t5_config.vocab_size: 4096
           example_input_shape: [4, 128]
-          max_sequence_length: 128
           t5_config.relative_attention_num_buckets: 32
           t5_config.relative_attention_max_distance: 128
       - name: long
         overrides:
           t5_config.vocab_size: 8192
           example_input_shape: [4, 256]
-          max_sequence_length: 256
           t5_config.relative_attention_num_buckets: 64
           t5_config.relative_attention_max_distance: 256
       - name: xlong
         overrides:
           t5_config.vocab_size: 16384
           example_input_shape: [4, 512]
-          max_sequence_length: 512
           t5_config.relative_attention_num_buckets: 64
           t5_config.relative_attention_max_distance: 512
     - name: classes

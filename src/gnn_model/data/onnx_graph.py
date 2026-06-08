@@ -63,37 +63,59 @@ OP_TYPE_CATEGORY_BY_RAW_OP = {
     "LeakyRelu": "op_activation",
     "HardSigmoid": "op_activation",
     "HardSwish": "op_activation",
+    "Erf": "op_activation",
+    "Clip": "op_activation",
+    "PRelu": "op_activation",
     "Add": "op_elementwise",
     "Sub": "op_elementwise",
     "Mul": "op_elementwise",
     "Div": "op_elementwise",
     "Pow": "op_elementwise",
+    "Sqrt": "op_elementwise",
+    "Exp": "op_elementwise",
+    "Sin": "op_elementwise",
+    "Cos": "op_elementwise",
+    "Neg": "op_elementwise",
+    "Reciprocal": "op_elementwise",
+    "Mod": "op_elementwise",
+    "Not": "op_elementwise",
+    "And": "op_elementwise",
+    "Trilu": "op_elementwise",
     "Where": "op_elementwise",
     "Max": "op_elementwise",
     "Min": "op_elementwise",
     "Equal": "op_elementwise",
     "Greater": "op_elementwise",
     "Less": "op_elementwise",
+    "LessOrEqual": "op_elementwise",
+    "IsNaN": "op_elementwise",
     "ReduceMean": "op_reduce",
     "ReduceSum": "op_reduce",
     "ReduceMax": "op_reduce",
     "ReduceMin": "op_reduce",
+    "ArgMax": "op_reduce",
+    "CumSum": "op_reduce",
     "Shape": "op_shape",
     "Size": "op_shape",
     "ConstantOfShape": "op_shape",
+    "Range": "op_shape",
     "Reshape": "op_layout",
     "Transpose": "op_layout",
     "Flatten": "op_layout",
     "Squeeze": "op_layout",
     "Unsqueeze": "op_layout",
+    "Resize": "op_layout",
+    "Pad": "op_layout",
     "Concat": "op_join_split",
     "Split": "op_join_split",
     "Slice": "op_join_split",
     "Tile": "op_join_split",
     "Expand": "op_join_split",
+    "ScatterND": "op_join_split",
     "Cast": "op_cast",
     "CastLike": "op_cast",
     "Constant": "op_constant",
+    "Identity": "op_identity",
 }
 
 
@@ -104,9 +126,11 @@ def build_graph_data_from_onnx(
     gpu_name: str = "v100",
     phase: str = "training",
     sample_count: int = 1,
+    decode_output_length: int = 0,
 ) -> Data:
     assert batch_size > 0
     assert sample_count > 0
+    assert decode_output_length >= 0
     model_path = Path(onnx_path)
     model = onnx.load(model_path)
     runtime_input_names = load_runtime_input_names(model)
@@ -118,7 +142,7 @@ def build_graph_data_from_onnx(
     graph_output_names = {output.name for output in model.graph.output if output.name}
 
     replace_onnx_tool_node(SqueezeNode)
-    for node_class in (SoftplusNode, EluNode, SeluNode):
+    for node_class in (SoftplusNode, EluNode, SeluNode, IsNaNNode):
         if NODE_REGISTRY.get(node_class.__name__) is None:
             NODE_REGISTRY.register(node_class)
     tool_model = onnx_tool.loadmodel(str(model_path))
@@ -169,6 +193,7 @@ def build_graph_data_from_onnx(
         phase=phase,
         batch_size=batch_size,
         sample_count=sample_count,
+        decode_output_length=decode_output_length,
         gpu_name=gpu_name,
         graph=graph,
         node_infos=list(graph.nodemap.values()),
@@ -253,6 +278,16 @@ class SoftplusNode(PWNode):
 
     def value_infer(self, intensors: list[Any], outtensors: list[Any]) -> None:
         outtensors[0].update_tensor(np.logaddexp(intensors[0].get_numpy(), 0))
+
+
+class IsNaNNode(PWNode):
+    def __init__(self, node_proto: onnx.NodeProto) -> None:
+        super().__init__(node_proto)
+        self.op_mac = CMP_MACS
+        self.ratio = 1
+
+    def value_infer(self, intensors: list[Any], outtensors: list[Any]) -> None:
+        outtensors[0].update_tensor(np.isnan(intensors[0].get_numpy()))
 
 
 class EluNode(PWNode):
@@ -358,7 +393,7 @@ def build_node_feature_vector(
 
 
 def resolve_op_type_category(op_type: str) -> str:
-    return OP_TYPE_CATEGORY_BY_RAW_OP.get(op_type, "op_other")
+    return OP_TYPE_CATEGORY_BY_RAW_OP[op_type]
 
 
 def resolve_op_type_index(op_type: str) -> int:
@@ -613,6 +648,7 @@ def build_graph_feature_vector(
     phase: str,
     batch_size: int,
     sample_count: int,
+    decode_output_length: int,
     gpu_name: str,
     graph: Any,
     node_infos: list[Any],
@@ -640,6 +676,7 @@ def build_graph_feature_vector(
         float(PHASE_TO_INDEX[normalized_phase]),
         float(batch_size),
         float(sample_count),
+        float(decode_output_length),
         *GPU_SPECS[normalized_gpu_name],
         float(parameter_input_count),
         float(element_count),

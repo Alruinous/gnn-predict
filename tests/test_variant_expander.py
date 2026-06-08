@@ -42,14 +42,14 @@ def build_deepfm_variant_config_grid(
                     "name": "bs2",
                     "overrides": {
                         "example_input_shape": [2],
-                        "training_batch_sizes": [2],
+                        "batch_size": 2,
                     },
                 },
                 {
                     "name": "bs8",
                     "overrides": {
                         "example_input_shape": [8],
-                        "training_batch_sizes": [8],
+                        "batch_size": 8,
                     },
                 },
             ],
@@ -59,7 +59,7 @@ def build_deepfm_variant_config_grid(
         "base_variant_config_template": {
             "target_output_classes": 1,
             "example_input_shape": [2],
-            "training_batch_sizes": [2],
+            "batch_size": 2,
             "use_fake_recommender_dataset": True,
             "deepfm_config": {
                 "sparse_features": [
@@ -193,12 +193,7 @@ def test_expand_group_variants_generates_variant_config_grid_variants() -> None:
         [2],
         [8],
     ]
-    assert [variant.variant_config.training_batch_sizes for variant in variants] == [
-        [2],
-        [8],
-        [2],
-        [8],
-    ]
+    assert [variant.variant_config.batch_size for variant in variants] == [2, 8, 2, 8]
     assert variants[0].variant_config.deepfm_config is not None
     assert variants[0].variant_config.deepfm_config.mlp_dims == [8, 4]
     assert variants[2].variant_config.deepfm_config is not None
@@ -289,7 +284,7 @@ def test_variant_config_grid_rejects_duplicate_variant_names() -> None:
                     "variant_config": {
                         "target_output_classes": 1,
                         "example_input_shape": [2],
-                        "training_batch_sizes": [2],
+                        "batch_size": 2,
                         "use_fake_recommender_dataset": True,
                         "deepfm_config": {
                             "sparse_features": [
@@ -352,7 +347,6 @@ def test_expand_group_variants_keeps_text_input_shape_flat() -> None:
                             "run_inference": True,
                             "export_onnx": False,
                             "use_fake_text_dataset": True,
-                            "max_sequence_length": 128,
                         },
                         "mutation_sets": [
                             {

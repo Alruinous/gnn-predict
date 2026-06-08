@@ -17,12 +17,11 @@ GRID_TEMPLATE_KEYS = {
     "inference_measurement_min_seconds",
     "export_onnx",
     "onnx_export_mode",
-    "training_batch_sizes",
+    "batch_size",
     "training_measurement_min_seconds",
     "use_fake_imagenet",
     "use_fake_text_dataset",
     "use_real_text_dataset",
-    "max_sequence_length",
 }
 ALLOWED_GRID_KEYS = {
     "input_channels",
@@ -124,11 +123,6 @@ def migrate_variant_config(raw_config: dict[str, Any]) -> dict[str, Any]:
     config.pop("run_workload", None)
     config.pop("validate_model", None)
 
-    if "training_batch_sizes" in config:
-        config["training_batch_sizes"] = normalize_batch_sizes(
-            config["training_batch_sizes"]
-        )
-
     if "run_training" not in config:
         config["run_training"] = False
     if "run_inference" not in config:
@@ -170,11 +164,3 @@ def migrate_mutation(raw_mutation: dict[str, Any]) -> dict[str, Any]:
         params[key] = deepcopy(value)
 
     return {"type": mutation_type, "params": params}
-
-
-def normalize_batch_sizes(value: int | list[int]) -> list[int]:
-    if isinstance(value, int):
-        return [value]
-    if isinstance(value, list) and all(isinstance(item, int) for item in value):
-        return value
-    raise ValueError(f"training_batch_sizes must be an int or a list of ints: {value}")

@@ -124,8 +124,7 @@
 LLaMA/Gemma 首版与 Qwen 保持这些一致点：
 
 - `example_input_shape` 固定为 `[batch_size, sequence_length]`。
-- `max_sequence_length` 与 `example_input_shape[1]` 同步。
-- `training_batch_sizes` 与 `example_input_shape[0]` 同步。
+- `batch_size` 与 `example_input_shape[0]` 同步。
 - `input_ids` 使用 `torch.randint(0, vocab_size, [B, S])`。
 - `attention_mask` 固定为全 1，形状 `[B, S]`。
 - `labels` 使用 `input_ids.clone()`，形状 `[B, S]`。
@@ -231,27 +230,27 @@ LLaMA/Gemma 首版与 Qwen 保持这些一致点：
 
 ```yaml
 - name: bs1_s128
-  overrides: {example_input_shape: [1, 128], max_sequence_length: 128, training_batch_sizes: [1]}
+  overrides: {example_input_shape: [1, 128], batch_size: 1}
 - name: bs1_s256
-  overrides: {example_input_shape: [1, 256], max_sequence_length: 256, training_batch_sizes: [1]}
+  overrides: {example_input_shape: [1, 256], batch_size: 1}
 - name: bs1_s384
-  overrides: {example_input_shape: [1, 384], max_sequence_length: 384, training_batch_sizes: [1]}
+  overrides: {example_input_shape: [1, 384], batch_size: 1}
 - name: bs1_s512
-  overrides: {example_input_shape: [1, 512], max_sequence_length: 512, training_batch_sizes: [1]}
+  overrides: {example_input_shape: [1, 512], batch_size: 1}
 - name: bs2_s128
-  overrides: {example_input_shape: [2, 128], max_sequence_length: 128, training_batch_sizes: [2]}
+  overrides: {example_input_shape: [2, 128], batch_size: 2}
 - name: bs2_s256
-  overrides: {example_input_shape: [2, 256], max_sequence_length: 256, training_batch_sizes: [2]}
+  overrides: {example_input_shape: [2, 256], batch_size: 2}
 - name: bs2_s384
-  overrides: {example_input_shape: [2, 384], max_sequence_length: 384, training_batch_sizes: [2]}
+  overrides: {example_input_shape: [2, 384], batch_size: 2}
 - name: bs3_s128
-  overrides: {example_input_shape: [3, 128], max_sequence_length: 128, training_batch_sizes: [3]}
+  overrides: {example_input_shape: [3, 128], batch_size: 3}
 - name: bs3_s256
-  overrides: {example_input_shape: [3, 256], max_sequence_length: 256, training_batch_sizes: [3]}
+  overrides: {example_input_shape: [3, 256], batch_size: 3}
 - name: bs4_s128
-  overrides: {example_input_shape: [4, 128], max_sequence_length: 128, training_batch_sizes: [4]}
+  overrides: {example_input_shape: [4, 128], batch_size: 4}
 - name: bs4_s256
-  overrides: {example_input_shape: [4, 256], max_sequence_length: 256, training_batch_sizes: [4]}
+  overrides: {example_input_shape: [4, 256], batch_size: 4}
 ```
 
 每个模型 11 个 variant，每个 variant 生成 training 和 prefill 两条 phase 记录。`llama_variants.yaml` 和 `gemma_variants.yaml` 各 22 个 variant；若后续全量生成，两个文件合计 88 条 phase 记录。

@@ -23,8 +23,8 @@ def test_migrated_resnet_config_matches_new_schema() -> None:
     assert template.run_training is True
     assert template.run_inference is True
     assert template.pre_inference_cooldown_seconds == 5.0
-    assert template.inference_measurement_min_seconds == 60.0
-    assert template.training_measurement_min_seconds == 30.0
+    assert template.inference_measurement_min_seconds == 40.0
+    assert template.training_measurement_min_seconds == 40.0
     assert template.export_onnx is False
     assert template.onnx_export_mode == "architecture_only"
     assert template.target_input_channels is None

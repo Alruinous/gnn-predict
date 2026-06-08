@@ -13,8 +13,8 @@ import torch.nn as nn
 from transformers import (
     LlamaConfig,
     LlamaForCausalLM,
-    Qwen2Config,
-    Qwen2ForCausalLM,
+    Qwen3Config,
+    Qwen3ForCausalLM,
     T5ForSequenceClassification,
 )
 
@@ -41,6 +41,7 @@ from gnn_archs.variant_runner import (
     derive_config_output_name,
     export_onnx_model,
     prepare_output_layout,
+    run_decode,
     run_prefill,
     run_inference,
     run_variant,
@@ -110,7 +111,6 @@ def build_text_variant(
                                 "run_inference": False,
                                 "export_onnx": False,
                                 "use_fake_text_dataset": True,
-                                "max_sequence_length": resolved_input_shape[1],
                             },
                             "mutations": mutations,
                         }
@@ -148,11 +148,10 @@ def build_gpt2_variant(
         "target_input_channels": 1,
         "target_output_classes": 3,
         "example_input_shape": [2, 8],
-        "max_sequence_length": 8,
         "run_training": False,
         "run_inference": False,
         "export_onnx": False,
-        "training_batch_sizes": [2],
+        "batch_size": 2,
         "training_measurement_min_seconds": 1e-9,
         "use_fake_text_dataset": True,
         "gpt2_config": build_gpt2_config_override(),
@@ -207,11 +206,10 @@ def build_t5_variant(
         "target_input_channels": 1,
         "target_output_classes": 3,
         "example_input_shape": [2, 6],
-        "max_sequence_length": 6,
         "run_training": False,
         "run_inference": False,
         "export_onnx": False,
-        "training_batch_sizes": [2],
+        "batch_size": 2,
         "training_measurement_min_seconds": 1e-9,
         "use_fake_text_dataset": True,
         "t5_config": build_t5_config_override(),
@@ -240,21 +238,31 @@ def build_t5_variant(
 
 def build_qwen_variant(
     *,
-    base_model_name: str = "Qwen2-0.5B",
+    base_model_name: str = "qwen3",
     variant_name: str = "qwen_runtime_smoke",
     variant_config_overrides: dict[str, object] | None = None,
 ) -> ResolvedVariantSpec:
     variant_config: dict[str, object] = {
         "example_input_shape": [2, 8],
-        "max_sequence_length": 8,
         "run_training": False,
         "run_inference": False,
         "run_prefill": False,
         "export_onnx": False,
-        "training_batch_sizes": [2],
+        "batch_size": 2,
         "training_measurement_min_seconds": 1e-9,
         "prefill_measurement_min_seconds": 1e-9,
+        "decode_measurement_min_seconds": 1e-9,
         "use_fake_text_dataset": True,
+        "qwen3_config": {
+            "vocab_size": 32,
+            "hidden_size": 16,
+            "intermediate_size": 32,
+            "num_hidden_layers": 1,
+            "num_attention_heads": 2,
+            "num_key_value_heads": 2,
+            "head_dim": 8,
+            "max_position_embeddings": 16,
+        },
     }
     if variant_config_overrides is not None:
         variant_config.update(variant_config_overrides)
@@ -263,7 +271,7 @@ def build_qwen_variant(
         {
             "base_model_groups": [
                 {
-                    "base_model": {"name": base_model_name, "pretrained": True},
+                    "base_model": {"name": base_model_name, "pretrained": False},
                     "single_variant_define": [
                         {
                             "name": variant_name,
@@ -287,12 +295,11 @@ def build_llama_variant(
 ) -> ResolvedVariantSpec:
     variant_config: dict[str, object] = {
         "example_input_shape": [2, 8],
-        "max_sequence_length": 8,
         "run_training": False,
         "run_inference": False,
         "run_prefill": False,
         "export_onnx": False,
-        "training_batch_sizes": [2],
+        "batch_size": 2,
         "training_measurement_min_seconds": 1e-9,
         "prefill_measurement_min_seconds": 1e-9,
         "use_fake_text_dataset": True,
@@ -319,18 +326,22 @@ def build_llama_variant(
     return expand_arch_config(config)[0]
 
 
-def build_tiny_qwen_model() -> Qwen2ForCausalLM:
-    config = Qwen2Config(
+def build_tiny_qwen_model() -> Qwen3ForCausalLM:
+    config = Qwen3Config(
         vocab_size=32,
         hidden_size=16,
         intermediate_size=32,
         num_hidden_layers=1,
         num_attention_heads=2,
         num_key_value_heads=2,
+        head_dim=8,
         max_position_embeddings=16,
+        pad_token_id=0,
+        bos_token_id=1,
+        eos_token_id=None,
         use_cache=False,
     )
-    return Qwen2ForCausalLM(config)
+    return Qwen3ForCausalLM(config)
 
 
 def build_tiny_llama_model() -> LlamaForCausalLM:
@@ -415,7 +426,7 @@ def build_recommender_variant(
         "run_training": False,
         "run_inference": False,
         "export_onnx": False,
-        "training_batch_sizes": [2],
+        "batch_size": 2,
         "training_measurement_min_seconds": 1e-9,
         "inference_measurement_min_seconds": 1e-9,
         "use_fake_recommender_dataset": True,
@@ -647,7 +658,7 @@ def test_image_variant_runner_executes_training_inference_and_onnx(
                                 "run_training": True,
                                 "run_inference": True,
                                 "export_onnx": True,
-                                "training_batch_sizes": [2],
+                                "batch_size": 2,
                                 "training_measurement_min_seconds": 1e-9,
                                 "use_fake_imagenet": True,
                             },
@@ -717,7 +728,7 @@ def test_train_model_records_elapsed_steps(
                 update={
                     "run_training": True,
                     "training_measurement_min_seconds": 5.0,
-                    "training_batch_sizes": [2],
+                    "batch_size": 2,
                     "use_fake_imagenet": True,
                 }
             )
@@ -987,7 +998,7 @@ def test_gpt2_architecture_only_onnx_randomizes_to_runtime_inputs(
 
 
 def test_qwen_architecture_only_onnx_keeps_full_logits(tmp_path: Path) -> None:
-    config_path = tmp_path / "qwen_variants.yaml"
+    config_path = tmp_path / "qwen3_variants.yaml"
     variant = build_qwen_variant(
         variant_name="qwen_architecture_only",
         variant_config_overrides={
@@ -1016,6 +1027,33 @@ def test_qwen_architecture_only_onnx_keeps_full_logits(tmp_path: Path) -> None:
     exported_model = onnx.load(result.path)
     output_shape = exported_model.graph.output[0].type.tensor_type.shape.dim
     assert [dimension.dim_value for dimension in output_shape] == [2, 8, 32]
+
+
+def test_build_variant_model_builds_qwen3_model_from_config() -> None:
+    variant = build_qwen_variant(
+        variant_config_overrides={
+            "qwen3_config": {
+                "vocab_size": 64,
+                "hidden_size": 32,
+                "intermediate_size": 64,
+                "num_hidden_layers": 2,
+                "num_attention_heads": 4,
+                "num_key_value_heads": 2,
+                "head_dim": 8,
+                "max_position_embeddings": 32,
+            }
+        }
+    )
+
+    model = build_variant_model(variant)
+
+    assert isinstance(model, Qwen3ForCausalLM)
+    assert model.config.model_type == "qwen3"
+    assert model.config.vocab_size == 64
+    assert model.config.hidden_size == 32
+    assert model.config.num_hidden_layers == 2
+    assert model.config.use_cache is False
+    assert next(model.parameters()).dtype is torch.float16
 
 
 def test_build_variant_model_dispatches_llama_to_causal_lm_builder(
@@ -1127,200 +1165,6 @@ def test_causal_lm_architecture_only_onnx_keeps_full_logits(
     exported_model = onnx.load(result.path)
     output_shape = exported_model.graph.output[0].type.tensor_type.shape.dim
     assert [dimension.dim_value for dimension in output_shape] == [2, 8, 32]
-
-
-def test_qwen35_onnx_export_uses_torch_linear_attention_fallback(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class DummyTextConfig:
-        model_type = "qwen3_5_text"
-        vocab_size = 32
-        max_position_embeddings = 16
-
-    class DummyConfig:
-        model_type = "qwen3_5"
-        vocab_size = 32
-        max_position_embeddings = 16
-        text_config = DummyTextConfig()
-
-    class DummyNorm(nn.Module):
-        def __init__(self) -> None:
-            super().__init__()
-            self.weight = nn.Parameter(torch.ones(4))
-
-    class Qwen3_5GatedDeltaNet(nn.Module):
-        def __init__(self) -> None:
-            super().__init__()
-            self.head_v_dim = 4
-            self.layer_norm_epsilon = 1e-6
-            self.norm = DummyNorm()
-            self.causal_conv1d_fn = object()
-            self.chunk_gated_delta_rule = object()
-            self.recurrent_gated_delta_rule = object()
-
-    class DummyQwen35Model(nn.Module):
-        def __init__(self) -> None:
-            super().__init__()
-            self.config = DummyConfig()
-            self.linear_attention = Qwen3_5GatedDeltaNet()
-
-        def forward(
-            self,
-            input_ids: torch.Tensor,
-            attention_mask: torch.Tensor,
-        ) -> object:
-            logits = torch.zeros((*input_ids.shape, 32), dtype=torch.float32)
-            return type("DummyOutput", (), {"logits": logits})()
-
-    config_path = tmp_path / "qwen_variants.yaml"
-    variant = build_qwen_variant(
-        variant_name="qwen35_architecture_only",
-        variant_config_overrides={
-            "export_onnx": True,
-            "onnx_export_mode": "architecture_only",
-        },
-    )
-    model = DummyQwen35Model()
-    qwen35_layer = model.linear_attention
-    old_causal_conv1d_fn = qwen35_layer.causal_conv1d_fn
-    old_chunk_rule = qwen35_layer.chunk_gated_delta_rule
-    old_recurrent_rule = qwen35_layer.recurrent_gated_delta_rule
-    old_norm = qwen35_layer.norm
-    output_layout = prepare_output_layout(tmp_path / "output", config_path)
-    context = RunContext(
-        config_path=config_path,
-        output_layout=output_layout,
-        device=torch.device("cpu"),
-        gpu_node="cpu-test",
-        logger=logging.getLogger("test_qwen35_architecture_only"),
-    )
-
-    def fake_export(
-        export_model: nn.Module,
-        args: tuple[torch.Tensor, torch.Tensor],
-        export_path: Path,
-        **kwargs: object,
-    ) -> None:
-        from transformers.models.qwen3_5 import modeling_qwen3_5
-
-        assert kwargs["do_constant_folding"] is False
-        assert qwen35_layer.causal_conv1d_fn is None
-        assert (
-            qwen35_layer.chunk_gated_delta_rule
-            is modeling_qwen3_5.torch_chunk_gated_delta_rule
-        )
-        assert (
-            qwen35_layer.recurrent_gated_delta_rule
-            is modeling_qwen3_5.torch_recurrent_gated_delta_rule
-        )
-        assert isinstance(qwen35_layer.norm, modeling_qwen3_5.Qwen3_5RMSNormGated)
-        assert torch.equal(qwen35_layer.norm.weight, old_norm.weight)
-
-        logits = onnx.helper.make_tensor(
-            "logits_value",
-            onnx.TensorProto.FLOAT,
-            [2, 8, 32],
-            np.zeros((2, 8, 32), dtype=np.float32).reshape(-1),
-        )
-        graph = onnx.helper.make_graph(
-            [onnx.helper.make_node("Constant", [], ["logits"], value=logits)],
-            "qwen35_export_smoke",
-            [
-                onnx.helper.make_tensor_value_info(
-                    "input_ids",
-                    onnx.TensorProto.INT64,
-                    [2, 8],
-                ),
-                onnx.helper.make_tensor_value_info(
-                    "attention_mask",
-                    onnx.TensorProto.INT64,
-                    [2, 8],
-                ),
-            ],
-            [
-                onnx.helper.make_tensor_value_info(
-                    "logits",
-                    onnx.TensorProto.FLOAT,
-                    [2, 8, 32],
-                )
-            ],
-        )
-        onnx.save(
-            onnx.helper.make_model(
-                graph,
-                opset_imports=[onnx.helper.make_operatorsetid("", 14)],
-            ),
-            export_path,
-        )
-
-    monkeypatch.setattr(variant_runner_module.torch.onnx, "export", fake_export)
-
-    result = export_onnx_model(variant, model, context, True)
-
-    assert result.graph_info["runtime_input_names"] == [
-        "input_ids",
-        "attention_mask",
-    ]
-    assert qwen35_layer.causal_conv1d_fn is old_causal_conv1d_fn
-    assert qwen35_layer.chunk_gated_delta_rule is old_chunk_rule
-    assert qwen35_layer.recurrent_gated_delta_rule is old_recurrent_rule
-    assert qwen35_layer.norm is old_norm
-
-
-def test_qwen35_real_model_onnx_export_uses_torch_fallback(tmp_path: Path) -> None:
-    model_path = Path("/data/Models/Qwen/Qwen3.5-0.8B")
-    assert model_path.is_dir()
-    assert torch.cuda.is_available()
-
-    config_path = tmp_path / "qwen_variants.yaml"
-    variant = build_qwen_variant(
-        base_model_name="Qwen3.5-0.8B",
-        variant_name="Qwen3.5-0.8B_bs1_s128",
-        variant_config_overrides={
-            "example_input_shape": [1, 128],
-            "max_sequence_length": 128,
-            "training_batch_sizes": [1],
-            "export_onnx": True,
-            "onnx_export_mode": "architecture_only",
-        },
-    )
-    output_layout = prepare_output_layout(tmp_path / "output", config_path)
-    device = torch.device("cuda:0")
-    context = RunContext(
-        config_path=config_path,
-        output_layout=output_layout,
-        device=device,
-        gpu_node="cuda-test",
-        logger=logging.getLogger("test_qwen35_real_model_architecture_only"),
-    )
-    model = build_variant_model(variant).to(device)
-
-    result = export_onnx_model(variant, model, context, True)
-    del model
-    variant_runner_module.cleanup_workload_boundary(device)
-
-    assert result.graph_info["runtime_input_names"] == [
-        "input_ids",
-        "attention_mask",
-    ]
-    assert result.graph_info["output_names"] == ["logits"]
-    exported_model = onnx.load(result.path)
-    input_shapes = {
-        value.name: [
-            dimension.dim_value
-            for dimension in value.type.tensor_type.shape.dim
-        ]
-        for value in exported_model.graph.input
-        if value.name in {"input_ids", "attention_mask"}
-    }
-    output_shape = exported_model.graph.output[0].type.tensor_type.shape.dim
-    assert input_shapes == {
-        "input_ids": [1, 128],
-        "attention_mask": [1, 128],
-    }
-    assert len(output_shape) == 3
-    assert output_shape[2].dim_value > 0
 
 
 def test_build_variant_model_builds_t5_model_with_eos_inputs() -> None:
@@ -1577,7 +1421,7 @@ def test_recommender_fake_batches_use_feature_shapes(batch_size: int) -> None:
     variant = build_recommender_variant(
         variant_config_overrides={
             "example_input_shape": [batch_size],
-            "training_batch_sizes": [batch_size],
+            "batch_size": batch_size,
         }
     )
     model = build_variant_model(variant)
@@ -1760,10 +1604,9 @@ def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
                                 "run_training": True,
                                 "run_inference": True,
                                 "export_onnx": False,
-                                "training_batch_sizes": [2],
+                                "batch_size": 2,
                                 "training_measurement_min_seconds": 1e-9,
                                 "use_fake_text_dataset": True,
-                                "max_sequence_length": 8,
                             },
                             "mutations": [
                                 {
@@ -1970,6 +1813,25 @@ def test_run_prefill_measures_qwen_forward() -> None:
     assert result.metrics["batch_size"] == 2
     assert result.metrics["sequence_length"] == 8
     assert result.metrics["num_outputs"] == model.config.vocab_size
+
+
+def test_run_decode_measures_qwen_generation() -> None:
+    variant = build_qwen_variant(
+        variant_config_overrides={
+            "run_decode": True,
+            "decode_max_output_length": 4,
+            "decode_measurement_min_seconds": 1e-9,
+        }
+    )
+    model = build_tiny_qwen_model()
+
+    result = run_decode(variant, model, torch.device("cpu"))
+
+    assert result.metrics["iterations"] >= 1
+    assert result.metrics["batch_size"] == 2
+    assert result.metrics["sequence_length"] == 8
+    assert result.metrics["decode_max_output_length"] == 4
+    assert result.metrics["generated_output_length"] <= 4
 
 
 def test_run_prefill_measures_llama_forward() -> None:
@@ -2953,7 +2815,7 @@ def _build_yolo_variant(
                                 "run_inference": True,
                                 "export_onnx": True,
                                 "onnx_export_mode": "full",
-                                "training_batch_sizes": [2],
+                                "batch_size": 2,
                                 "training_measurement_min_seconds": 1e-9,
                                 "use_fake_imagenet": True,
                                 "inference_measurement_min_seconds": 0.1,

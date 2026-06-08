@@ -532,7 +532,7 @@ def train_detection_model(
     目的是产生真实的 GPU 计算负载，使 Prometheus 能采集到有意义的 DCGM 指标。
     使用 forward + sum reduction + backward 来模拟训练过程。
     """
-    batch_size = spec.variant_config.training_batch_sizes[0]
+    batch_size = spec.variant_config.batch_size
     _, channels, height, width = spec.variant_config.example_input_shape
     dataset_size = spec.variant_config.fake_dataset_size
     generator = torch.Generator().manual_seed(42)
@@ -779,7 +779,7 @@ base_model_groups:
         onnx_export_mode: "architecture_only"
         run_training: true
         training_epochs: 3
-        training_batch_sizes: [16]
+        batch_size: 16
         fake_dataset_size: 500
         use_fake_imagenet: true
         run_inference: true
@@ -1268,5 +1268,5 @@ python main.py \
        if hasattr(m, 'export'):
            m.export = True
    ```
-6. **内存管理**：大 scale 模型（如 yolo11\_mega, yolo11\_huge）可能需要较多 GPU 显存。如果 OOM，考虑减小 `training_batch_sizes` 或在配置中将大 scale 的 `run_training` 设为 `false`。
+6. **内存管理**：大 scale 模型（如 yolo11\_mega, yolo11\_huge）可能需要较多 GPU 显存。如果 OOM，考虑减小 `batch_size` 或在配置中将大 scale 的 `run_training` 设为 `false`。
 

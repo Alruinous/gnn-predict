@@ -47,6 +47,7 @@ CSV_COLUMNS = [
     "phase_rounds",
     "sample_count",
     "batch_size",
+    "decode_output_length",
     "resolved_gpu_label",
     "resolved_device_label",
     "cpu_cores_avg",
@@ -100,6 +101,17 @@ CSV_COLUMNS = [
 MIN_REQUIRED_PHASE_SAMPLES = 1
 
 
+def require_int_value(value: object, label: str) -> int:
+    assert isinstance(value, int | float | str) and not isinstance(value, bool), label
+    if isinstance(value, float):
+        assert value.is_integer(), label
+    if isinstance(value, str):
+        parsed = float(value)
+        assert parsed.is_integer(), label
+        return int(parsed)
+    return int(value)
+
+
 @dataclass(frozen=True)
 class MonitorPhaseRecord:
     target_name: str
@@ -118,6 +130,7 @@ class MonitorPhaseRecord:
     duration_sec: float
     phase_rounds: int
     batch_size: int
+    decode_output_length: int
 
 
 @dataclass(frozen=True)
@@ -153,7 +166,11 @@ def extract_phase_records(
                     phase="training",
                     timings=variant.training.timings,
                     gpu_id=gpu_id,
-                    batch_size=int(variant.training.hyperparameters["batch_size"]),
+                    batch_size=require_int_value(
+                        variant.training.hyperparameters["batch_size"],
+                        "training batch_size must be int",
+                    ),
+                    decode_output_length=0,
                 )
             )
         if variant.inference is not None:
@@ -169,7 +186,11 @@ def extract_phase_records(
                     phase="inference",
                     timings=variant.inference.timings,
                     gpu_id=gpu_id,
-                    batch_size=int(variant.inference.metrics["batch_size"]),
+                    batch_size=require_int_value(
+                        variant.inference.metrics["batch_size"],
+                        "inference batch_size must be int",
+                    ),
+                    decode_output_length=0,
                 )
             )
         if variant.prefill is not None:
@@ -185,13 +206,40 @@ def extract_phase_records(
                     phase="prefill",
                     timings=variant.prefill.timings,
                     gpu_id=gpu_id,
-                    batch_size=int(variant.prefill.metrics["batch_size"]),
+                    batch_size=require_int_value(
+                        variant.prefill.metrics["batch_size"],
+                        "prefill batch_size must be int",
+                    ),
+                    decode_output_length=0,
+                )
+            )
+        if variant.decode is not None:
+            records.append(
+                _build_phase_record(
+                    target_name=target_name,
+                    result_json=result_json,
+                    document=document,
+                    variant=variant,
+                    namespace=namespace,
+                    node_name=node_name,
+                    pod_name=pod_name,
+                    phase="decode",
+                    timings=variant.decode.timings,
+                    gpu_id=gpu_id,
+                    batch_size=require_int_value(
+                        variant.decode.metrics["batch_size"],
+                        "decode batch_size must be int",
+                    ),
+                    decode_output_length=require_int_value(
+                        variant.decode.metrics["decode_max_output_length"],
+                        "decode output length must be int",
+                    ),
                 )
             )
 
     if not records:
         raise ValueError(
-            f"no training, inference, or prefill phases found in {result_json}"
+            f"no training, inference, prefill, or decode phases found in {result_json}"
         )
 
     return document, records
@@ -304,6 +352,7 @@ def _build_phase_record(
     timings: TimeWindow,
     gpu_id: str,
     batch_size: int,
+    decode_output_length: int,
 ) -> MonitorPhaseRecord:
     started_at_ts = _require_timestamp(
         timings.started_at_ts,
@@ -330,11 +379,15 @@ def _build_phase_record(
         inference = variant.inference
         assert inference is not None
         phase_rounds = inference.metrics.get("iterations")
-    else:
-        assert phase == "prefill", phase
+    elif phase == "prefill":
         prefill = variant.prefill
         assert prefill is not None
         phase_rounds = prefill.metrics.get("iterations")
+    else:
+        assert phase == "decode", phase
+        decode = variant.decode
+        assert decode is not None
+        phase_rounds = decode.metrics.get("iterations")
     assert isinstance(phase_rounds, int) and not isinstance(phase_rounds, bool), (
         f"{phase} phase_rounds must be int for variant {variant.name}"
     )
@@ -359,6 +412,7 @@ def _build_phase_record(
         duration_sec=ended_at_ts - started_at_ts,
         phase_rounds=phase_rounds,
         batch_size=batch_size,
+        decode_output_length=decode_output_length,
     )
 
 
@@ -523,6 +577,7 @@ def _monitor_phase_record(
         "resolved_gpu_label": resolved_gpu_label,
         "resolved_device_label": resolved_device_label,
         "batch_size": phase_record.batch_size,
+        "decode_output_length": phase_record.decode_output_length,
         "container_started_at_ts": memory_baseline.container_started_at_ts,
         "memory_baseline_gb": memory_baseline.memory_baseline_gb,
         "memory_baseline_sample_count": memory_baseline.sample_count,
@@ -593,7 +648,9 @@ def _summarize_memory_delta(
         max(memory_value - memory_baseline.memory_baseline_gb, 0.0)
         for memory_value in memory_values
     ]
-    return _summarize_values(delta_values, "memory_delta_gb")
+    summary = _summarize_values(delta_values, "memory_delta_gb")
+    result: dict[str, float | None] = dict(summary)
+    return result
 
 
 def _extract_gpu_metrics(

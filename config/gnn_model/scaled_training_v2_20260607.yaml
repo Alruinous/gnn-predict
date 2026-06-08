@@ -1,7 +1,7 @@
-experiment_name: gnn_model_scaled_v3_20260531
+experiment_name: gnn_model_scaled_v2_20260607
 data:
   kind: split
-  data_dir: data/scaled_v3
+  data_dir: data/scaled_v2
   target_names:
     - duration_sec_avg
     - cpu_cores_p95
@@ -10,7 +10,7 @@ data:
     - gpu_sm_active_percent_p95
     - gpu_sm_occupancy_percent_p95
     - gpu_mem_used_mb_p95
-  scaler_dir: data/scalers_v3
+  scaler_dir: data/scalers_v2
 model:
   hidden_dim: 128
   num_layers: 2

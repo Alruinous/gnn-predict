@@ -22,10 +22,7 @@ base_model_groups:
       use_fake_imagenet: true
       run_training: true
       training_measurement_min_seconds: 40.0
-      training_batch_sizes:
-      - 16
-      - 64
-      - 128
+      batch_size: 16
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0

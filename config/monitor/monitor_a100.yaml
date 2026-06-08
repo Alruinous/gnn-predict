@@ -1,0 +1,224 @@
+defaults:
+  prometheus_url: "http://192.168.5.60:31110"
+  namespace: "crater-workspace"
+  cpu_rate_window: "22s"
+  query_step_seconds: 1
+  memory_baseline_window_seconds: 5
+
+targets:
+  vit: # TODO
+    enabled: true
+    result_json: res/vit/results/vit_variants_a100_1780456809_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260603-b7a24-default0-0
+    gpu_id: "2"
+    output_csv: csv_v2/a100/vit_monitor.csv
+
+  vgg11: #TODO
+    enabled: true
+    result_json: res/vgg11/results/vgg11_variants_a100_1780456835_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260603-4ae01-default0-0
+    gpu_id: "0"
+    output_csv: csv_v2/a100/vgg11_monitor.csv
+
+  resnet101: # TODO
+    enabled: true
+    result_json: res/resnet101/results/resnet101_variants_a100_1780456961_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260603-3ba16-default0-0
+    gpu_id: "3"
+    output_csv: csv_v2/a100/resnet101_monitor.csv
+
+  resnet50: # TODO
+    enabled: true
+    result_json: res/resnet50/results/resnet50_variants_a100_1780459422_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260603-69e76-default0-0
+    gpu_id: "1"
+    output_csv: csv_v2/a100/resnet50_monitor.csv
+
+  mobilenet: # TODO
+    enabled: true
+    result_json: res/mobilenet/results/mobilenet_variants_a100_1780469629_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260603-12436-default0-0
+    gpu_id: "2"
+    output_csv: "csv_v2/a100/mobilenet_monitor.csv"
+
+  vgg16: # TODO
+    enabled: true
+    result_json: res/vgg16/results/vgg16_variants_a100_1780469735_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260603-f0a19-default0-0
+    gpu_id: "1"
+    output_csv: "csv_v2/a100/vgg16_monitor.csv"
+
+  convnext: # TODO
+    enabled: true
+    result_json: res/convnext/results/convnext_variants_a100_1780479205_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260603-1b51f-default0-0
+    gpu_id: "3"
+    output_csv: "csv_v2/a100/convnext_monitor.csv"
+
+  vgg19: # TODO
+    enabled: true
+    result_json: res/vgg19/results/vgg19_variants_a100_1780485630_results.json
+    node_name: xfusion-3
+    pod_name: sg-wangjh-260603-71638-default0-0
+    gpu_id: "1"
+    output_csv: csv_v2/a100/vgg19_monitor.csv
+
+  resnet: # TODO
+    enabled: true
+    result_json: res/resnet/results/resnet_variants_a100_1780491584_results.json
+    node_name: xfusion-2
+    pod_name: sg-wangjh-260603-8c3a8-default0-0
+    gpu_id: "0"
+    output_csv: "csv_v2/a100/resnet_monitor.csv"
+
+  resnet152: # TODO
+    enabled: true
+    result_json: res/resnet152/results/resnet152_variants_a100_1780491443_results.json
+    node_name: xfusion-3
+    pod_name: sg-wangjh-260603-4f5f0-default0-0
+    gpu_id: "0"
+    output_csv: csv_v2/a100/resnet152_monitor.csv
+
+  yolov8: # TODO
+    enabled: true
+    result_json: res/yolov8/results/yolov8_variants_v100_1777297814_results.json
+    node_name: "dell-67"
+    pod_name: "sg-wangjh-260427-2b036-default0-0"
+    gpu_id: "1"
+    output_csv: "csv_v2/yolov8_monitor.csv"
+
+  bert: # TODO
+    enabled: true
+    result_json: res/bert/results/bert_variants_a100_1780491585_results.json
+    node_name: xfusion-2
+    pod_name: sg-wangjh-260603-59e05-default0-0
+    gpu_id: "1"
+    output_csv: csv_v2/a100/bert_monitor.csv
+
+  bert_large: # TODO
+    enabled: true
+    result_json: res/bert_large/results/bert_large_variants_a100_1780497896_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260603-27d2e-default0-0
+    gpu_id: "2"
+    output_csv: csv_v2/a100/bert_large_monitor.csv
+
+  beit: # TODO
+    enabled: true
+    result_json: res/beit/results/beit_variants_a100_1780541906_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260604-7c901-default0-0
+    gpu_id: "0"
+    output_csv: "csv_v2/a100/beit_monitor.csv"
+
+  densenet: # TODO
+    enabled: true
+    result_json: res/densenet/results/densenet_variants_a100_1780541906_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260604-f8658-default0-0
+    gpu_id: "3"
+    output_csv: "csv_v2/a100/densenet_monitor.csv"
+
+  yolov5: # TODO
+    enabled: true
+    result_json: res/yolov5/results/yolov5_variants_a100_1780563172_results.json
+    node_name: xfusion-3
+    pod_name: sg-wangjh-260604-66b23-default0-0
+    gpu_id: "0"
+    output_csv: "csv_v2/a100/yolov5_monitor.csv"
+
+  yolov9: # TODO
+    enabled: true
+    result_json: res/yolov9/results/yolov9_variants_a100_1780542149_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260604-8adf2-default0-0
+    gpu_id: "1"
+    output_csv: "csv_v2/a100/yolov9_monitor.csv"
+
+  yolov11: # TODO
+    enabled: true
+    result_json: res/yolov11/results/yolov11_variants_v100_1777029532_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260424-c6e8f-default0-0
+    gpu_id: "2"
+    output_csv: "csv_v2/yolov11_monitor.csv"
+    
+  efficientnet: # TODO
+    enabled: true
+    result_json: res/efficientnet/results/efficientnet_variants_a100_1780542052_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260604-aef4c-default0-0
+    gpu_id: "2"
+    output_csv: "csv_v2/a100/efficientnet_monitor.csv"
+
+  inception:
+    enabled: false
+    result_json: res/inception_v3/results/inception_v3_variants_v100_1779260815_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260520-bde88-default0-0
+    gpu_id: "0"
+    output_csv: "csv_v2/inception_monitor.csv"
+    
+  swin: # TODO
+    enabled: true
+    result_json: res/swin/results/swin_variants_a100_1780542313_results.json
+    node_name: xfusion-2
+    pod_name: sg-wangjh-260604-b982f-default0-0
+    gpu_id: "0"
+    output_csv: "csv_v2/a100/swin_monitor.csv"
+
+  gpt2: # TODO
+    enabled: true
+    result_json: res/gpt2/results/gpt2_variants_a100_1780563172_results.json
+    node_name: xfusion-3
+    pod_name: sg-wangjh-260604-c5d98-default0-0
+    gpu_id: "1"
+    output_csv: "csv_v2/a100/gpt2_monitor.csv"
+  
+  t5: # TODO
+    enabled: true
+    result_json: res/t5/results/t5_variants_a100_1780563171_results.json
+    node_name: xfusion-2
+    pod_name: sg-wangjh-260604-bab36-default0-0
+    gpu_id: "0"
+    output_csv: "csv_v2/a100/t5_monitor.csv"
+  
+  deepfm:
+    enabled: false
+    result_json: res/deepfm/results/deepfm_variants_v100_1779097964_results.json
+    node_name: dell-67
+    pod_name: sg-wangjh-260518-3c1d7-default0-0
+    gpu_id: "0"
+    output_csv: "csv_v2/deepfm_monitor.csv"
+  
+  dcn:
+    enabled: false
+    result_json: res/dcn/results/dcn_variants_v100_1779097964_results.json
+    node_name: dell-67
+    pod_name: sg-wangjh-260518-c52af-default0-0
+    gpu_id: "1"
+    output_csv: "csv_v2/dcn_monitor.csv"
+  
+  dcnv2:
+    enabled: false
+    result_json: res/dcnv2/results/dcnv2_variants_v100_1779104355_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260518-1404c-default0-0
+    gpu_id: "2"
+    output_csv: "csv_v2/dcnv2_monitor.csv"
+  
+  edcn:
+    enabled: false
+    result_json: res/edcn/results/edcn_variants_v100_1779104354_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260518-043b1-default0-0
+    gpu_id: "0"
+    output_csv: "csv_v2/edcn_monitor.csv"
+  

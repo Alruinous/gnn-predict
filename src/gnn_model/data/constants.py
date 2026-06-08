@@ -23,7 +23,7 @@ OP_TYPE_NAMES = (
     "op_join_split",
     "op_cast",
     "op_constant",
-    "op_other",
+    "op_identity",
 )
 OP_TYPE_TO_INDEX = {name: index for index, name in enumerate(OP_TYPE_NAMES)}
 OP_TYPE_COUNT = len(OP_TYPE_NAMES)
@@ -101,6 +101,7 @@ GRAPH_FEATURE_NAMES = (
     "phase_token_id",
     "batch_size",
     "sample_count",
+    "decode_output_length",
     *GPU_SPEC_FIELDS,
     "parameter_input_count",
     "parameter_input_element_count",
@@ -142,6 +143,7 @@ PHASE_TO_INDEX = {
     "training": 0,
     "inference": 1,
     "prefill": 2,
+    "decode": 3,
 }
 
 

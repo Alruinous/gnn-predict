@@ -177,6 +177,8 @@ def write_result_json(
                 "timings": {},
                 "training": None,
                 "inference": None,
+                "prefill": None,
+                "decode": None,
                 "onnx_export": None,
                 "metadata": {"model_kind": model_kind},
             }

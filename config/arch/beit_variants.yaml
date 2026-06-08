@@ -15,8 +15,7 @@ base_model_groups:
       export_onnx: false
       onnx_export_mode: architecture_only
       run_training: true
-      training_batch_sizes:
-      - 8
+      batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_imagenet: true
       run_inference: true
@@ -49,8 +48,7 @@ base_model_groups:
       export_onnx: false
       onnx_export_mode: architecture_only
       run_training: true
-      training_batch_sizes:
-      - 8
+      batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_imagenet: true
       run_inference: true
@@ -89,8 +87,7 @@ base_model_groups:
       export_onnx: false
       onnx_export_mode: architecture_only
       run_training: true
-      training_batch_sizes:
-      - 16
+      batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_imagenet: true
       run_inference: true
@@ -129,10 +126,7 @@ base_model_groups:
       use_fake_imagenet: true
       run_training: true
       training_measurement_min_seconds: 40.0
-      training_batch_sizes:
-      - 8
-      - 32
-      - 64
+      batch_size: 8
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
@@ -1103,10 +1097,7 @@ base_model_groups:
       use_fake_imagenet: true
       run_training: true
       training_measurement_min_seconds: 40.0
-      training_batch_sizes:
-      - 4
-      - 16
-      - 32
+      batch_size: 4
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0

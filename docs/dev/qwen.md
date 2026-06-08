@@ -33,8 +33,7 @@
 首批建议只保留以下变体轴：
 
 - `example_input_shape`：固定为二维输入形状，用于生成固定形状的 `input_ids` 和 `attention_mask`。
-- `max_sequence_length`：与 `example_input_shape[1]` 保持一致，用于校验输入 token 长度不超过模型上限。
-- `training_batch_sizes`：与 `example_input_shape[0]` 保持一致，避免训练阶段和导出/Prefill 阶段的 batch 口径不一致。
+- `batch_size`：与 `example_input_shape[0]` 保持一致，避免训练阶段和导出/Prefill 阶段的 batch 口径不一致。
 
 `base_model.name` 只记录具体使用的 Qwen checkpoint 名称，例如 `Qwen3.5-0.8B`，不作为同一模型内部的变体轴。
 
@@ -66,7 +65,7 @@ Qwen3.5 公开模型包含 dense 的 0.8B、2B、4B、9B、27B，以及 MoE 的 
 - V100-32GB 和 A100 通用：`Qwen2-0.5B`、`Qwen2-1.5B`、`Qwen2.5-0.5B`、`Qwen2.5-1.5B`、`Qwen3-0.6B`、`Qwen3-1.7B`、`Qwen3.5-0.8B`。
 - A100-80GB 可追加：`Qwen2.5-3B`、`Qwen3-4B`、`Qwen3.5-2B`、`Qwen3.5-4B`。
 
-上述清单默认 `training_batch_sizes=[1]`，`sequence_length` 从 128、256、512 这类较短输入开始取值。增大 batch size 或 sequence length 时需要重新验证显存，不改变首批型号清单。
+上述清单默认 `batch_size: 1`，`sequence_length` 从 128、256、512 这类较短输入开始取值。增大 batch size 或 sequence length 时需要重新验证显存，不改变首批型号清单。
 
 默认不把 7B 及以上 dense 模型、任何 MoE 模型、任何量化模型列入首批清单。这些模型可以单独做 prefill 或 LoRA 类实验，但不适合作为当前 training + prefill 全流程数据的默认型号。
 
@@ -100,16 +99,14 @@ Qwen3.5 公开模型包含 dense 的 0.8B、2B、4B、9B、27B，以及 MoE 的 
 
 ```yaml
 example_input_shape: [1, 512]
-max_sequence_length: 512
-training_batch_sizes: [1]
+batch_size: 1
 ```
 
 `batch_size` 扩充时，只改变二维输入形状的第一个维度，并同步设置训练 batch：
 
 ```yaml
 example_input_shape: [4, 512]
-max_sequence_length: 512
-training_batch_sizes: [4]
+batch_size: 4
 ```
 
 组合数量按下面方式计算：

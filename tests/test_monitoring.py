@@ -386,8 +386,8 @@ def test_extract_phase_records_reads_training_and_inference(tmp_path: Path) -> N
 def test_extract_phase_records_reads_prefill(tmp_path: Path) -> None:
     variant = VariantResult(
         name="qwen_prefill_smoke",
-        base_model_name="Qwen3.5-0.8B",
-        base_model_pretrained=True,
+        base_model_name="qwen3_config",
+        base_model_pretrained=False,
         source="variant_config_grid",
         group_total_variants_defined=1,
         variant_config={},
@@ -404,7 +404,7 @@ def test_extract_phase_records_reads_prefill(tmp_path: Path) -> None:
         metadata={"gpu_node": "v100"},
     )
     document = ResultDocument(
-        config_path="/tmp/qwen_variants.yaml",
+        config_path="/tmp/qwen3_variants.yaml",
         gpu_node="v100",
         variants=[variant],
         summary={"variant_count": 1, "prefill_count": 1},
@@ -425,6 +425,56 @@ def test_extract_phase_records_reads_prefill(tmp_path: Path) -> None:
     assert records[0].duration_sec == 4.0
     assert records[0].phase_rounds == 11
     assert records[0].batch_size == 2
+    assert records[0].decode_output_length == 0
+
+
+def test_extract_phase_records_reads_decode(tmp_path: Path) -> None:
+    variant = VariantResult(
+        name="qwen_decode_smoke",
+        base_model_name="qwen3_config",
+        base_model_pretrained=False,
+        source="variant_config_grid",
+        group_total_variants_defined=1,
+        variant_config={},
+        mutations=[],
+        decode=InferenceResult(
+            metrics={
+                "iterations": 7,
+                "batch_size": 2,
+                "decode_max_output_length": 64,
+            },
+            timings=TimeWindow(
+                started_at_ts=130.0,
+                ended_at_ts=136.0,
+                started_at_text="2026-03-31T13:27:43+00:00",
+                ended_at_text="2026-03-31T13:27:49+00:00",
+            ),
+        ),
+        metadata={"gpu_node": "v100"},
+    )
+    document = ResultDocument(
+        config_path="/tmp/qwen3_variants.yaml",
+        gpu_node="v100",
+        variants=[variant],
+        summary={"variant_count": 1, "decode_count": 1},
+    )
+    result_json = tmp_path / "results.json"
+    write_result_document(result_json, document)
+
+    _, records = extract_phase_records(
+        "qwen",
+        result_json,
+        namespace="crater-workspace",
+        node_name="dell-67",
+        pod_name="sg-wangjh-260331-bbed6-default0-0",
+        gpu_id="1",
+    )
+
+    assert [record.phase for record in records] == ["decode"]
+    assert records[0].duration_sec == 6.0
+    assert records[0].phase_rounds == 7
+    assert records[0].batch_size == 2
+    assert records[0].decode_output_length == 64
 
 
 def test_extract_phase_records_fails_when_phase_timing_missing(tmp_path: Path) -> None:
@@ -498,6 +548,7 @@ def test_monitor_target_writes_expected_csv_columns_and_rows(tmp_path: Path) -> 
     assert set(loaded["resolved_gpu_label"].astype(str)) == {"1"}
     assert set(loaded["resolved_device_label"]) == {"nvidia1"}
     assert loaded["sample_count"].tolist() == [3, 3]
+    assert loaded["decode_output_length"].tolist() == [0, 0]
     assert loaded["container_started_at_ts"].tolist() == [90.0, 90.0]
     assert loaded["memory_baseline_gb"].tolist() == [0.5, 0.5]
     assert loaded["memory_baseline_sample_count"].tolist() == [3, 3]

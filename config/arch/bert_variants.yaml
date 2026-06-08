@@ -10,15 +10,10 @@ base_model_groups:
       example_input_shape:
       - 1
       - 128
-      max_sequence_length: 128
       run_training: true
       export_onnx: false
       onnx_export_mode: architecture_only
-      training_batch_sizes:
-      - 4
-      - 8
-      - 16
-      - 32
+      batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       use_real_text_dataset: true
@@ -50,15 +45,10 @@ base_model_groups:
       example_input_shape:
       - 1
       - 64
-      max_sequence_length: 64
       run_training: true
       export_onnx: false
       onnx_export_mode: architecture_only
-      training_batch_sizes:
-      - 4
-      - 8
-      - 16
-      - 32
+      batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       use_real_text_dataset: true
@@ -93,15 +83,10 @@ base_model_groups:
       example_input_shape:
       - 1
       - 256
-      max_sequence_length: 256
       run_training: true
       export_onnx: false
       onnx_export_mode: architecture_only
-      training_batch_sizes:
-      - 4
-      - 8
-      - 16
-      - 32
+      batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
       use_real_text_dataset: true
@@ -138,15 +123,11 @@ base_model_groups:
       - 128
       export_onnx: false
       onnx_export_mode: architecture_only
-      max_sequence_length: 128
       use_real_text_dataset: true
       use_fake_imagenet: false
       run_training: true
       training_measurement_min_seconds: 40.0
-      training_batch_sizes:
-      - 8
-      - 16
-      - 32
+      batch_size: 8
       use_fake_text_dataset: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0

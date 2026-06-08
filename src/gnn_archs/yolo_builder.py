@@ -333,7 +333,7 @@ def train_detection_model(
     device: torch.device,
 ) -> TrainingResult:
     """Run synthetic training for detection models."""
-    batch_size = spec.variant_config.training_batch_sizes[0]
+    batch_size = spec.variant_config.batch_size
     _, channels, height, width = spec.variant_config.example_input_shape
     generator = torch.Generator(device=device).manual_seed(42)
 

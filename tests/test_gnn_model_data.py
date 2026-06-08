@@ -72,6 +72,8 @@ def test_build_graph_data_from_onnx_returns_expected_shapes(tmp_path: Path) -> N
     assert data.graph_features[0, 0].item() == 1.0
     assert data.graph_features[0, 1].item() == 8.0
     assert data.graph_features[0, 2].item() == 3.0
+    decode_index = GRAPH_FEATURE_NAMES.index("decode_output_length")
+    assert data.graph_features[0, decode_index].item() == 0.0
     node_count_index = GRAPH_FEATURE_NAMES.index("node_count_log")
     assert data.graph_features[0, node_count_index].item() > 0
     assert all(not name.startswith("profile") for name in NODE_FEATURE_NAMES)
@@ -99,6 +101,29 @@ def test_build_graph_data_from_onnx_accepts_prefill_phase(tmp_path: Path) -> Non
 
     assert data.graph_features.shape == (1, GRAPH_FEATURE_DIM)
     assert data.graph_features[0, 0].item() == 2.0
+
+
+def test_build_graph_data_from_onnx_accepts_decode_phase(tmp_path: Path) -> None:
+    architecture_only_path = tmp_path / "toy_architecture.onnx"
+    export_architecture_only_onnx(
+        build_toy_model(0),
+        architecture_only_path,
+        (1, 3, 32, 32),
+    )
+
+    data = build_graph_data_from_onnx(
+        architecture_only_path,
+        batch_size=2,
+        gpu_name="v100",
+        phase="decode",
+        sample_count=3,
+        decode_output_length=64,
+    )
+
+    decode_index = GRAPH_FEATURE_NAMES.index("decode_output_length")
+    assert data.graph_features.shape == (1, GRAPH_FEATURE_DIM)
+    assert data.graph_features[0, 0].item() == 3.0
+    assert data.graph_features[0, decode_index].item() == 64.0
 
 
 def test_build_graph_data_from_onnx_adds_op_ids_and_shape_features(
@@ -139,10 +164,34 @@ def test_build_graph_data_from_onnx_adds_op_ids_and_shape_features(
     assert 0 <= peak_live_bytes <= activation_bytes
 
 
-def test_unknown_op_type_uses_other_category() -> None:
+def test_op_type_taxonomy_has_no_other_category() -> None:
     from gnn_model.data.onnx_graph import resolve_op_type_index
 
-    assert resolve_op_type_index("CustomExperimentalOp") == OP_TYPE_TO_INDEX["op_other"]
+    assert "op_other" not in OP_TYPE_NAMES
+    assert resolve_op_type_index("Identity") == OP_TYPE_TO_INDEX["op_identity"]
+    assert resolve_op_type_index("Sqrt") == OP_TYPE_TO_INDEX["op_elementwise"]
+    assert resolve_op_type_index("Exp") == OP_TYPE_TO_INDEX["op_elementwise"]
+    assert resolve_op_type_index("Sin") == OP_TYPE_TO_INDEX["op_elementwise"]
+    assert resolve_op_type_index("Cos") == OP_TYPE_TO_INDEX["op_elementwise"]
+    assert resolve_op_type_index("Neg") == OP_TYPE_TO_INDEX["op_elementwise"]
+    assert resolve_op_type_index("Reciprocal") == OP_TYPE_TO_INDEX["op_elementwise"]
+    assert resolve_op_type_index("Mod") == OP_TYPE_TO_INDEX["op_elementwise"]
+    assert resolve_op_type_index("Not") == OP_TYPE_TO_INDEX["op_elementwise"]
+    assert resolve_op_type_index("And") == OP_TYPE_TO_INDEX["op_elementwise"]
+    assert resolve_op_type_index("Trilu") == OP_TYPE_TO_INDEX["op_elementwise"]
+    assert resolve_op_type_index("LessOrEqual") == OP_TYPE_TO_INDEX["op_elementwise"]
+    assert resolve_op_type_index("IsNaN") == OP_TYPE_TO_INDEX["op_elementwise"]
+    assert resolve_op_type_index("Erf") == OP_TYPE_TO_INDEX["op_activation"]
+    assert resolve_op_type_index("Clip") == OP_TYPE_TO_INDEX["op_activation"]
+    assert resolve_op_type_index("PRelu") == OP_TYPE_TO_INDEX["op_activation"]
+    assert resolve_op_type_index("Resize") == OP_TYPE_TO_INDEX["op_layout"]
+    assert resolve_op_type_index("Pad") == OP_TYPE_TO_INDEX["op_layout"]
+    assert resolve_op_type_index("ArgMax") == OP_TYPE_TO_INDEX["op_reduce"]
+    assert resolve_op_type_index("CumSum") == OP_TYPE_TO_INDEX["op_reduce"]
+    assert resolve_op_type_index("Range") == OP_TYPE_TO_INDEX["op_shape"]
+    assert resolve_op_type_index("ScatterND") == OP_TYPE_TO_INDEX["op_join_split"]
+    with pytest.raises(KeyError):
+        resolve_op_type_index("CustomExperimentalOp")
 
 
 def test_resolve_tensor_shape_keeps_scalar_and_zero_length_shapes() -> None:
@@ -430,7 +479,7 @@ def test_load_prepared_graph_datasets_rejects_feature_name_mismatch(
     manifest_path.write_text(
         json.dumps(
             {
-                "schema_version": "4.0.0",
+                "schema_version": "4.1.0",
                 "target_names": list(TARGET_NAMES),
                 "node_feature_names": ["bad_node_feature"],
                 "op_type_names": list(OP_TYPE_NAMES),
@@ -472,6 +521,7 @@ def test_build_model_record_info_resolves_path_and_targets(tmp_path: Path) -> No
     assert info.sample_id == "variant_a::training"
     assert info.batch_size == 2
     assert info.gpu_name == "v100"
+    assert info.metadata["decode_output_length"] == 0
     assert info.target == pytest.approx((2.5, 4.25, 1.25, 75.0, 65.0, 12.5, 2048.0))
 
 
@@ -496,6 +546,31 @@ def test_process_csv_builds_graphs_with_hardcoded_targets(tmp_path: Path) -> Non
     assert graph.gpu_node == "v100"
     assert graph.gpu_name == "v100"
     assert graph.graph_features.shape == (1, GRAPH_FEATURE_DIM)
+
+
+def test_process_csv_builds_decode_graph_feature(tmp_path: Path) -> None:
+    res_root = tmp_path / "res"
+    write_variant_onnx_files(res_root, "demo", ("variant_a",))
+    csv_path = tmp_path / "demo_monitor.csv"
+    write_monitor_csv(
+        csv_path,
+        [
+            build_monitor_row(
+                res_root,
+                "variant_a",
+                "decode",
+                12.0,
+                decode_output_length=64,
+            )
+        ],
+    )
+
+    graph = process_csv(csv_path).records[0]
+
+    decode_index = GRAPH_FEATURE_NAMES.index("decode_output_length")
+    assert graph.phase == "decode"
+    assert graph.graph_features[0, 0].item() == 3.0
+    assert graph.graph_features[0, decode_index].item() == 64.0
 
 
 def test_load_graph_split_rejects_legacy_graph_features(tmp_path: Path) -> None:
@@ -588,9 +663,9 @@ def test_build_prepared_dataset_writes_manifest_and_loads(tmp_path: Path) -> Non
     )
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == "4.0.0"
+    assert manifest["schema_version"] == "4.1.0"
     assert manifest["feature_source"] == (
-        "onnx_tool_static_metrics_shape_topology_features"
+        "onnx_tool_static_metrics_shape_topology_features_op_reclass_identity"
     )
     assert manifest["target_names"] == list(TARGET_FIELDS)
     assert manifest["node_feature_names"] == list(NODE_FEATURE_NAMES)
@@ -642,6 +717,8 @@ def build_monitor_row(
     variant_name: str,
     phase: str,
     duration_sec: float,
+    *,
+    decode_output_length: int = 0,
 ) -> dict[str, object]:
     return {
         "target_name": "demo",
@@ -654,6 +731,7 @@ def build_monitor_row(
         "gpu_id": 0,
         "batch_size": 2,
         "sample_count": 3,
+        "decode_output_length": decode_output_length,
         "resolved_gpu_label": "0",
         "resolved_device_label": "nvidia0",
         "duration_sec": duration_sec,

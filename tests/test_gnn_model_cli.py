@@ -93,9 +93,9 @@ def test_gnn_model_cli_extract_writes_manifest(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
     manifest_path = output_dir / "manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "4.0.0"
+    assert payload["schema_version"] == "4.1.0"
     assert payload["feature_source"] == (
-        "onnx_tool_static_metrics_shape_topology_features"
+        "onnx_tool_static_metrics_shape_topology_features_op_reclass_identity"
     )
     assert payload["sample_count"] == 3
     assert payload["target_names"] == list(TARGET_FIELDS)
@@ -115,6 +115,8 @@ def build_monitor_row(
     variant_name: str,
     phase: str,
     duration_sec: float,
+    *,
+    decode_output_length: int = 0,
 ) -> dict[str, object]:
     return {
         "target_name": "demo",
@@ -127,6 +129,7 @@ def build_monitor_row(
         "gpu_id": 0,
         "batch_size": 2,
         "sample_count": 3,
+        "decode_output_length": decode_output_length,
         "resolved_gpu_label": "0",
         "resolved_device_label": "nvidia0",
         "duration_sec": duration_sec,

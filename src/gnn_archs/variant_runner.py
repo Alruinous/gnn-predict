@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import onnx
 import timm
@@ -69,6 +69,10 @@ class RunContext:
     device: torch.device
     gpu_node: str
     logger: logging.Logger
+
+
+class CausalLMGenerator(Protocol):
+    def generate(self, **kwargs: Any) -> torch.Tensor: ...
 
 
 class OnnxExportWrapper(nn.Module):
@@ -136,6 +140,7 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
     training_result: TrainingResult | None = None
     inference_result: InferenceResult | None = None
     prefill_result: InferenceResult | None = None
+    decode_result: InferenceResult | None = None
     try:
         model_build_started_at = time.time()
         model = build_variant_model(spec)
@@ -195,6 +200,19 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
             prefill_result = run_prefill(spec, model, context.device)
             timings["prefill"] = prefill_result.timings
 
+        if spec.variant_config.run_decode:
+            if (
+                training_result is not None
+                or inference_result is not None
+                or prefill_result is not None
+            ):
+                wait_for_inference_cooldown(
+                    spec.variant_config.pre_decode_cooldown_seconds,
+                    context.device,
+                )
+            decode_result = run_decode(spec, model, context.device)
+            timings["decode"] = decode_result.timings
+
         timings["full"] = build_time_window(run_started_at, time.time())
 
         return VariantResult(
@@ -209,6 +227,7 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
             training=training_result,
             inference=inference_result,
             prefill=prefill_result,
+            decode=decode_result,
             onnx_export=onnx_result,
             metadata={
                 "device": str(context.device),
@@ -222,9 +241,7 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
                 "parameter_count": count_parameters(model),
                 "validation_batch_size": validation_metrics["batch_size"],
                 "validation_num_outputs": validation_metrics["num_outputs"],
-                "pretrained_weights_loaded": is_causal_lm_model_name(
-                    spec.base_model.name
-                ),
+                "pretrained_weights_loaded": spec.base_model.pretrained,
             },
         )
     finally:
@@ -368,7 +385,6 @@ def build_bert_config(
     config.num_labels = variant_config.target_output_classes
     config.max_position_embeddings = max(
         config.max_position_embeddings,
-        variant_config.max_sequence_length,
         variant_config.example_input_shape[1],
     )
     return config
@@ -503,23 +519,17 @@ def export_causal_lm_onnx_model(
     opset_version = 14
     export_mode = spec.variant_config.onnx_export_mode
     export_model = CausalLMOnnxLogitsExport(model).to(context.device)
-    qwen35_model = is_qwen35_model(model)
-    patched_qwen35_modules = patch_qwen35_export_modules(model) if qwen35_model else []
-    try:
-        with temporary_causal_lm_export_attention(model):
-            torch.onnx.export(
-                export_model,
-                (batch["input_ids"], batch["attention_mask"]),
-                export_path,
-                input_names=input_names,
-                output_names=["logits"],
-                opset_version=opset_version,
-                dynamo=False,
-                export_params=export_mode == "full",
-                do_constant_folding=not qwen35_model,
-            )
-    finally:
-        restore_qwen35_export_modules(patched_qwen35_modules)
+    with temporary_causal_lm_export_attention(model):
+        torch.onnx.export(
+            export_model,
+            (batch["input_ids"], batch["attention_mask"]),
+            export_path,
+            input_names=input_names,
+            output_names=["logits"],
+            opset_version=opset_version,
+            dynamo=False,
+            export_params=export_mode == "full",
+        )
 
     onnx_model = onnx.load(export_path)
     set_model_metadata_value(
@@ -557,15 +567,6 @@ def export_causal_lm_onnx_model(
     )
 
 
-def export_qwen_onnx_model(
-    spec: ResolvedVariantSpec,
-    model: nn.Module,
-    context: RunContext,
-    batch: dict[str, torch.Tensor],
-) -> OnnxExportResult:
-    return export_causal_lm_onnx_model(spec, model, context, batch)
-
-
 @contextmanager
 def temporary_causal_lm_export_attention(model: nn.Module) -> Iterator[None]:
     previous_values: list[tuple[Any, Any]] = []
@@ -588,61 +589,6 @@ def iter_causal_lm_export_configs(model: nn.Module) -> tuple[Any, ...]:
     if text_config is None:
         return (config,)
     return (config, text_config)
-
-
-def is_qwen35_model(model: nn.Module) -> bool:
-    config = getattr(model, "config", None)
-    text_config = getattr(config, "text_config", None)
-    return (
-        getattr(config, "model_type", None) == "qwen3_5"
-        or getattr(config, "model_type", None) == "qwen3_5_text"
-        or getattr(text_config, "model_type", None) == "qwen3_5_text"
-    )
-
-
-def patch_qwen35_export_modules(model: nn.Module) -> list[tuple[Any, ...]]:
-    from transformers.models.qwen3_5 import modeling_qwen3_5
-
-    patched_modules = []
-    for module in model.modules():
-        if module.__class__.__name__ != "Qwen3_5GatedDeltaNet":
-            continue
-        norm_weight = module.norm.weight
-        export_norm = modeling_qwen3_5.Qwen3_5RMSNormGated(
-            module.head_v_dim,
-            eps=module.layer_norm_epsilon,
-        ).to(device=norm_weight.device, dtype=norm_weight.dtype)
-        export_norm.weight.data.copy_(norm_weight.data)
-        patched_modules.append(
-            (
-                module,
-                module.causal_conv1d_fn,
-                module.chunk_gated_delta_rule,
-                module.recurrent_gated_delta_rule,
-                module.norm,
-            )
-        )
-        module.causal_conv1d_fn = None
-        module.chunk_gated_delta_rule = modeling_qwen3_5.torch_chunk_gated_delta_rule
-        module.recurrent_gated_delta_rule = (
-            modeling_qwen3_5.torch_recurrent_gated_delta_rule
-        )
-        module.norm = export_norm
-    return patched_modules
-
-
-def restore_qwen35_export_modules(patched_modules: list[tuple[Any, ...]]) -> None:
-    for (
-        module,
-        causal_conv1d_fn,
-        chunk_gated_delta_rule,
-        recurrent_gated_delta_rule,
-        norm,
-    ) in patched_modules:
-        module.causal_conv1d_fn = causal_conv1d_fn
-        module.chunk_gated_delta_rule = chunk_gated_delta_rule
-        module.recurrent_gated_delta_rule = recurrent_gated_delta_rule
-        module.norm = norm
 
 
 def train_model(
@@ -670,7 +616,7 @@ def train_model(
         raise NotImplementedError("real image dataset preparation is not migrated yet")
 
     is_text_model = is_text_model_name(spec.base_model.name)
-    batch_size = spec.variant_config.training_batch_sizes[0]
+    batch_size = spec.variant_config.batch_size
     generator = torch.Generator().manual_seed(42)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     criterion: nn.Module = (
@@ -833,6 +779,72 @@ def run_prefill(
         },
         timings=build_time_window(started_at, ended_at),
     )
+
+
+def run_decode(
+    spec: ResolvedVariantSpec,
+    model: nn.Module,
+    device: torch.device,
+) -> InferenceResult:
+    if not is_causal_lm_model_name(spec.base_model.name):
+        raise ValueError("decode phase is only supported for causal lm variants")
+
+    batch = build_example_batch(spec.variant_config, model, True)
+    batch = {name: tensor.to(device) for name, tensor in batch.items()}
+    measurement_min_seconds = spec.variant_config.decode_measurement_min_seconds
+    max_output_length = spec.variant_config.decode_max_output_length
+    iterations = 0
+
+    model.eval()
+    with torch.no_grad():
+        for _ in range(2):
+            _ = generate_decode_batch(model, batch, max_output_length)
+
+        synchronize_device(device)
+
+        started_at = time.time()
+        ended_at = started_at
+        generated: torch.Tensor | None = None
+        while ended_at - started_at < measurement_min_seconds:
+            generated = generate_decode_batch(model, batch, max_output_length)
+            synchronize_device(device)
+            iterations += 1
+            ended_at = time.time()
+
+    assert generated is not None
+    prompt_length = spec.variant_config.example_input_shape[1]
+    generated_output_length = int(generated.shape[1] - prompt_length)
+    total_duration = ended_at - started_at
+    return InferenceResult(
+        metrics={
+            "iterations": iterations,
+            "batch_size": spec.variant_config.example_input_shape[0],
+            "sequence_length": prompt_length,
+            "decode_max_output_length": max_output_length,
+            "generated_output_length": generated_output_length,
+            "avg_latency_ms": round(total_duration / iterations * 1000, 4),
+        },
+        timings=build_time_window(started_at, ended_at),
+    )
+
+
+def generate_decode_batch(
+    model: nn.Module,
+    batch: dict[str, torch.Tensor],
+    max_output_length: int,
+) -> torch.Tensor:
+    generated = cast(CausalLMGenerator, model).generate(
+        input_ids=batch["input_ids"],
+        attention_mask=batch["attention_mask"],
+        max_new_tokens=max_output_length,
+        do_sample=False,
+        num_beams=1,
+        use_cache=True,
+        pad_token_id=0,
+        eos_token_id=None,
+    )
+    assert isinstance(generated, torch.Tensor)
+    return generated
 
 
 def build_training_batch(
@@ -1036,6 +1048,7 @@ def summarize_variant_results(variant_results: list[VariantResult]) -> dict[str,
             result.inference is not None for result in variant_results
         ),
         "prefill_count": sum(result.prefill is not None for result in variant_results),
+        "decode_count": sum(result.decode is not None for result in variant_results),
         "onnx_export_count": sum(
             result.onnx_export is not None for result in variant_results
         ),

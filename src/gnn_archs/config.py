@@ -144,6 +144,57 @@ class T5ConfigOverride(StrictModel):
     feed_forward_proj: str = "relu"
 
 
+class Qwen3ConfigOverride(StrictModel):
+    vocab_size: int
+    hidden_size: int
+    intermediate_size: int
+    num_hidden_layers: int
+    num_attention_heads: int
+    num_key_value_heads: int
+    head_dim: int = 128
+    hidden_act: str = "silu"
+    max_position_embeddings: int = 40960
+    initializer_range: float = 0.02
+    rms_norm_eps: float = 1e-6
+    tie_word_embeddings: bool = True
+    rope_parameters: dict[str, int | float | str | bool] = Field(
+        default_factory=lambda: {
+            "rope_theta": 1000000.0,
+            "rope_type": "default",
+        }
+    )
+    attention_bias: bool = False
+    attention_dropout: float = 0.0
+
+    @model_validator(mode="after")
+    def validate_qwen3_config(self) -> Qwen3ConfigOverride:
+        positive_fields = (
+            ("vocab_size", self.vocab_size),
+            ("hidden_size", self.hidden_size),
+            ("intermediate_size", self.intermediate_size),
+            ("num_hidden_layers", self.num_hidden_layers),
+            ("num_attention_heads", self.num_attention_heads),
+            ("num_key_value_heads", self.num_key_value_heads),
+            ("head_dim", self.head_dim),
+            ("max_position_embeddings", self.max_position_embeddings),
+        )
+        for field_name, value in positive_fields:
+            if value <= 0:
+                raise ValueError(f"qwen3_config.{field_name} must be positive")
+        if self.num_attention_heads % self.num_key_value_heads != 0:
+            raise ValueError(
+                "qwen3_config.num_attention_heads must be divisible by "
+                "num_key_value_heads"
+            )
+        if self.rms_norm_eps <= 0:
+            raise ValueError("qwen3_config.rms_norm_eps must be positive")
+        if self.initializer_range <= 0:
+            raise ValueError("qwen3_config.initializer_range must be positive")
+        if not 0 <= self.attention_dropout < 1:
+            raise ValueError("qwen3_config.attention_dropout must be in [0, 1)")
+        return self
+
+
 class RecommenderSparseFeatureConfig(StrictModel):
     name: str
     vocab_size: int
@@ -325,32 +376,29 @@ class VariantConfig(StrictModel):
     run_training: bool = False
     run_inference: bool = False
     run_prefill: bool = False
+    run_decode: bool = False
     pre_inference_cooldown_seconds: float = 3.0
     pre_prefill_cooldown_seconds: float = 3.0
+    pre_decode_cooldown_seconds: float = 3.0
     inference_measurement_min_seconds: float = 5.0
     prefill_measurement_min_seconds: float = 5.0
+    decode_measurement_min_seconds: float = 5.0
+    decode_max_output_length: int = 0
     export_onnx: bool = False
     onnx_export_mode: Literal["full", "architecture_only"] = "full"
-    training_batch_sizes: list[int] = Field(default_factory=lambda: [32])
+    batch_size: int = 32
     training_measurement_min_seconds: float = 5.0
     use_fake_imagenet: bool = False
     use_fake_text_dataset: bool = False
     use_fake_recommender_dataset: bool = False
     use_real_text_dataset: bool = False
-    max_sequence_length: int = 128
     gpt2_config: Gpt2ConfigOverride | None = None
     t5_config: T5ConfigOverride | None = None
+    qwen3_config: Qwen3ConfigOverride | None = None
     deepfm_config: DeepFMConfigOverride | None = None
     dcn_config: DCNConfigOverride | None = None
     dcnv2_config: DCNv2ConfigOverride | None = None
     edcn_config: EDCNConfigOverride | None = None
-
-    @field_validator("training_batch_sizes", mode="before")
-    @classmethod
-    def normalize_training_batch_sizes(cls, value: int | list[int]) -> list[int]:
-        if isinstance(value, int):
-            return [value]
-        return value
 
     @field_validator("example_input_shape")
     @classmethod
@@ -376,18 +424,24 @@ class VariantConfig(StrictModel):
 
         if self.training_measurement_min_seconds <= 0:
             raise ValueError("training_measurement_min_seconds must be positive")
-        if self.max_sequence_length <= 0:
-            raise ValueError("max_sequence_length must be positive")
+        if self.batch_size <= 0:
+            raise ValueError("batch_size must be positive")
         if self.pre_inference_cooldown_seconds < 0:
             raise ValueError("pre_inference_cooldown_seconds must be non-negative")
         if self.pre_prefill_cooldown_seconds < 0:
             raise ValueError("pre_prefill_cooldown_seconds must be non-negative")
+        if self.pre_decode_cooldown_seconds < 0:
+            raise ValueError("pre_decode_cooldown_seconds must be non-negative")
         if self.inference_measurement_min_seconds <= 0:
             raise ValueError("inference_measurement_min_seconds must be positive")
         if self.prefill_measurement_min_seconds <= 0:
             raise ValueError("prefill_measurement_min_seconds must be positive")
-        if any(batch_size <= 0 for batch_size in self.training_batch_sizes):
-            raise ValueError("training_batch_sizes must only contain positive integers")
+        if self.decode_measurement_min_seconds <= 0:
+            raise ValueError("decode_measurement_min_seconds must be positive")
+        if self.run_decode and self.decode_max_output_length <= 0:
+            raise ValueError("decode_max_output_length must be positive for decode")
+        if not self.run_decode and self.decode_max_output_length < 0:
+            raise ValueError("decode_max_output_length must be non-negative")
         recommender_config_count = count_recommender_configs(self)
         if recommender_config_count > 1:
             raise ValueError("variant_config must define only one recommender config")

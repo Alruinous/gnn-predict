@@ -252,7 +252,7 @@ def test_train_detection_model_uses_fixed_train_output_contract(
         [],
         variant_config_overrides={
             "example_input_shape": [1, 3, 8, 8],
-            "training_batch_sizes": [2],
+            "batch_size": 2,
             "training_measurement_min_seconds": 1e-9,
         },
     )
@@ -281,7 +281,7 @@ def test_train_detection_model_records_elapsed_steps(
         [],
         variant_config_overrides={
             "example_input_shape": [1, 3, 8, 8],
-            "training_batch_sizes": [2],
+            "batch_size": 2,
             "training_measurement_min_seconds": 5.0,
         },
     )

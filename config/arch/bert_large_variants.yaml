@@ -15,15 +15,11 @@ base_model_groups:
       - 128
       export_onnx: false
       onnx_export_mode: architecture_only
-      max_sequence_length: 128
       use_real_text_dataset: true
       use_fake_imagenet: false
       run_training: true
       training_measurement_min_seconds: 40.0
-      training_batch_sizes:
-      - 2
-      - 4
-      - 8
+      batch_size: 2
       use_fake_text_dataset: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
