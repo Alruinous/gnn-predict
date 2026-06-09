@@ -48,6 +48,20 @@ dev = [
     "pytest>=8.4.2",
 ]
 
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.ty.environment]
+python = ".venv"
+extra-paths = [
+  "src",
+  "/usr/share/datacenter-gpu-manager-4/bindings/python3",
+]
+
 [[tool.uv.dependency-metadata]]
 name = "ultralytics"
 version = "8.4.39"
