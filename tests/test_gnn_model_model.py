@@ -84,7 +84,7 @@ def test_intelligraph_large_model_predictor_supports_target_readout_modes() -> N
     graphs = [build_synthetic_graph(index) for index in range(2)]
     batch = next(iter(DataLoader(graphs, batch_size=2, shuffle=False)))
     target_readout_modes: dict[str, ReadoutMode] = {
-        "memory_delta_gb_p95": "mean_sum_max"
+        "memory_delta_gb_max": "mean_sum_max"
     }
     model = IntelliGraphLargeModelPredictor(
         node_dim=NODE_FEATURE_DIM,

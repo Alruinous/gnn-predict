@@ -25,7 +25,7 @@ def test_compute_regression_metrics_includes_wape_and_max_error() -> None:
     metrics = compute_regression_metrics(
         predictions,
         targets,
-        ("duration_sec_avg", "gpu_mem_used_mb_p95"),
+        ("duration_sec_avg", "gpu_mem_used_mb_max"),
     )
 
     assert metrics["mae"] == pytest.approx(1.75)
@@ -40,12 +40,12 @@ def test_compute_regression_metrics_includes_wape_and_max_error() -> None:
     assert metrics["duration_sec_avg_r2"] == pytest.approx(-4.0)
     assert metrics["duration_sec_avg_wape"] == pytest.approx(1.0)
     assert metrics["duration_sec_avg_max_abs_error"] == pytest.approx(3.0)
-    assert metrics["gpu_mem_used_mb_p95_mae"] == pytest.approx(1.5)
-    assert metrics["gpu_mem_used_mb_p95_mse"] == pytest.approx(2.5)
-    assert metrics["gpu_mem_used_mb_p95_rmse"] == pytest.approx(math.sqrt(2.5))
-    assert metrics["gpu_mem_used_mb_p95_r2"] == pytest.approx(0.6)
-    assert metrics["gpu_mem_used_mb_p95_wape"] == pytest.approx(0.2)
-    assert metrics["gpu_mem_used_mb_p95_max_abs_error"] == pytest.approx(2.0)
+    assert metrics["gpu_mem_used_mb_max_mae"] == pytest.approx(1.5)
+    assert metrics["gpu_mem_used_mb_max_mse"] == pytest.approx(2.5)
+    assert metrics["gpu_mem_used_mb_max_rmse"] == pytest.approx(math.sqrt(2.5))
+    assert metrics["gpu_mem_used_mb_max_r2"] == pytest.approx(0.6)
+    assert metrics["gpu_mem_used_mb_max_wape"] == pytest.approx(0.2)
+    assert metrics["gpu_mem_used_mb_max_max_abs_error"] == pytest.approx(2.0)
 
 
 def test_compute_original_scale_metrics_prefixes_new_metrics() -> None:
@@ -53,13 +53,13 @@ def test_compute_original_scale_metrics_prefixes_new_metrics() -> None:
     targets = torch.tensor([[1.0, 5.0], [3.0, 10.0]])
     target_scalers: dict[str, TargetScaler] = {
         "duration_sec_avg": IdentityScaler(),
-        "gpu_mem_used_mb_p95": IdentityScaler(),
+        "gpu_mem_used_mb_max": IdentityScaler(),
     }
 
     metrics = compute_original_scale_metrics(
         predictions,
         targets,
-        ("duration_sec_avg", "gpu_mem_used_mb_p95"),
+        ("duration_sec_avg", "gpu_mem_used_mb_max"),
         target_scalers,
     )
 

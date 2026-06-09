@@ -27,12 +27,12 @@ from gnn_model.data.dataset import SPLIT_FILE_NAMES, resolve_split_counts
 ID_FIELDS = ("variant_name", "phase")
 TARGET_FIELDS = (
     "duration_sec_avg",
-    "cpu_cores_p95",
-    "memory_delta_gb_p95",
-    "gpu_util_percent_p95",
-    "gpu_sm_active_percent_p95",
-    "gpu_sm_occupancy_percent_p95",
-    "gpu_mem_used_mb_p95",
+    "cpu_cores_max",
+    "memory_delta_gb_max",
+    "gpu_util_percent_max",
+    "gpu_sm_active_percent_max",
+    "gpu_sm_occupancy_percent_max",
+    "gpu_mem_used_mb_max",
 )
 METADATA_FIELDS = (
     "target_name",
@@ -95,8 +95,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Extract monitoring CSV rows into a prepared gnn_model dataset.",
     )
     parser.add_argument(
-        "--csv_dir",
-        default="csv_v2/v100",
+        "--csv_dirs",
+        default="csv/v100,csv/a100",
         help="Directory containing *_monitor.csv files.",
     )
     parser.add_argument(
@@ -127,8 +127,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    csv_dirs = args.csv_dirs.strip().split(",")
     build_dataset(
-        csv_dir=Path(args.csv_dir),
+        csv_dirs=[Path(csv_dir) for csv_dir in csv_dirs],
         output_dir=Path(args.output_dir),
         val_ratio=args.val_ratio,
         test_ratio=args.test_ratio,
@@ -139,14 +140,16 @@ def main(argv: list[str] | None = None) -> int:
 
 def build_dataset(
     *,
-    csv_dir: Path,
+    csv_dirs: list[Path],
     output_dir: Path,
     val_ratio: float = 0.2,
     test_ratio: float = 0.2,
     seed: int = 42,
 ) -> Path:
-    csv_paths = sorted(Path(csv_dir).glob("*.csv"))
-    assert csv_paths, f"No csv files found in {csv_dir}"
+    csv_paths = []
+    for csv_dir in csv_dirs:
+        csv_paths.extend(sorted(csv_dir.glob("*.csv")))
+    assert csv_paths, f"No csv files found in {csv_dirs}"
     csv_results = [process_csv(csv_path) for csv_path in csv_paths]
     graphs = [graph for result in csv_results for graph in result.records]
     assert graphs
@@ -179,7 +182,7 @@ def build_dataset(
         torch.save(split_data[split_name], output_path / file_name)
 
     manifest = build_manifest(
-        csv_dir=csv_dir,
+        csv_dirs=csv_dirs,
         split_data=split_data,
         sample_count=len(graphs),
         total_record_count=len(graphs),
@@ -200,6 +203,7 @@ def process_csv(csv_file: str | Path) -> CsvProcessResult:
     start_time = time.time()
     csv_path = Path(csv_file)
     df = pl.read_csv(csv_path)
+    df = normalize_monitor_columns(df, csv_path)
     assert set(REQUIRED_COLUMNS) <= set(df.columns), csv_path
     df = df.with_columns(
         (pl.col("duration_sec") / pl.col("phase_rounds")).alias("duration_sec_avg"),
@@ -227,7 +231,7 @@ def process_csv(csv_file: str | Path) -> CsvProcessResult:
     assert df.height > 0, csv_path
     pre_gpu_quality_count = df.height
     high_memory_delta_count = df.filter(
-        pl.col("memory_delta_gb_p95") > MEMORY_DELTA_LOG_THRESHOLD_GB
+        pl.col("memory_delta_gb_max") > MEMORY_DELTA_LOG_THRESHOLD_GB
     ).height
     df = df.filter(~invalid_gpu_metric_expr())
     gpu_quality_filtered_count = pre_gpu_quality_count - df.height
@@ -258,10 +262,20 @@ def process_csv(csv_file: str | Path) -> CsvProcessResult:
     )
 
 
+def normalize_monitor_columns(df: pl.DataFrame, csv_path: Path) -> pl.DataFrame:
+    if "decode_output_length" in df.columns:
+        return df
+    if "phase" in df.columns and df.filter(pl.col("phase") == "decode").height > 0:
+        raise ValueError(
+            f"decode_output_length is required for decode rows: {csv_path}"
+        )
+    return df.with_columns(pl.lit(0, dtype=pl.Int64).alias("decode_output_length"))
+
+
 def invalid_gpu_metric_expr() -> pl.Expr:
-    gpu_mem = pl.col("gpu_mem_used_mb_p95")
-    gpu_util = pl.col("gpu_util_percent_p95")
-    gpu_sm_occupancy = pl.col("gpu_sm_occupancy_percent_p95")
+    gpu_mem = pl.col("gpu_mem_used_mb_max")
+    gpu_util = pl.col("gpu_util_percent_max")
+    gpu_sm_occupancy = pl.col("gpu_sm_occupancy_percent_max")
     return (
         (gpu_mem <= 0)
         | ((gpu_util <= 0) & (gpu_mem > 0))
@@ -382,7 +396,7 @@ def split_graphs(
 
 def build_manifest(
     *,
-    csv_dir: Path,
+    csv_dirs: list[Path],
     split_data: dict[str, list[Data]],
     sample_count: int,
     total_record_count: int,
@@ -395,7 +409,7 @@ def build_manifest(
         "feature_source": (
             "onnx_tool_static_metrics_shape_topology_features_op_reclass_identity"
         ),
-        "csv_dir": str(Path(csv_dir).resolve()),
+        "csv_dirs": ','.join([str(Path(csv_dir).resolve()) for csv_dir in csv_dirs]),
         "id_fields": list(ID_FIELDS),
         "target_names": list(TARGET_FIELDS),
         "node_feature_names": list(NODE_FEATURE_NAMES),

@@ -27,12 +27,12 @@ from gnn_model.data.dataset import SPLIT_FILE_NAMES
 
 TARGET_NAMES = (
     "duration_sec_avg",
-    "cpu_cores_p95",
-    "memory_delta_gb_p95",
-    "gpu_util_percent_p95",
-    "gpu_sm_active_percent_p95",
-    "gpu_sm_occupancy_percent_p95",
-    "gpu_mem_used_mb_p95",
+    "cpu_cores_max",
+    "memory_delta_gb_max",
+    "gpu_util_percent_max",
+    "gpu_sm_active_percent_max",
+    "gpu_sm_occupancy_percent_max",
+    "gpu_mem_used_mb_max",
 )
 
 

@@ -132,19 +132,26 @@ def load_monitor_settings(
     enabled_target_names: list[str] = []
 
     for target_name, target in config.targets.items():
-        normalized_name = _normalize_target_name(target_name)
-        if normalized_name in normalized_targets:
+        target_name = target_name.strip()
+        if not target_name:
+            raise ValueError("monitor config target names must not be empty")
+        if target_name in normalized_targets:
             raise ValueError(
                 "monitor config target names must be unique after trimming: "
-                f"{normalized_name}"
+                f"{target_name}"
             )
-        normalized_targets[normalized_name] = target
+        normalized_targets[target_name] = target
         if target.enabled:
-            enabled_target_names.append(normalized_name)
+            enabled_target_names.append(target_name)
 
-    requested_target_names = _normalize_requested_target_names(target_names)
+    target_names = (
+        tuple(target_name.strip() for target_name in target_names)
+        if target_names is not None
+        else None
+    )
+
     selected_target_names = _resolve_selected_target_names(
-        requested_target_names,
+        target_names,
         normalized_targets=normalized_targets,
         enabled_target_names=enabled_target_names,
     )
@@ -168,26 +175,6 @@ def load_monitor_settings(
         targets=tuple(resolved_targets),
         memory_baseline_window_seconds=config.defaults.memory_baseline_window_seconds,
     )
-
-
-def _resolve_path(raw_path: str) -> Path:
-    return Path(raw_path)
-
-
-def _normalize_target_name(target_name: str) -> str:
-    normalized_name = target_name.strip()
-    if not normalized_name:
-        raise ValueError("target names must not be empty")
-    return normalized_name
-
-
-def _normalize_requested_target_names(
-    target_names: Sequence[str] | None,
-) -> tuple[str, ...] | None:
-    if target_names is None:
-        return None
-
-    return tuple(_normalize_target_name(target_name) for target_name in target_names)
 
 
 def _resolve_selected_target_names(
@@ -227,9 +214,9 @@ def _resolve_target(
     target_name: str,
     target: MonitorTarget,
 ) -> ResolvedMonitorTarget:
-    result_json = _resolve_path(target.result_json)
+    result_json = Path(target.result_json)
     output_csv = (
-        _resolve_path(target.output_csv)
+        Path(target.output_csv)
         if target.output_csv is not None
         else result_json.with_name(f"{result_json.stem}_monitor.csv")
     )
@@ -250,9 +237,9 @@ def parse_prometheus_duration_seconds(value: str) -> float:
         if match.start() != position:
             raise ValueError(f"invalid Prometheus duration: {value}")
         position = match.end()
-        total_seconds += int(match.group(1)) * PROMETHEUS_DURATION_SECONDS[
-            match.group(2)
-        ]
+        total_seconds += (
+            int(match.group(1)) * PROMETHEUS_DURATION_SECONDS[match.group(2)]
+        )
 
     if position != len(value) or total_seconds <= 0:
         raise ValueError(f"invalid Prometheus duration: {value}")

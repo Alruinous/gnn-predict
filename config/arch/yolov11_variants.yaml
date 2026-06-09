@@ -21,7 +21,7 @@ base_model_groups:
       - 3
       - 640
       - 640
-      export_onnx: true
+      export_onnx: false
       onnx_export_mode: architecture_only
       run_training: true
       training_measurement_min_seconds: 40.0
