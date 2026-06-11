@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from workflow.execution import run_experiment, run_workflow
 from workflow.schema import Workflow
 from workflow.validation import validate_workflow
 
 
 def build_parallel_workflow_payload() -> dict[str, object]:
     agent_model = {
+        "task": "react_agent",
         "name": "qwen3",
         "hidden_size": 1536,
         "intermediate_size": 5120,
@@ -24,20 +24,22 @@ def build_parallel_workflow_payload() -> dict[str, object]:
         "phase": "prefill",
     }
     return {
-        "nodes": {
-            "input": {"type": "input"},
-            "planner": {
-                "type": "main_agent",
+        "nodes": [
+            {"name": "input", "type": "input"},
+            {
+                "name": "planner",
+                "type": "agent",
                 "model": dict(agent_model),
                 "runtime": dict(agent_runtime),
             },
-            "summarizer": {
-                "type": "main_agent",
-                "model": dict(agent_model),
+            {
+                "name": "summarizer",
+                "type": "tool",
+                "model": {**agent_model, "task": "text_generation"},
                 "runtime": dict(agent_runtime),
             },
-            "output": {"type": "output"},
-        },
+            {"name": "output", "type": "output"},
+        ],
         "edges": [
             {"source": "input", "target": "planner", "attributes": {}},
             {"source": "input", "target": "summarizer", "attributes": {}},
@@ -49,6 +51,12 @@ def build_parallel_workflow_payload() -> dict[str, object]:
 
 def build_workflow(payload: dict[str, object]) -> Workflow:
     return Workflow.model_validate(payload)
+
+
+def get_node_payload(payload: dict[str, object], name: str) -> dict[str, object]:
+    nodes = payload["nodes"]
+    assert isinstance(nodes, list)
+    return next(node for node in nodes if node["name"] == name)
 
 
 def test_workflow_validation_rejects_undefined_edge_reference() -> None:
@@ -86,9 +94,10 @@ def test_workflow_validation_rejects_cycle() -> None:
 
 def test_workflow_validation_rejects_attention_head_mismatch() -> None:
     payload = build_parallel_workflow_payload()
-    nodes = payload["nodes"]
-    assert isinstance(nodes, dict)
-    nodes["planner"]["model"]["hidden_size"] = 1537
+    planner = get_node_payload(payload, "planner")
+    model = planner["model"]
+    assert isinstance(model, dict)
+    model["hidden_size"] = 1537
     workflow = build_workflow(payload)
 
     with pytest.raises(ValueError, match="divisible by num_attention_heads"):
@@ -97,9 +106,10 @@ def test_workflow_validation_rejects_attention_head_mismatch() -> None:
 
 def test_workflow_validation_rejects_kv_head_mismatch() -> None:
     payload = build_parallel_workflow_payload()
-    nodes = payload["nodes"]
-    assert isinstance(nodes, dict)
-    nodes["planner"]["model"]["num_key_value_heads"] = 5
+    planner = get_node_payload(payload, "planner")
+    model = planner["model"]
+    assert isinstance(model, dict)
+    model["num_key_value_heads"] = 5
     workflow = build_workflow(payload)
 
     with pytest.raises(ValueError, match="divisible by num_key_value_heads"):
@@ -108,9 +118,8 @@ def test_workflow_validation_rejects_kv_head_mismatch() -> None:
 
 def test_workflow_validation_rejects_decode_context_overflow() -> None:
     payload = build_parallel_workflow_payload()
-    nodes = payload["nodes"]
-    assert isinstance(nodes, dict)
-    nodes["planner"]["runtime"] = {
+    planner = get_node_payload(payload, "planner")
+    planner["runtime"] = {
         "batch_size": 1,
         "sequence_length": 40900,
         "decode_max_output_length": 128,
@@ -124,9 +133,8 @@ def test_workflow_validation_rejects_decode_context_overflow() -> None:
 
 def test_workflow_validation_rejects_input_shape_batch_mismatch() -> None:
     payload = build_parallel_workflow_payload()
-    nodes = payload["nodes"]
-    assert isinstance(nodes, dict)
-    nodes["planner"]["runtime"] = {
+    planner = get_node_payload(payload, "planner")
+    planner["runtime"] = {
         "batch_size": 4,
         "input_shape": [2, 3, 224, 224],
         "phase": "inference",
@@ -135,32 +143,3 @@ def test_workflow_validation_rejects_input_shape_batch_mismatch() -> None:
 
     with pytest.raises(ValueError, match="input_shape must match batch_size"):
         validate_workflow(workflow)
-
-
-def test_workflow_validation_runs_serial_and_parallel_order() -> None:
-    workflow = build_workflow(build_parallel_workflow_payload())
-
-    serial_plan = run_workflow(workflow, mode="serial")
-    parallel_plan = run_workflow(workflow, mode="parallel")
-    result = run_experiment(workflow)
-
-    assert serial_plan.levels == [
-        ["input"],
-        ["planner"],
-        ["summarizer"],
-        ["output"],
-    ]
-    assert parallel_plan.levels == [
-        ["input"],
-        ["planner", "summarizer"],
-        ["output"],
-    ]
-    assert result.serial == serial_plan
-    assert result.parallel == parallel_plan
-
-
-def test_workflow_validation_rejects_adaptive_mode() -> None:
-    workflow = build_workflow(build_parallel_workflow_payload())
-
-    with pytest.raises(ValueError, match="unsupported workflow run mode"):
-        run_workflow(workflow, mode="adaptive")

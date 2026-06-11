@@ -374,10 +374,10 @@ base_model_groups:
   combinatorial_variant_grid: *yolov8_grid
 
 # Disabled at batch 16: OOM on V100.
-# - base_model:
-#     name: yolov8_huge
-#     pretrained: false
-#   combinatorial_variant_grid: *yolov8_grid
+- base_model:
+    name: yolov8_huge
+    pretrained: false
+  combinatorial_variant_grid: *yolov8_grid
 
 - base_model:
     name: yolov8_tiny_wide

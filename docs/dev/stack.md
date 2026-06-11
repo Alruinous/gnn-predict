@@ -142,7 +142,8 @@ git show 4d20c8b:docs/train/gnn_model_v3_variant_context_gpu1_training_eval_2026
 
 target：
 
-- `duration_sec_avg`
+- `deployment_duration_sec_avg`
+- `run_duration_sec_avg`
 - `cpu_cores_p95`
 - `memory_delta_gb_p95`
 - `gpu_util_percent_p95`
@@ -153,12 +154,13 @@ target：
 bounded target：
 
 - `gpu_util_percent_p95`：`0..100`
-- `gpu_sm_active_percent_p95`：`0..1`
-- `gpu_sm_occupancy_percent_p95`：`0..1`
+- `gpu_sm_active_percent_p95`：`0..100`
+- `gpu_sm_occupancy_percent_p95`：`0..100`
 
 positive target：
 
-- `duration_sec_avg`
+- `deployment_duration_sec_avg`
+- `run_duration_sec_avg`
 - `cpu_cores_p95`
 - `memory_delta_gb_p95`
 - `gpu_mem_used_mb_p95`
@@ -283,7 +285,7 @@ stack 候选结果：
 | target | single GNN WAPE | stacked WAPE | absolute change | relative change |
 | --- | ---: | ---: | ---: | ---: |
 | overall | 0.085519 | 0.060983 | -0.024536 | -28.69% |
-| `duration_sec_avg` | 0.061608 | 0.032270 | -0.029338 | -47.62% |
+| `run_duration_sec_avg` | 0.061608 | 0.032270 | -0.029338 | -47.62% |
 | `cpu_cores_p95` | 0.023755 | 0.015328 | -0.008427 | -35.47% |
 | `memory_delta_gb_p95` | 0.107358 | 0.096983 | -0.010376 | -9.66% |
 | `gpu_util_percent_p95` | 0.105217 | 0.093491 | -0.011726 | -11.14% |

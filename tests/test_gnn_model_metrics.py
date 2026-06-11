@@ -25,7 +25,7 @@ def test_compute_regression_metrics_includes_wape_and_max_error() -> None:
     metrics = compute_regression_metrics(
         predictions,
         targets,
-        ("duration_sec_avg", "gpu_mem_used_mb_max"),
+        ("run_duration_sec_avg", "gpu_mem_used_mb_max"),
     )
 
     assert metrics["mae"] == pytest.approx(1.75)
@@ -34,12 +34,12 @@ def test_compute_regression_metrics_includes_wape_and_max_error() -> None:
     assert metrics["r2"] == pytest.approx(1.0 - 15.0 / 44.75)
     assert metrics["wape"] == pytest.approx(7.0 / 19.0)
     assert metrics["max_abs_error"] == pytest.approx(3.0)
-    assert metrics["duration_sec_avg_mae"] == pytest.approx(2.0)
-    assert metrics["duration_sec_avg_mse"] == pytest.approx(5.0)
-    assert metrics["duration_sec_avg_rmse"] == pytest.approx(math.sqrt(5.0))
-    assert metrics["duration_sec_avg_r2"] == pytest.approx(-4.0)
-    assert metrics["duration_sec_avg_wape"] == pytest.approx(1.0)
-    assert metrics["duration_sec_avg_max_abs_error"] == pytest.approx(3.0)
+    assert metrics["run_duration_sec_avg_mae"] == pytest.approx(2.0)
+    assert metrics["run_duration_sec_avg_mse"] == pytest.approx(5.0)
+    assert metrics["run_duration_sec_avg_rmse"] == pytest.approx(math.sqrt(5.0))
+    assert metrics["run_duration_sec_avg_r2"] == pytest.approx(-4.0)
+    assert metrics["run_duration_sec_avg_wape"] == pytest.approx(1.0)
+    assert metrics["run_duration_sec_avg_max_abs_error"] == pytest.approx(3.0)
     assert metrics["gpu_mem_used_mb_max_mae"] == pytest.approx(1.5)
     assert metrics["gpu_mem_used_mb_max_mse"] == pytest.approx(2.5)
     assert metrics["gpu_mem_used_mb_max_rmse"] == pytest.approx(math.sqrt(2.5))
@@ -52,23 +52,23 @@ def test_compute_original_scale_metrics_prefixes_new_metrics() -> None:
     predictions = torch.tensor([[2.0, 4.0], [6.0, 8.0]])
     targets = torch.tensor([[1.0, 5.0], [3.0, 10.0]])
     target_scalers: dict[str, TargetScaler] = {
-        "duration_sec_avg": IdentityScaler(),
+        "run_duration_sec_avg": IdentityScaler(),
         "gpu_mem_used_mb_max": IdentityScaler(),
     }
 
     metrics = compute_original_scale_metrics(
         predictions,
         targets,
-        ("duration_sec_avg", "gpu_mem_used_mb_max"),
+        ("run_duration_sec_avg", "gpu_mem_used_mb_max"),
         target_scalers,
     )
 
     assert metrics["original_scale_wape"] == pytest.approx(7.0 / 19.0)
     assert metrics["original_scale_r2"] == pytest.approx(1.0 - 15.0 / 44.75)
     assert metrics["original_scale_max_abs_error"] == pytest.approx(3.0)
-    assert metrics["original_scale_duration_sec_avg_wape"] == pytest.approx(1.0)
-    assert metrics["original_scale_duration_sec_avg_r2"] == pytest.approx(-4.0)
-    assert metrics["original_scale_duration_sec_avg_max_abs_error"] == pytest.approx(
+    assert metrics["original_scale_run_duration_sec_avg_wape"] == pytest.approx(1.0)
+    assert metrics["original_scale_run_duration_sec_avg_r2"] == pytest.approx(-4.0)
+    assert metrics["original_scale_run_duration_sec_avg_max_abs_error"] == pytest.approx(
         3.0
     )
 

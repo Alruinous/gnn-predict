@@ -10,11 +10,13 @@ from workflow.loader import load_workflow, load_workflows
 
 def build_valid_workflow_payload(node_name: str = "planner") -> dict[str, object]:
     return {
-        "nodes": {
-            "input": {"type": "input"},
-            node_name: {
-                "type": "object_detection",
+        "nodes": [
+            {"name": "input", "type": "input"},
+            {
+                "name": node_name,
+                "type": "tool",
                 "model": {
+                    "task": "object_detection",
                     "name": "yolov5n",
                     "input_channels": 3,
                     "output_classes": 80,
@@ -26,8 +28,8 @@ def build_valid_workflow_payload(node_name: str = "planner") -> dict[str, object
                     "phase": "inference",
                 },
             },
-            "output": {"type": "output"},
-        },
+            {"name": "output", "type": "output"},
+        ],
         "edges": [
             {"source": "input", "target": node_name, "attributes": {}},
             {"source": node_name, "target": "output", "attributes": {}},
@@ -44,10 +46,11 @@ def test_load_workflow_reads_valid_yaml(tmp_path: Path) -> None:
     write_workflow(config_path, build_valid_workflow_payload())
 
     workflow = load_workflow(config_path)
+    planner = workflow.node_map()["planner"]
 
-    assert list(workflow.nodes) == ["input", "planner", "output"]
-    assert workflow.nodes["planner"].runtime is not None
-    assert workflow.nodes["planner"].runtime.input_shape == [4, 3, 640, 640]
+    assert workflow.node_names() == ["input", "planner", "output"]
+    assert planner.runtime is not None
+    assert planner.runtime.input_shape == [4, 3, 640, 640]
 
 
 def test_load_workflows_reads_directory_in_name_order(tmp_path: Path) -> None:
@@ -57,10 +60,7 @@ def test_load_workflows_reads_directory_in_name_order(tmp_path: Path) -> None:
 
     workflows = load_workflows(tmp_path)
 
-    assert [next(name for name in workflow.nodes if name.endswith("_node")) for workflow in workflows] == [
-        "a_node",
-        "b_node",
-    ]
+    assert [workflow.nodes[1].name for workflow in workflows] == ["a_node", "b_node"]
 
 
 def test_load_workflows_accepts_single_file(tmp_path: Path) -> None:
@@ -70,7 +70,7 @@ def test_load_workflows_accepts_single_file(tmp_path: Path) -> None:
     workflows = load_workflows(config_path)
 
     assert len(workflows) == 1
-    assert "planner" in workflows[0].nodes
+    assert "planner" in workflows[0].node_map()
 
 
 def test_load_workflow_rejects_non_yaml_file(tmp_path: Path) -> None:

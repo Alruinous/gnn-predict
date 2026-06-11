@@ -3,7 +3,8 @@ data:
   kind: split
   data_dir: data/scaled_v2
   target_names:
-    - duration_sec_avg
+    - deployment_duration_sec_avg
+    - run_duration_sec_avg
     - cpu_cores_max
     - memory_delta_gb_max
     - gpu_util_percent_max
@@ -24,6 +25,7 @@ training:
   learning_rate: 0.0008
   weight_decay: 0.0001
   loss_weights:
+    - 1.0
     - 1.0
     - 1.0
     - 1.0

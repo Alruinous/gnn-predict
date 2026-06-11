@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import torch
+
 from gnn_model.data.extract import TARGET_FIELDS
 from gnn_model_test_utils import (
     TARGET_NAMES,
@@ -100,6 +102,19 @@ def test_gnn_model_cli_extract_writes_manifest(tmp_path: Path) -> None:
     assert payload["sample_count"] == 3
     assert payload["target_names"] == list(TARGET_FIELDS)
     assert "extract_config_path" not in payload
+    graphs = []
+    for split_name in ("train", "val", "test"):
+        graphs.extend(torch.load(output_dir / f"{split_name}.pt", weights_only=False))
+    active_index = TARGET_FIELDS.index("gpu_sm_active_percent_max")
+    occupancy_index = TARGET_FIELDS.index("gpu_sm_occupancy_percent_max")
+    deployment_index = TARGET_FIELDS.index("deployment_duration_sec_avg")
+    assert all(abs(float(graph.y[0, active_index]) - 65.0) < 1e-6 for graph in graphs)
+    assert all(
+        abs(float(graph.y[0, occupancy_index]) - 12.5) < 1e-6 for graph in graphs
+    )
+    assert all(
+        abs(float(graph.y[0, deployment_index]) - 1.25) < 1e-6 for graph in graphs
+    )
 
 
 def write_monitor_csv(path: Path, rows: list[dict[str, object]]) -> None:
@@ -133,6 +148,7 @@ def build_monitor_row(
         "resolved_gpu_label": "0",
         "resolved_device_label": "nvidia0",
         "duration_sec": duration_sec,
+        "deployment_duration_sec_avg": 1.25,
         "phase_rounds": 3,
         "cpu_cores_max": 4.25,
         "memory_gb_max": 1.5,

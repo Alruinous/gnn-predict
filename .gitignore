@@ -26,12 +26,14 @@ ruff.toml
 *.rar
 *.tar.gz
 
-tmp/
+/tmp*
 
 .DS_Store
 
 /csv/
 /csv*/
 /output/
-perfseer/
+/perfseer/
 /archive/
+
+/.env

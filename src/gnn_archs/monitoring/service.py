@@ -44,6 +44,7 @@ CSV_COLUMNS = [
     "started_at_ts",
     "ended_at_ts",
     "duration_sec",
+    "deployment_duration_sec_avg",
     "phase_rounds",
     "sample_count",
     "batch_size",
@@ -128,6 +129,7 @@ class MonitorPhaseRecord:
     started_at_ts: float
     ended_at_ts: float
     duration_sec: float
+    deployment_duration_sec_avg: float
     phase_rounds: int
     batch_size: int
     decode_output_length: int
@@ -153,6 +155,7 @@ def extract_phase_records(
     records: list[MonitorPhaseRecord] = []
 
     for variant in document.variants:
+        deployment_duration_sec_avg = _deployment_duration_sec(variant)
         if variant.training is not None:
             records.append(
                 _build_phase_record(
@@ -165,6 +168,7 @@ def extract_phase_records(
                     pod_name=pod_name,
                     phase="training",
                     timings=variant.training.timings,
+                    deployment_duration_sec_avg=deployment_duration_sec_avg,
                     gpu_id=gpu_id,
                     batch_size=require_int_value(
                         variant.training.hyperparameters["batch_size"],
@@ -185,6 +189,7 @@ def extract_phase_records(
                     pod_name=pod_name,
                     phase="inference",
                     timings=variant.inference.timings,
+                    deployment_duration_sec_avg=deployment_duration_sec_avg,
                     gpu_id=gpu_id,
                     batch_size=require_int_value(
                         variant.inference.metrics["batch_size"],
@@ -205,6 +210,7 @@ def extract_phase_records(
                     pod_name=pod_name,
                     phase="prefill",
                     timings=variant.prefill.timings,
+                    deployment_duration_sec_avg=deployment_duration_sec_avg,
                     gpu_id=gpu_id,
                     batch_size=require_int_value(
                         variant.prefill.metrics["batch_size"],
@@ -225,6 +231,7 @@ def extract_phase_records(
                     pod_name=pod_name,
                     phase="decode",
                     timings=variant.decode.timings,
+                    deployment_duration_sec_avg=deployment_duration_sec_avg,
                     gpu_id=gpu_id,
                     batch_size=require_int_value(
                         variant.decode.metrics["batch_size"],
@@ -350,6 +357,7 @@ def _build_phase_record(
     pod_name: str,
     phase: str,
     timings: TimeWindow,
+    deployment_duration_sec_avg: float,
     gpu_id: str,
     batch_size: int,
     decode_output_length: int,
@@ -410,10 +418,35 @@ def _build_phase_record(
         started_at_ts=started_at_ts,
         ended_at_ts=ended_at_ts,
         duration_sec=ended_at_ts - started_at_ts,
+        deployment_duration_sec_avg=deployment_duration_sec_avg,
         phase_rounds=phase_rounds,
         batch_size=batch_size,
         decode_output_length=decode_output_length,
     )
+
+
+def _deployment_duration_sec(variant: VariantResult) -> float:
+    model_build_timings = variant.timings.get("model_build")
+    if model_build_timings is None:
+        raise ValueError(f"model_build timings missing for variant {variant.name}")
+    started_at_ts = _require_timestamp(
+        model_build_timings.started_at_ts,
+        phase="model_build",
+        variant_name=variant.name,
+        field_name="started_at_ts",
+    )
+    ended_at_ts = _require_timestamp(
+        model_build_timings.ended_at_ts,
+        phase="model_build",
+        variant_name=variant.name,
+        field_name="ended_at_ts",
+    )
+    if ended_at_ts < started_at_ts:
+        raise ValueError(
+            f"model_build timing end must be >= start for variant {variant.name}: "
+            f"{ended_at_ts} < {started_at_ts}"
+        )
+    return ended_at_ts - started_at_ts
 
 
 def _require_timestamp(
@@ -572,6 +605,10 @@ def _monitor_phase_record(
         "started_at_ts": phase_record.started_at_ts,
         "ended_at_ts": phase_record.ended_at_ts,
         "duration_sec": round(phase_record.duration_sec, 6),
+        "deployment_duration_sec_avg": round(
+            phase_record.deployment_duration_sec_avg,
+            6,
+        ),
         "phase_rounds": phase_record.phase_rounds,
         "sample_count": sample_count,
         "resolved_gpu_label": resolved_gpu_label,

@@ -26,7 +26,8 @@ from gnn_model.data.dataset import SPLIT_FILE_NAMES, resolve_split_counts
 
 ID_FIELDS = ("variant_name", "phase")
 TARGET_FIELDS = (
-    "duration_sec_avg",
+    "deployment_duration_sec_avg",
+    "run_duration_sec_avg",
     "cpu_cores_max",
     "memory_delta_gb_max",
     "gpu_util_percent_max",
@@ -49,8 +50,9 @@ METADATA_FIELDS = (
     "result_json",
     "config_path",
 )
+RUN_DURATION_SOURCE_FIELD = "run_duration_sec_avg"
 SOURCE_TARGET_FIELDS = tuple(
-    field for field in TARGET_FIELDS if field != "duration_sec_avg"
+    field for field in TARGET_FIELDS if field != RUN_DURATION_SOURCE_FIELD
 )
 REQUIRED_COLUMNS = (
     *METADATA_FIELDS,
@@ -60,7 +62,7 @@ REQUIRED_COLUMNS = (
 )
 
 logger = get_logger(Path(__file__).name)
-GPU_SM_OCCUPANCY_CONFLICT_THRESHOLD = 0.05
+GPU_SM_OCCUPANCY_CONFLICT_THRESHOLD = 5.0
 GPU_UTIL_CONFLICT_THRESHOLD = 5.0
 MEMORY_DELTA_LOG_THRESHOLD_GB = 10.0
 
@@ -206,7 +208,9 @@ def process_csv(csv_file: str | Path) -> CsvProcessResult:
     df = normalize_monitor_columns(df, csv_path)
     assert set(REQUIRED_COLUMNS) <= set(df.columns), csv_path
     df = df.with_columns(
-        (pl.col("duration_sec") / pl.col("phase_rounds")).alias("duration_sec_avg"),
+        (pl.col("duration_sec") / pl.col("phase_rounds")).alias(
+            RUN_DURATION_SOURCE_FIELD
+        ),
         pl.struct(["result_json", "variant_name"])
         .map_elements(
             lambda row: str(resolve_onnx_path(row["result_json"], row["variant_name"])),
@@ -268,7 +272,7 @@ def normalize_monitor_columns(df: pl.DataFrame, csv_path: Path) -> pl.DataFrame:
     if "phase" in df.columns and df.filter(pl.col("phase") == "decode").height > 0:
         raise ValueError(
             f"decode_output_length is required for decode rows: {csv_path}"
-        )
+    )
     return df.with_columns(pl.lit(0, dtype=pl.Int64).alias("decode_output_length"))
 
 

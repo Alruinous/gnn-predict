@@ -380,6 +380,7 @@ def test_extract_phase_records_reads_training_and_inference(tmp_path: Path) -> N
     assert [record.gpu_id for record in records] == ["1", "1"]
     assert records[0].duration_sec == 7.0
     assert records[1].duration_sec == 6.0
+    assert [record.deployment_duration_sec_avg for record in records] == [1.5, 1.5]
     assert [record.phase_rounds for record in records] == [3, 42]
 
 
@@ -392,6 +393,14 @@ def test_extract_phase_records_reads_prefill(tmp_path: Path) -> None:
         group_total_variants_defined=1,
         variant_config={},
         mutations=[],
+        timings={
+            "model_build": TimeWindow(
+                started_at_ts=118.0,
+                ended_at_ts=119.5,
+                started_at_text="2026-03-31T13:27:41+00:00",
+                ended_at_text="2026-03-31T13:27:42.500000+00:00",
+            )
+        },
         prefill=InferenceResult(
             metrics={"iterations": 11, "batch_size": 2},
             timings=TimeWindow(
@@ -437,6 +446,14 @@ def test_extract_phase_records_reads_decode(tmp_path: Path) -> None:
         group_total_variants_defined=1,
         variant_config={},
         mutations=[],
+        timings={
+            "model_build": TimeWindow(
+                started_at_ts=118.0,
+                ended_at_ts=119.5,
+                started_at_text="2026-03-31T13:27:41+00:00",
+                ended_at_text="2026-03-31T13:27:42.500000+00:00",
+            )
+        },
         decode=InferenceResult(
             metrics={
                 "iterations": 7,
@@ -481,6 +498,22 @@ def test_extract_phase_records_fails_when_phase_timing_missing(tmp_path: Path) -
     result_json = _write_result_document(tmp_path, missing_training_timing=True)
 
     with pytest.raises(ValueError, match="training timings missing started_at_ts"):
+        extract_phase_records(
+            "bert_large",
+            result_json,
+            namespace="crater-workspace",
+            node_name="dell-67",
+            pod_name="sg-wangjh-260331-bbed6-default0-0",
+            gpu_id="1",
+        )
+
+
+def test_extract_phase_records_fails_when_model_build_timing_missing(
+    tmp_path: Path,
+) -> None:
+    result_json = _write_result_document(tmp_path, include_model_build_timing=False)
+
+    with pytest.raises(ValueError, match="model_build timings missing"):
         extract_phase_records(
             "bert_large",
             result_json,
@@ -549,10 +582,16 @@ def test_monitor_target_writes_expected_csv_columns_and_rows(tmp_path: Path) -> 
     assert set(loaded["resolved_device_label"]) == {"nvidia1"}
     assert loaded["sample_count"].tolist() == [3, 3]
     assert loaded["decode_output_length"].tolist() == [0, 0]
+    assert loaded["deployment_duration_sec_avg"].tolist() == [1.5, 1.5]
     assert loaded["container_started_at_ts"].tolist() == [90.0, 90.0]
     assert loaded["memory_baseline_gb"].tolist() == [0.5, 0.5]
     assert loaded["memory_baseline_sample_count"].tolist() == [3, 3]
     assert loaded["memory_delta_gb_p95"].tolist() == pytest.approx([5.3, 1.4])
+    assert loaded["gpu_util_percent_max"].tolist() == pytest.approx([30.0, 50.0])
+    assert loaded["gpu_sm_active_percent_max"].tolist() == pytest.approx([30.0, 50.0])
+    assert loaded["gpu_sm_occupancy_percent_max"].tolist() == pytest.approx(
+        [30.0, 50.0]
+    )
     assert dataframe["phase_rounds"].tolist() == [3, 42]
 
 
@@ -891,6 +930,7 @@ def _write_result_document(
     missing_training_timing: bool = False,
     include_training_total_steps: bool = True,
     include_inference_iterations: bool = True,
+    include_model_build_timing: bool = True,
 ) -> Path:
     training_timings = (
         TimeWindow()
@@ -912,6 +952,18 @@ def _write_result_document(
     inference_metrics = {"batch_size": 8}
     if include_inference_iterations:
         inference_metrics["iterations"] = 42
+    timings = (
+        {
+            "model_build": TimeWindow(
+                started_at_ts=98.0,
+                ended_at_ts=99.5,
+                started_at_text="2026-03-31T13:27:11+00:00",
+                ended_at_text="2026-03-31T13:27:12.500000+00:00",
+            )
+        }
+        if include_model_build_timing
+        else {}
+    )
     variant = VariantResult(
         name="bert-large-cased_ic1_oc2_no_mutations_large",
         base_model_name="bert-large-cased",
@@ -920,6 +972,7 @@ def _write_result_document(
         group_total_variants_defined=1,
         variant_config={},
         mutations=[],
+        timings=timings,
         training=TrainingResult(
             hyperparameters={"batch_size": 8},
             metrics=training_metrics,
@@ -1062,6 +1115,12 @@ def _build_gpu_response(
 ) -> list[dict[str, Any]]:
     response: list[dict[str, Any]] = []
     for definition in GPU_METRIC_DEFINITIONS:
+        metric_values = values
+        if definition.prometheus_name in {
+            "DCGM_FI_PROF_SM_ACTIVE",
+            "DCGM_FI_PROF_SM_OCCUPANCY",
+        }:
+            metric_values = [str(float(value) / 100.0) for value in values]
         response.append(
             {
                 "metric": {
@@ -1073,9 +1132,9 @@ def _build_gpu_response(
                     "Hostname": node_name,
                 },
                 "values": [
-                    [100.0, values[0]],
-                    [101.0, values[1]],
-                    [102.0, values[2]],
+                    [100.0, metric_values[0]],
+                    [101.0, metric_values[1]],
+                    [102.0, metric_values[2]],
                 ],
             }
         )

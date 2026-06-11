@@ -27,7 +27,8 @@ class SplitDataConfig(StrictModel):
     data_dir: str = "data/scaled"
     target_names: list[str] = Field(
         default_factory=lambda: [
-            "duration_sec_avg",
+            "deployment_duration_sec_avg",
+            "run_duration_sec_avg",
             "cpu_cores_max",
             "memory_delta_gb_max",
             "gpu_util_percent_max",

@@ -12,7 +12,7 @@ targets:
     node_name: dell-68
     pod_name: sg-wangjh-260520-78eab-default0-0
     gpu_id: "1"
-    output_csv: csv/vit_monitor.csv
+    output_csv: csv/v100/vit_monitor.csv
 
   vgg11:
     enabled: true
@@ -20,7 +20,7 @@ targets:
     node_name: dell-65
     pod_name: sg-wangjh-260520-8fc9b-default0-0
     gpu_id: "1"
-    output_csv: csv/vgg11_monitor.csv
+    output_csv: csv/v100/vgg11_monitor.csv
 
   resnet101:
     enabled: true
@@ -28,7 +28,7 @@ targets:
     node_name: dell-67
     pod_name: sg-wangjh-260521-dfabc-default0-0
     gpu_id: "0"
-    output_csv: csv/resnet101_monitor.csv
+    output_csv: csv/v100/resnet101_monitor.csv
 
   resnet50:
     enabled: true
@@ -36,7 +36,7 @@ targets:
     node_name: dell-67
     pod_name: sg-wangjh-260522-21ed6-default0-0
     gpu_id: "1"
-    output_csv: csv/resnet50_monitor.csv
+    output_csv: csv/v100/resnet50_monitor.csv
 
   mobilenet:
     enabled: true
@@ -44,7 +44,7 @@ targets:
     node_name: dell-68
     pod_name: sg-wangjh-260501-63f6c-default0-0
     gpu_id: "2"
-    output_csv: "csv/mobilenet_monitor.csv"
+    output_csv: "csv/v100/mobilenet_monitor.csv"
 
   vgg16:
     enabled: true
@@ -52,7 +52,7 @@ targets:
     node_name: dell-68
     pod_name: sg-wangjh-260521-585bb-default0-0
     gpu_id: "2"
-    output_csv: "csv/vgg16_monitor.csv"
+    output_csv: "csv/v100/vgg16_monitor.csv"
 
   convnext:
     enabled: true
@@ -60,7 +60,7 @@ targets:
     node_name: dell-65
     pod_name: sg-wangjh-260520-1ef60-default0-0
     gpu_id: "0"
-    output_csv: "csv/convnext_monitor.csv"
+    output_csv: "csv/v100/convnext_monitor.csv"
 
   vgg19:
     enabled: true
@@ -68,7 +68,7 @@ targets:
     node_name: dell-68
     pod_name: sg-wangjh-260520-0fe90-default0-0
     gpu_id: "2"
-    output_csv: csv/vgg19_monitor.csv
+    output_csv: csv/v100/vgg19_monitor.csv
 
   resnet:
     enabled: true
@@ -76,7 +76,7 @@ targets:
     node_name: dell-67
     pod_name: sg-wangjh-260501-ee080-default0-0
     gpu_id: "0"
-    output_csv: "csv/resnet_monitor.csv"
+    output_csv: "csv/v100/resnet_monitor.csv"
 
   resnet152:
     enabled: true
@@ -84,15 +84,15 @@ targets:
     node_name: dell-68
     pod_name: sg-wangjh-260520-5ad48-default0-0
     gpu_id: "1"
-    output_csv: csv/resnet152_monitor.csv
+    output_csv: csv/v100/resnet152_monitor.csv
 
   yolov8:
-    enabled: true
+    enabled: false
     result_json: res/yolov8/results/yolov8_variants_v100_1777297814_results.json
     node_name: "dell-67"
     pod_name: "sg-wangjh-260427-2b036-default0-0"
     gpu_id: "1"
-    output_csv: "csv/yolov8_monitor.csv"
+    output_csv: "csv/v100/yolov8_monitor.csv"
 
   bert:
     enabled: true
@@ -100,7 +100,7 @@ targets:
     node_name: dell-68
     pod_name: sg-wangjh-260520-2d33e-default0-0
     gpu_id: "3"
-    output_csv: csv/bert_monitor.csv
+    output_csv: csv/v100/bert_monitor.csv
 
   bert_large:
     enabled: true
@@ -108,7 +108,7 @@ targets:
     node_name: dell-65
     pod_name: sg-wangjh-260520-d1263-default0-0
     gpu_id: "2"
-    output_csv: csv/bert_large_monitor.csv
+    output_csv: csv/v100/bert_large_monitor.csv
 
   beit:
     enabled: true
@@ -116,7 +116,7 @@ targets:
     node_name: dell-67
     pod_name: sg-wangjh-260520-e47d1-default0-0
     gpu_id: "1"
-    output_csv: "csv/beit_monitor.csv"
+    output_csv: "csv/v100/beit_monitor.csv"
 
   densenet:
     enabled: true
@@ -124,7 +124,7 @@ targets:
     node_name: dell-67
     pod_name: sg-wangjh-260520-dad2b-default0-0
     gpu_id: "0"
-    output_csv: "csv/densenet_monitor.csv"
+    output_csv: "csv/v100/densenet_monitor.csv"
 
   yolov5:
     enabled: true
@@ -132,7 +132,7 @@ targets:
     node_name: dell-66
     pod_name: sg-wangjh-260520-daa30-default0-0
     gpu_id: "1"
-    output_csv: "csv/yolov5_monitor.csv"
+    output_csv: "csv/v100/yolov5_monitor.csv"
 
   yolov9:
     enabled: true
@@ -140,7 +140,7 @@ targets:
     node_name: dell-66
     pod_name: sg-wangjh-260520-9ba2f-default0-0
     gpu_id: "0"
-    output_csv: "csv/yolov9_monitor.csv"
+    output_csv: "csv/v100/yolov9_monitor.csv"
 
   yolov11:
     enabled: true
@@ -148,7 +148,7 @@ targets:
     node_name: dell-68
     pod_name: sg-wangjh-260424-c6e8f-default0-0
     gpu_id: "2"
-    output_csv: "csv/yolov11_monitor.csv"
+    output_csv: "csv/v100/yolov11_monitor.csv"
     
   efficientnet:
     enabled: true
@@ -156,15 +156,15 @@ targets:
     node_name: dell-68
     pod_name: sg-wangjh-260507-ef09f-default0-0
     gpu_id: "0"
-    output_csv: "csv/efficientnet_monitor.csv"
+    output_csv: "csv/v100/efficientnet_monitor.csv"
 
-  inception: # DONE
-    enabled: true
+  inception:
+    enabled: false
     result_json: res/inception_v3/results/inception_v3_variants_v100_1779260815_results.json
     node_name: dell-68
     pod_name: sg-wangjh-260520-bde88-default0-0
     gpu_id: "0"
-    output_csv: "csv/inception_monitor.csv"
+    output_csv: "csv/v100/inception_monitor.csv"
     
   swin:
     enabled: true
@@ -172,25 +172,25 @@ targets:
     node_name: dell-68
     pod_name: sg-wangjh-260507-b8bc4-default0-0
     gpu_id: "0"
-    output_csv: "csv/swin_monitor.csv"
+    output_csv: "csv/v100/swin_monitor.csv"
 
-  gpt2: # DONE
+  gpt2:
     enabled: true
     result_json: res/gpt2/results/gpt2_variants_v100_1779246562_results.json
     node_name: dell-68
     pod_name: sg-wangjh-260520-8ae8c-default0-0
     gpu_id: "2"
-    output_csv: "csv/gpt2_monitor.csv"
+    output_csv: "csv/v100/gpt2_monitor.csv"
   
-  t5: # DONE
-    enabled: false
+  t5:
+    enabled: true
     result_json: res/t5/results/t5_variants_v100_1779246562_results.json
     node_name: dell-68
     pod_name: sg-wangjh-260520-34f13-default0-0
     gpu_id: "1"
-    output_csv: "csv/t5_monitor.csv"
+    output_csv: "csv/v100/t5_monitor.csv"
 
-  qwen3: # DONE
+  qwen3:
     enabled: true
     result_json: res/qwen3/results/qwen3_variants_v100_1780859141_results.json
     node_name: dell-67
@@ -215,7 +215,7 @@ targets:
     output_csv: "csv/gemma_monitor.csv"
   
   deepfm:
-    enabled: true
+    enabled: false
     result_json: res/deepfm/results/deepfm_variants_v100_1779097964_results.json
     node_name: dell-67
     pod_name: sg-wangjh-260518-3c1d7-default0-0
@@ -223,7 +223,7 @@ targets:
     output_csv: "csv/deepfm_monitor.csv"
   
   dcn:
-    enabled: true
+    enabled: false
     result_json: res/dcn/results/dcn_variants_v100_1779097964_results.json
     node_name: dell-67
     pod_name: sg-wangjh-260518-c52af-default0-0
@@ -231,7 +231,7 @@ targets:
     output_csv: "csv/dcn_monitor.csv"
   
   dcnv2:
-    enabled: true
+    enabled: false
     result_json: res/dcnv2/results/dcnv2_variants_v100_1779104355_results.json
     node_name: dell-68
     pod_name: sg-wangjh-260518-1404c-default0-0
@@ -239,7 +239,7 @@ targets:
     output_csv: "csv/dcnv2_monitor.csv"
   
   edcn:
-    enabled: true
+    enabled: false
     result_json: res/edcn/results/edcn_variants_v100_1779104354_results.json
     node_name: dell-68
     pod_name: sg-wangjh-260518-043b1-default0-0

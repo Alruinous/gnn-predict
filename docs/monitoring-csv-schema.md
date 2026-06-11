@@ -12,7 +12,7 @@
 
 这张表的数据来自两部分：
 
-- 实验结果文档：提供变体名、模型名、阶段开始结束时间、训练轮数或推理迭代轮数
+- 实验结果文档：提供变体名、模型名、部署耗时、阶段开始结束时间、训练轮数或推理迭代轮数
 - Prometheus 监控数据：提供该阶段时间窗口内的 CPU、内存、GPU 指标，并在导出时汇总成统计值
 
 ## 读取这张表时先记住的规则
@@ -20,7 +20,8 @@
 - `phase_rounds` 是统一的“阶段轮数”字段
   - `training` 行表示训练 epoch 数
   - `inference` 行表示推理测量阶段的 iteration 数
-- `duration_sec / phase_rounds` 可以直接得到“该阶段平均每轮耗时”
+- `duration_sec / phase_rounds` 可以直接得到“该阶段平均每轮运行耗时”
+- `deployment_duration_sec_avg` 表示该变体的模型构建和上卡耗时，复用到同一变体的所有阶段行
 - 所有带 `_avg`、`_max`、`_p95` 后缀的字段，都是对该阶段监控时间窗口内样本做聚合后的结果
 - `cpu_cores_pct_of_total_avg` 和 `memory_gb_pct_of_total_avg` 是相对整机资源的平均占比，不是相对 Pod request/limit 的占比
 - 只有拿到有效监控样本的阶段才会写入 CSV；没有 CPU 或内存数据的阶段不会生成最终行
@@ -80,6 +81,7 @@
 | `started_at_ts` | 阶段开始时间，Unix 秒时间戳 | 来自该阶段的实验时间记录 |
 | `ended_at_ts` | 阶段结束时间，Unix 秒时间戳 | 来自该阶段的实验时间记录 |
 | `duration_sec` | 阶段总耗时，单位秒 | 由结束时间减开始时间得到 |
+| `deployment_duration_sec_avg` | 变体模型部署耗时，单位秒 | 来自结果文档中该变体的 `model_build` timing |
 | `phase_rounds` | 统一的阶段轮数 | 训练行取 epoch 数，推理行取 measurement iteration 数 |
 
 ### 3. 监控样本与标签解析字段
@@ -153,6 +155,7 @@
 例如：
 
 - `gpu_util_percent_avg` 表示阶段内 GPU 利用率平均值
+- `gpu_sm_active_percent_max` 和 `gpu_sm_occupancy_percent_max` 使用 `0..100` 百分比口径
 - `gpu_power_watts_max` 表示阶段内 GPU 功耗峰值
 - `gpu_temp_celsius_p95` 表示阶段内 GPU 温度 95 分位
 
@@ -161,8 +164,8 @@
 后续智能体读取这张表时，建议按下面顺序理解：
 
 1. 先看 `variant_name`、`phase`、`base_model_name`
-2. 再看 `duration_sec` 和 `phase_rounds`
-3. 根据需要计算 `duration_sec / phase_rounds`
+2. 再看 `deployment_duration_sec_avg`、`duration_sec` 和 `phase_rounds`
+3. 根据需要计算 `duration_sec / phase_rounds`，GNN 数据集里对应 `run_duration_sec_avg`
 4. 再看 `cpu_*`、`memory_*`、`gpu_*` 的资源使用画像
 5. 最后用 `sample_count`、`resolved_gpu_label`、`resolved_device_label` 判断监控样本是否可靠
 
@@ -173,3 +176,4 @@
 - `memory_gb_pct_of_total_avg` 不是显存占比，它是相对整机系统内存的平均占比
 - `sample_count` 不是训练 batch 数，也不是推理 iteration 数，它只是监控样本深度
 - GPU 的 `_avg/_max/_p95` 都是阶段内的时间聚合结果，不是单次模型调用的即时值
+- `deployment_duration_sec_avg` 不包含容器启动、服务注册、warmup 或首个真实请求

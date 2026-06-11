@@ -86,8 +86,8 @@ targets:
     gpu_id: "0"
     output_csv: csv/a100/resnet152_monitor.csv
 
-  yolov8:
-    enabled: true
+  yolov8: # TODO 采集时系统错误，正在重新采集
+    enabled: false
     result_json: res/yolov8/results/yolov8_variants_a100_1780766745_results.json
     node_name: inspur-gpu-04
     pod_name: "sg-wangjh-260607-32362-default0-0"
@@ -126,11 +126,11 @@ targets:
     gpu_id: "3"
     output_csv: "csv/a100/densenet_monitor.csv"
 
-  yolov5: # TODO 采集时系统错误，正在重新采集
-    enabled: false
-    result_json: res/yolov5/results/yolov5_variants_a100_1780563172_results.json
-    node_name: xfusion-3
-    pod_name: sg-wangjh-260604-66b23-default0-0
+  yolov5:
+    enabled: true
+    result_json: res/yolov5/results/yolov5_variants_a100_1780987336_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260609-6f7b8-default0-0
     gpu_id: "0"
     output_csv: "csv/a100/yolov5_monitor.csv"
 
@@ -190,3 +190,10 @@ targets:
     gpu_id: "0"
     output_csv: "csv/a100/t5_monitor.csv"
   
+  qwen3:
+    enabled: true
+    result_json: res/qwen3/results/qwen3_variants_a100_1781074513_results.json
+    node_name: xfusion-3
+    pod_name: sg-wangjh-260610-67343-default0-0
+    gpu_id: "0"
+    output_csv: "csv/a100/qwen3_monitor.csv"

@@ -12,8 +12,8 @@ class MetricDefinition:
 
 GPU_METRIC_DEFINITIONS: tuple[MetricDefinition, ...] = (
     MetricDefinition("DCGM_FI_DEV_GPU_UTIL", "gpu_util_percent"),
-    MetricDefinition("DCGM_FI_PROF_SM_ACTIVE", "gpu_sm_active_percent"),
-    MetricDefinition("DCGM_FI_PROF_SM_OCCUPANCY", "gpu_sm_occupancy_percent"),
+    MetricDefinition("DCGM_FI_PROF_SM_ACTIVE", "gpu_sm_active_percent", 100.0),
+    MetricDefinition("DCGM_FI_PROF_SM_OCCUPANCY", "gpu_sm_occupancy_percent", 100.0),
     MetricDefinition("DCGM_FI_DEV_FB_USED", "gpu_mem_used_mb"),
     MetricDefinition("DCGM_FI_DEV_FB_FREE", "gpu_mem_free_mb"),
     MetricDefinition("DCGM_FI_DEV_MEM_COPY_UTIL", "gpu_mem_copy_util_percent"),

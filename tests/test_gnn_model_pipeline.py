@@ -48,12 +48,12 @@ def test_run_experiment_trains_and_writes_result(tmp_path: Path) -> None:
     assert metrics["mae"] >= 0
     assert metrics["wape"] >= 0
     assert metrics["max_abs_error"] >= 0
-    assert metrics["duration_sec_avg_wape"] >= 0
-    assert metrics["duration_sec_avg_max_abs_error"] >= 0
+    assert metrics["run_duration_sec_avg_wape"] >= 0
+    assert metrics["run_duration_sec_avg_max_abs_error"] >= 0
     assert metrics["original_scale_mae"] >= 0
     assert metrics["original_scale_wape"] >= 0
     assert metrics["original_scale_max_abs_error"] >= 0
-    assert metrics["original_scale_duration_sec_avg_wape"] >= 0
+    assert metrics["original_scale_run_duration_sec_avg_wape"] >= 0
     assert payload["dataset"]["train_count"] > 0
     assert payload["metadata"]["data_dir"] == str(data_dir.resolve())
     assert payload["metadata"]["scaler_dir"] == str(scaler_dir.resolve())

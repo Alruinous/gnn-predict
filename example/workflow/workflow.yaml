@@ -1,0 +1,148 @@
+nodes:
+  - name: input
+    type: input
+    description: Accepts a user request containing an image path and a text question.
+
+  - name: planner
+    type: agent
+    description: Understands the multimodal request and selects image, detection, text, or generation tool nodes when their outputs are useful.
+    model:
+      task: react_agent
+      name: qwen3
+      hidden_size: 1536
+      intermediate_size: 5120
+      num_hidden_layers: 28
+      num_attention_heads: 24
+      num_key_value_heads: 4
+      head_dim: 128
+      vocab_size: 151936
+      max_position_embeddings: 40960
+      tie_word_embeddings: true
+    runtime:
+      batch_size: 1
+      sequence_length: 512
+      phase: prefill
+
+  - name: scene_classifier
+    type: tool
+    description: Classifies the overall image scene and returns top classes, confidence scores, and accelerator execution metadata.
+    model:
+      task: image_classification
+      name: mobilenetv2_100
+      input_channels: 3
+      output_classes: 1000
+      image_size: [224, 224]
+      width_multiplier: 1.0
+    runtime:
+      batch_size: 1
+      input_shape: [1, 3, 224, 224]
+      phase: inference
+
+  - name: object_detector
+    type: tool
+    description: Detects objects in the image and returns bounding boxes, class labels, confidence scores, and accelerator execution metadata.
+    model:
+      task: object_detection
+      name: yolov8n
+      input_channels: 3
+      output_classes: 80
+      image_size: [640, 640]
+      depth_scale: 0.33
+      width_scale: 0.25
+      max_channels: 1024
+      activation: silu
+    runtime:
+      batch_size: 1
+      input_shape: [1, 3, 640, 640]
+      phase: inference
+
+  - name: text_intent_classifier
+    type: tool
+    description: Classifies the user text intent and returns intent labels, confidence scores, and accelerator execution metadata.
+    model:
+      task: text_classification
+      name: bert-base-uncased
+      output_classes: 8
+      vocab_size: 30522
+      hidden_size: 768
+      intermediate_size: 3072
+      num_hidden_layers: 12
+      num_attention_heads: 12
+      max_position_embeddings: 512
+    runtime:
+      batch_size: 1
+      sequence_length: 128
+      phase: inference
+
+  - name: evidence_writer
+    type: tool
+    description: Drafts a concise evidence summary from tool results when the final answer needs a short explanation.
+    model:
+      task: text_generation
+      name: gpt2
+      output_classes: 2
+      vocab_size: 4096
+      hidden_size: 256
+      intermediate_size: 1024
+      num_hidden_layers: 4
+      num_attention_heads: 4
+      max_position_embeddings: 256
+    runtime:
+      batch_size: 1
+      sequence_length: 128
+      decode_max_output_length: 64
+      phase: decode
+
+  - name: summarizer
+    type: tool
+    description: Runs a local Qwen3 summarization variant to combine tool outputs into a concise evidence-backed answer draft.
+    model:
+      task: text_generation
+      name: qwen3
+      hidden_size: 1536
+      intermediate_size: 5120
+      num_hidden_layers: 28
+      num_attention_heads: 24
+      num_key_value_heads: 4
+      head_dim: 128
+      vocab_size: 151936
+      max_position_embeddings: 40960
+      tie_word_embeddings: true
+    runtime:
+      batch_size: 1
+      sequence_length: 768
+      decode_max_output_length: 256
+      phase: decode
+
+  - name: output
+    type: output
+    description: Emits the final answer to the user.
+
+edges:
+  - source: input
+    target: planner
+    attributes: {}
+  - source: planner
+    target: scene_classifier
+    attributes: {}
+  - source: planner
+    target: object_detector
+    attributes: {}
+  - source: planner
+    target: text_intent_classifier
+    attributes: {}
+  - source: scene_classifier
+    target: evidence_writer
+    attributes: {}
+  - source: object_detector
+    target: evidence_writer
+    attributes: {}
+  - source: text_intent_classifier
+    target: evidence_writer
+    attributes: {}
+  - source: evidence_writer
+    target: summarizer
+    attributes: {}
+  - source: summarizer
+    target: output
+    attributes: {}
