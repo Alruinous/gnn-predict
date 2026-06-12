@@ -1,7 +1,7 @@
-experiment_name: gnn_model_scaled_v2_20260607
+experiment_name: gnn_model_scaled_20260612
 data:
   kind: split
-  data_dir: data/scaled_v2
+  data_dir: data/scaled
   target_names:
     - deployment_duration_sec_avg
     - run_duration_sec_avg
@@ -11,7 +11,8 @@ data:
     - gpu_sm_active_percent_max
     - gpu_sm_occupancy_percent_max
     - gpu_mem_used_mb_max
-  scaler_dir: data/scalers_v2
+    - gpu_power_watts_avg
+  scaler_dir: data/scalers
 model:
   hidden_dim: 128
   num_layers: 2
@@ -32,4 +33,5 @@ training:
     - 1.0
     - 1.0
     - 2.0
+    - 1.0
     - 1.0

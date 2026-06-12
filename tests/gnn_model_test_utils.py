@@ -34,6 +34,7 @@ TARGET_NAMES = (
     "gpu_sm_active_percent_max",
     "gpu_sm_occupancy_percent_max",
     "gpu_mem_used_mb_max",
+    "gpu_power_watts_avg",
 )
 
 
