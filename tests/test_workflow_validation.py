@@ -8,15 +8,16 @@ from workflow.validation import validate_workflow
 
 def build_parallel_workflow_payload() -> dict[str, object]:
     agent_model = {
-        "task": "react_agent",
         "name": "qwen3",
-        "hidden_size": 1536,
-        "intermediate_size": 5120,
-        "num_hidden_layers": 28,
-        "num_attention_heads": 24,
-        "num_key_value_heads": 4,
-        "vocab_size": 151936,
-        "max_position_embeddings": 40960,
+        "parameters": {
+            "hidden_size": 1536,
+            "intermediate_size": 5120,
+            "num_hidden_layers": 28,
+            "num_attention_heads": 24,
+            "num_key_value_heads": 4,
+            "vocab_size": 151936,
+            "max_position_embeddings": 40960,
+        },
     }
     agent_runtime = {
         "batch_size": 1,
@@ -29,13 +30,15 @@ def build_parallel_workflow_payload() -> dict[str, object]:
             {
                 "name": "planner",
                 "type": "agent",
+                "task": "react_agent",
                 "model": dict(agent_model),
                 "runtime": dict(agent_runtime),
             },
             {
                 "name": "summarizer",
                 "type": "tool",
-                "model": {**agent_model, "task": "text_generation"},
+                "task": "text_generation",
+                "model": dict(agent_model),
                 "runtime": dict(agent_runtime),
             },
             {"name": "output", "type": "output"},
@@ -94,25 +97,29 @@ def test_workflow_validation_rejects_cycle() -> None:
 
 def test_workflow_validation_rejects_attention_head_mismatch() -> None:
     payload = build_parallel_workflow_payload()
-    planner = get_node_payload(payload, "planner")
-    model = planner["model"]
+    summarizer = get_node_payload(payload, "summarizer")
+    model = summarizer["model"]
     assert isinstance(model, dict)
-    model["hidden_size"] = 1537
+    parameters = model["parameters"]
+    assert isinstance(parameters, dict)
+    parameters["hidden_size"] = 1537
     workflow = build_workflow(payload)
 
-    with pytest.raises(ValueError, match="divisible by num_attention_heads"):
+    with pytest.raises(ValueError, match="divisible by attention heads"):
         validate_workflow(workflow)
 
 
 def test_workflow_validation_rejects_kv_head_mismatch() -> None:
     payload = build_parallel_workflow_payload()
-    planner = get_node_payload(payload, "planner")
-    model = planner["model"]
+    summarizer = get_node_payload(payload, "summarizer")
+    model = summarizer["model"]
     assert isinstance(model, dict)
-    model["num_key_value_heads"] = 5
+    parameters = model["parameters"]
+    assert isinstance(parameters, dict)
+    parameters["num_key_value_heads"] = 5
     workflow = build_workflow(payload)
 
-    with pytest.raises(ValueError, match="divisible by num_key_value_heads"):
+    with pytest.raises(ValueError, match="num_attention_heads"):
         validate_workflow(workflow)
 
 

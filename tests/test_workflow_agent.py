@@ -16,7 +16,8 @@ def build_workflow() -> Workflow:
                 {
                     "name": "main_llm",
                     "type": "agent",
-                    "model": {"task": "react_agent", "name": "any-main-model"},
+                    "task": "react_agent",
+                    "model": {"name": "any-main-model", "parameters": {}},
                     "runtime": {
                         "batch_size": 1,
                         "sequence_length": 128,
@@ -26,10 +27,14 @@ def build_workflow() -> Workflow:
                 {
                     "name": "cv_tool",
                     "type": "tool",
+                    "task": "object_detection",
                     "description": "Use this detector when an image needs object localization.",
                     "model": {
-                        "task": "object_detection",
                         "name": "my-private/cv-model@2026",
+                        "parameters": {
+                            "input_channels": 3,
+                            "output_classes": 80,
+                        },
                     },
                     "runtime": {
                         "batch_size": 1,
@@ -61,7 +66,7 @@ class RecordingHandler:
         return {
             **context,
             "node": node.name,
-            "model": node.model["name"] if node.model else None,
+            "model": node.model.name if node.model else None,
         }
 
 

@@ -1,10 +1,32 @@
 from __future__ import annotations
 
 from collections import deque
+from typing import Any
 
+from gnn_archs.config import (
+    DCNConfigOverride,
+    DCNv2ConfigOverride,
+    DeepFMConfigOverride,
+    EDCNConfigOverride,
+    Gpt2ConfigOverride,
+    Qwen3ConfigOverride,
+    T5ConfigOverride,
+    is_causal_lm_model_name,
+    is_detection_model_name,
+    is_recommender_model_name,
+    is_text_model_name,
+    normalize_model_identifier,
+)
 from workflow.schema import Workflow, WorkflowNodeConfig
 
 BOUNDARY_NODE_TYPES = {"input", "output"}
+FORBIDDEN_MODEL_PARAMETER_FIELDS = {"mutations", "pretrained", "task"}
+RECOMMENDER_CONFIG_BY_NAME = {
+    "deepfm": ("deepfm_config", DeepFMConfigOverride),
+    "dcn": ("dcn_config", DCNConfigOverride),
+    "dcnv2": ("dcnv2_config", DCNv2ConfigOverride),
+    "edcn": ("edcn_config", EDCNConfigOverride),
+}
 
 
 def validate_workflow(workflow: Workflow) -> Workflow:
@@ -25,11 +47,17 @@ def validate_node_names(workflow: Workflow) -> None:
 def validate_node_configs(workflow: Workflow) -> None:
     for node in workflow.nodes:
         if node.type in BOUNDARY_NODE_TYPES:
-            if node.model is not None or node.runtime is not None:
+            if (
+                node.task is not None
+                or node.model is not None
+                or node.runtime is not None
+            ):
                 raise ValueError(
-                    f"boundary nodes must omit model and runtime: {node.name}"
+                    f"boundary nodes must omit task, model, and runtime: {node.name}"
                 )
             continue
+        if node.task is None:
+            raise ValueError(f"agent/tool node must define task: {node.name}")
         if node.model is None:
             raise ValueError(f"agent/tool node must define model: {node.name}")
         if node.runtime is None:
@@ -50,7 +78,12 @@ def validate_runtime(node: WorkflowNodeConfig) -> None:
         sequence_length = node.runtime.sequence_length or 0
         max_positions = 0
         if node.model:
-            max_positions = int(node.model.get("max_position_embeddings", 0))
+            parameters = node.model.parameters
+            max_positions = int(
+                parameters.get("max_position_embeddings")
+                or parameters.get("n_positions")
+                or 0
+            )
         if (
             max_positions
             and sequence_length + node.runtime.decode_max_output_length > max_positions
@@ -62,24 +95,116 @@ def validate_runtime(node: WorkflowNodeConfig) -> None:
 def validate_model(node: WorkflowNodeConfig) -> None:
     if not node.model:
         return
-    hidden_size = node.model.get("hidden_size")
-    num_attention_heads = node.model.get("num_attention_heads")
-    num_key_value_heads = node.model.get("num_key_value_heads")
+    parameters = node.model.parameters
+    forbidden_fields = sorted(set(parameters) & FORBIDDEN_MODEL_PARAMETER_FIELDS)
+    if forbidden_fields:
+        raise ValueError(
+            f"model parameters contain workflow-only fields: {forbidden_fields}"
+        )
+    if node.type != "tool":
+        return
+
+    model_name = node.model.name
+    normalized_name = normalize_model_identifier(model_name)
+    if normalized_name == "gpt2":
+        validate_attention_parameters(parameters, node.name)
+        validate_gpt2_parameters(parameters, node.name)
+        return
+    if normalized_name == "t5":
+        validate_attention_parameters(parameters, node.name)
+        validate_t5_parameters(parameters, node.name)
+        return
+    if normalized_name.startswith("qwen"):
+        validate_attention_parameters(parameters, node.name)
+        Qwen3ConfigOverride.model_validate(parameters)
+        return
+    if is_recommender_model_name(model_name):
+        validate_recommender_parameters(normalized_name, parameters, node.name)
+        return
+    if is_detection_model_name(model_name):
+        validate_positive_int_parameter(parameters, "input_channels", node.name)
+        validate_positive_int_parameter(parameters, "output_classes", node.name)
+        return
+    if is_causal_lm_model_name(model_name):
+        return
+    if is_text_model_name(model_name):
+        validate_positive_int_parameter(parameters, "output_classes", node.name)
+        return
+
+    validate_positive_int_parameter(parameters, "input_channels", node.name)
+    validate_positive_int_parameter(parameters, "output_classes", node.name)
+
+
+def validate_gpt2_parameters(parameters: dict[str, Any], node_name: str) -> None:
+    validate_positive_int_parameter(parameters, "output_classes", node_name)
+    model_parameters = {
+        key: value for key, value in parameters.items() if key != "output_classes"
+    }
+    Gpt2ConfigOverride.model_validate(model_parameters)
+
+
+def validate_t5_parameters(parameters: dict[str, Any], node_name: str) -> None:
+    validate_positive_int_parameter(parameters, "output_classes", node_name)
+    model_parameters = {
+        key: value for key, value in parameters.items() if key != "output_classes"
+    }
+    T5ConfigOverride.model_validate(model_parameters)
+
+
+def validate_recommender_parameters(
+    normalized_name: str,
+    parameters: dict[str, Any],
+    node_name: str,
+) -> None:
+    config_field, config_model = RECOMMENDER_CONFIG_BY_NAME[normalized_name]
+    config_payload = parameters.get(config_field)
+    if config_payload is None:
+        raise ValueError(f"{config_field} is required: {node_name}")
+    config_model.model_validate(config_payload)
+
+
+def validate_attention_parameters(
+    parameters: dict[str, Any],
+    node_name: str,
+) -> None:
+    hidden_size = (
+        parameters.get("hidden_size")
+        or parameters.get("n_embd")
+        or parameters.get("d_model")
+    )
+    num_attention_heads = (
+        parameters.get("num_attention_heads")
+        or parameters.get("n_head")
+        or parameters.get("num_heads")
+    )
+    num_key_value_heads = parameters.get("num_key_value_heads")
     if (
-        hidden_size is not None
-        and num_attention_heads is not None
-        and int(hidden_size) % int(num_attention_heads) != 0
-    ):
-        message = "hidden_size must be divisible by num_attention_heads"
-        raise ValueError(f"{message}: {node.name}")
-    if (
-        hidden_size is not None
-        and num_key_value_heads is not None
-        and int(hidden_size) % int(num_key_value_heads) != 0
+        isinstance(hidden_size, int)
+        and isinstance(num_attention_heads, int)
+        and hidden_size % num_attention_heads != 0
     ):
         raise ValueError(
-            f"hidden_size must be divisible by num_key_value_heads: {node.name}"
+            f"hidden_size must be divisible by attention heads: {node_name}"
         )
+    if (
+        isinstance(num_attention_heads, int)
+        and isinstance(num_key_value_heads, int)
+        and num_attention_heads % num_key_value_heads != 0
+    ):
+        raise ValueError(
+            f"num_attention_heads must be divisible by num_key_value_heads: {node_name}"
+        )
+
+
+def validate_positive_int_parameter(
+    parameters: dict[str, Any],
+    field_name: str,
+    node_name: str,
+) -> int:
+    value = parameters.get(field_name)
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError(f"{field_name} must be a positive integer: {node_name}")
+    return value
 
 
 def validate_edges(

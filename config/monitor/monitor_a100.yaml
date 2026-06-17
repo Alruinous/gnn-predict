@@ -142,12 +142,12 @@ targets:
     gpu_id: "1"
     output_csv: "csv/a100/yolov9_monitor.csv"
 
-  yolov11: # TODO 采集时系统错误，正在重新采集
-    enabled: false
-    result_json: res/yolov11/results/yolov11_variants_a100_1780563409_results.json
+  yolov11:
+    enabled: true
+    result_json: res/yolov11/results/yolov11_variants_a100_1780987336_results.json
     node_name: inspur-gpu-04
-    pod_name: sg-wangjh-260604-56f12-default0-0
-    gpu_id: "1"
+    pod_name: sg-wangjh-260609-a98c5-default0-0
+    gpu_id: "2"
     output_csv: "csv/a100/yolov11_monitor.csv"
     
   efficientnet:
@@ -192,8 +192,8 @@ targets:
   
   qwen3:
     enabled: true
-    result_json: res/qwen3/results/qwen3_variants_a100_1781074513_results.json
-    node_name: xfusion-3
-    pod_name: sg-wangjh-260610-67343-default0-0
-    gpu_id: "0"
+    result_json: res/qwen3_a100/results/qwen3_a100_a100_1781170508_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260611-e092f-default0-0
+    gpu_id: "3"
     output_csv: "csv/a100/qwen3_monitor.csv"

@@ -15,12 +15,14 @@ def build_valid_workflow_payload(node_name: str = "planner") -> dict[str, object
             {
                 "name": node_name,
                 "type": "tool",
+                "task": "object_detection",
                 "model": {
-                    "task": "object_detection",
                     "name": "yolov5n",
-                    "input_channels": 3,
-                    "output_classes": 80,
-                    "image_size": [640, 640],
+                    "parameters": {
+                        "input_channels": 3,
+                        "output_classes": 80,
+                        "image_size": [640, 640],
+                    },
                 },
                 "runtime": {
                     "batch_size": 4,

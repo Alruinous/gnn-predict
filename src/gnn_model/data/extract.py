@@ -224,7 +224,7 @@ def process_csv(csv_file: str | Path) -> CsvProcessResult:
             [
                 pl.col("variant_name").str.len_chars() > 0,
                 ~pl.col("variant_name").str.to_lowercase().str.contains("_elu_"),
-                # onnx_tool cannot parse current Qwen3.5 BFLOAT16 Constant tensors.
+                # Qwen3.5 ONNX graphs remain too large for the current extraction batch.
                 ~pl.col("base_model_name").str.starts_with("Qwen3.5"),
                 pl.col("variant_path").map_elements(
                     lambda path: Path(path).is_file(),

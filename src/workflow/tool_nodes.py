@@ -42,9 +42,8 @@ class BaseToolNode:
     def description(self) -> str:
         if self.node.description:
             return self.node.description
-        model_config = self.node.model or {}
-        model_name = str(model_config.get("name", "unknown"))
-        model_task = str(model_config.get("task", "unspecified"))
+        model_name = self.node.model.name if self.node.model else "unknown"
+        model_task = self.node.task or "unspecified"
         return (
             f"Run workflow tool node '{self.node.name}' for task '{model_task}'. "
             f"The configured model name is '{model_name}'."

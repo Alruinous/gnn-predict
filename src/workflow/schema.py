@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from common.validate import NonEmptyStr, NonNegativeInt, PositiveInt
 from workflow.types import (
     NodeType,
     WorkflowNodeStatus,
@@ -14,31 +15,29 @@ from workflow.types import (
 class WorkflowRuntimeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    batch_size: int
+    batch_size: NonNegativeInt
     phase: WorkflowPhase
-    input_shape: list[int] | None = None
-    sequence_length: int | None = None
-    decode_max_output_length: int | None = None
+    input_shape: list[PositiveInt] | None = None
+    sequence_length: PositiveInt | None = None
+    decode_max_output_length: PositiveInt | None = None
+
+
+class WorkflowModelConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: NonEmptyStr
+    parameters: dict[str, Any]
 
 
 class WorkflowNodeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str
+    name: NonEmptyStr
     type: NodeType
-    description: str | None = None
-    model: dict[str, Any] | None = None
+    task: NonEmptyStr | None = None
+    description: NonEmptyStr | None = None
+    model: WorkflowModelConfig | None = None
     runtime: WorkflowRuntimeConfig | None = None
-
-    @field_validator("description")
-    @classmethod
-    def validate_description(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized_value = value.strip()
-        if not normalized_value:
-            raise ValueError("description must not be empty")
-        return normalized_value
 
 
 class WorkflowEdgeConfig(BaseModel):
@@ -65,7 +64,7 @@ class Workflow(BaseModel):
 class WorkflowNodeResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    node_name: str
+    node_name: NonEmptyStr
     status: WorkflowNodeStatus
     started_at: float | None = None
     ended_at: float | None = None
@@ -73,4 +72,3 @@ class WorkflowNodeResult(BaseModel):
     error_type: str | None = None
     error_message: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
-
