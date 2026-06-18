@@ -195,6 +195,70 @@ class Qwen3ConfigOverride(StrictModel):
         return self
 
 
+class Gemma4TextConfigOverride(StrictModel):
+    vocab_size: int
+    hidden_size: int
+    intermediate_size: int
+    num_hidden_layers: int
+    num_attention_heads: int
+    num_key_value_heads: int
+    head_dim: int = 256
+    hidden_activation: str = "gelu_pytorch_tanh"
+    max_position_embeddings: int = 131072
+    initializer_range: float = 0.02
+    rms_norm_eps: float = 1e-6
+    tie_word_embeddings: bool = True
+    rope_parameters: dict[str, Any] | None = None
+    attention_bias: bool = False
+    attention_dropout: float = 0.0
+    sliding_window: int = 512
+    layer_types: list[Literal["sliding_attention", "full_attention"]] | None = None
+    final_logit_softcapping: float | None = None
+    use_bidirectional_attention: Literal["all", "vision"] | None = None
+    vocab_size_per_layer_input: int = 262144
+    hidden_size_per_layer_input: int = 256
+
+    @model_validator(mode="after")
+    def validate_gemma4_text_config(self) -> Gemma4TextConfigOverride:
+        positive_fields = (
+            ("vocab_size", self.vocab_size),
+            ("hidden_size", self.hidden_size),
+            ("intermediate_size", self.intermediate_size),
+            ("num_hidden_layers", self.num_hidden_layers),
+            ("num_attention_heads", self.num_attention_heads),
+            ("num_key_value_heads", self.num_key_value_heads),
+            ("head_dim", self.head_dim),
+            ("max_position_embeddings", self.max_position_embeddings),
+            ("sliding_window", self.sliding_window),
+            ("vocab_size_per_layer_input", self.vocab_size_per_layer_input),
+            ("hidden_size_per_layer_input", self.hidden_size_per_layer_input),
+        )
+        for field_name, value in positive_fields:
+            if value <= 0:
+                raise ValueError(f"gemma4_config.{field_name} must be positive")
+        if self.num_attention_heads % self.num_key_value_heads != 0:
+            raise ValueError(
+                "gemma4_config.num_attention_heads must be divisible by "
+                "num_key_value_heads"
+            )
+        if self.rms_norm_eps <= 0:
+            raise ValueError("gemma4_config.rms_norm_eps must be positive")
+        if self.initializer_range <= 0:
+            raise ValueError("gemma4_config.initializer_range must be positive")
+        if not 0 <= self.attention_dropout < 1:
+            raise ValueError("gemma4_config.attention_dropout must be in [0, 1)")
+        if self.layer_types is not None:
+            if len(self.layer_types) != self.num_hidden_layers:
+                raise ValueError(
+                    "gemma4_config.layer_types length must match num_hidden_layers"
+                )
+            if self.layer_types[-1] != "full_attention":
+                raise ValueError(
+                    "gemma4_config.layer_types last value must be full_attention"
+                )
+        return self
+
+
 class RecommenderSparseFeatureConfig(StrictModel):
     name: str
     vocab_size: int
@@ -395,6 +459,7 @@ class VariantConfig(StrictModel):
     gpt2_config: Gpt2ConfigOverride | None = None
     t5_config: T5ConfigOverride | None = None
     qwen3_config: Qwen3ConfigOverride | None = None
+    gemma4_config: Gemma4TextConfigOverride | None = None
     deepfm_config: DeepFMConfigOverride | None = None
     dcn_config: DCNConfigOverride | None = None
     dcnv2_config: DCNv2ConfigOverride | None = None

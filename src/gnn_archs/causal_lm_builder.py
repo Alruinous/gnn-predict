@@ -5,9 +5,14 @@ from typing import TYPE_CHECKING
 
 import torch
 import torch.nn as nn
-from transformers import AutoModelForCausalLM, Qwen3Config
+from transformers import (
+    AutoModelForCausalLM,
+    Gemma4ForCausalLM,
+    Gemma4TextConfig,
+    Qwen3Config,
+)
 
-from gnn_archs.config import get_causal_lm_family
+from gnn_archs.config import get_causal_lm_family, normalize_model_identifier
 
 if TYPE_CHECKING:
     from gnn_archs.config import ResolvedVariantSpec
@@ -36,6 +41,10 @@ def build_causal_lm_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
     validate_causal_lm_variant_spec(spec)
     if spec.variant_config.qwen3_config is not None:
         model = build_qwen3_config_model(spec)
+        disable_causal_lm_cache(model)
+        return model
+    if spec.variant_config.gemma4_config is not None:
+        model = build_gemma4_config_model(spec)
         disable_causal_lm_cache(model)
         return model
 
@@ -71,8 +80,38 @@ def build_qwen3_config_model(spec: ResolvedVariantSpec) -> nn.Module:
     return AutoModelForCausalLM.from_config(config, dtype=torch.float16)
 
 
+def build_gemma4_config_model(spec: ResolvedVariantSpec) -> nn.Module:
+    gemma4_config = spec.variant_config.gemma4_config
+    if gemma4_config is None:
+        raise ValueError("gemma4 variants require variant_config.gemma4_config")
+
+    config_values = gemma4_config.model_dump(mode="python", exclude_none=True)
+    config_values["layer_types"] = config_values.get(
+        "layer_types"
+    ) or build_gemma4_layer_types(gemma4_config.num_hidden_layers)
+    config = Gemma4TextConfig(
+        pad_token_id=0,
+        bos_token_id=2,
+        eos_token_id=1,
+        use_cache=False,
+        **config_values,
+    )
+    validate_gemma4_runtime_config(spec, config)
+    return Gemma4ForCausalLM(config).to(dtype=torch.float16)
+
+
+def build_gemma4_layer_types(num_hidden_layers: int) -> list[str]:
+    return [
+        "full_attention"
+        if layer_index == num_hidden_layers - 1 or (layer_index + 1) % 6 == 0
+        else "sliding_attention"
+        for layer_index in range(num_hidden_layers)
+    ]
+
+
 def validate_causal_lm_variant_spec(spec: ResolvedVariantSpec) -> None:
     family = get_causal_lm_family(spec.base_model.name)
+    model_name = normalize_model_identifier(spec.base_model.name)
     if spec.mutations:
         raise ValueError(f"{family} variants do not support mutations")
     if len(spec.variant_config.example_input_shape) != 2:
@@ -84,11 +123,23 @@ def validate_causal_lm_variant_spec(spec: ResolvedVariantSpec) -> None:
     if family == "qwen":
         if spec.base_model.pretrained:
             raise ValueError("qwen3 config variants require pretrained=false")
+        if spec.variant_config.gemma4_config is not None:
+            raise ValueError("qwen variants must omit gemma4_config")
         if spec.variant_config.qwen3_config is None:
             raise ValueError("qwen variants require variant_config.qwen3_config")
         return
+    if model_name == "gemma4":
+        if spec.base_model.pretrained:
+            raise ValueError("gemma4 config variants require pretrained=false")
+        if spec.variant_config.qwen3_config is not None:
+            raise ValueError("gemma4 variants must omit qwen3_config")
+        if spec.variant_config.gemma4_config is None:
+            raise ValueError("gemma4 variants require variant_config.gemma4_config")
+        return
     if spec.variant_config.qwen3_config is not None:
         raise ValueError(f"{family} variants must omit qwen3_config")
+    if spec.variant_config.gemma4_config is not None:
+        raise ValueError(f"{family} variants must omit gemma4_config")
 
 
 def validate_qwen3_runtime_config(
@@ -104,6 +155,22 @@ def validate_qwen3_runtime_config(
     if required_length > config.max_position_embeddings:
         raise ValueError(
             "qwen sequence and decode length exceed max_position_embeddings"
+        )
+
+
+def validate_gemma4_runtime_config(
+    spec: ResolvedVariantSpec,
+    config: Gemma4TextConfig,
+) -> None:
+    batch_size, sequence_length = spec.variant_config.example_input_shape
+    if spec.variant_config.batch_size != batch_size:
+        raise ValueError("gemma4 variants require batch_size to match input")
+    required_length = sequence_length
+    if spec.variant_config.run_decode:
+        required_length += spec.variant_config.decode_max_output_length
+    if required_length > config.max_position_embeddings:
+        raise ValueError(
+            "gemma4 sequence and decode length exceed max_position_embeddings"
         )
 
 

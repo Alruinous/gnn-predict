@@ -87,11 +87,11 @@ targets:
     output_csv: csv/v100/resnet152_monitor.csv
 
   yolov8:
-    enabled: false
-    result_json: res/yolov8/results/yolov8_variants_v100_1777297814_results.json
+    enabled: true
+    result_json: res/yolov8/results/yolov8_variants_v100_1781156082_results.json
     node_name: "dell-67"
-    pod_name: "sg-wangjh-260427-2b036-default0-0"
-    gpu_id: "1"
+    pod_name: "sg-wangjh-260611-80e66-default0-0"
+    gpu_id: "0"
     output_csv: "csv/v100/yolov8_monitor.csv"
 
   bert:

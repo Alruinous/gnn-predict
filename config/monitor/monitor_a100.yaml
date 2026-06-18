@@ -86,12 +86,12 @@ targets:
     gpu_id: "0"
     output_csv: csv/a100/resnet152_monitor.csv
 
-  yolov8: # TODO 采集时系统错误，正在重新采集
-    enabled: false
-    result_json: res/yolov8/results/yolov8_variants_a100_1780766745_results.json
+  yolov8:
+    enabled: true
+    result_json: res/yolov8/results/yolov8_variants_a100_1781157964_results.json
     node_name: inspur-gpu-04
-    pod_name: "sg-wangjh-260607-32362-default0-0"
-    gpu_id: "3"
+    pod_name: "sg-wangjh-260611-c760c-default0-0"
+    gpu_id: "0"
     output_csv: "csv/a100/yolov8_monitor.csv"
 
   bert:

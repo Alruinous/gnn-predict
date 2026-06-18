@@ -49,6 +49,42 @@ LLAMA_CONFIG_VARIANT_COUNTS = {
 GEMMA_CONFIG_VARIANT_COUNTS = {
     "gemma_variants.yaml": 22,
 }
+GEMMA4_CONFIG_VARIANT_COUNTS = {
+    "gemma4_v100.yaml": 320,
+    "gemma4_a100.yaml": 367,
+}
+GEMMA4_LONG_DECODE_SHAPES = {
+    (batch_size, sequence_length)
+    for batch_size in (1, 2)
+    for sequence_length in (
+        64,
+        128,
+        192,
+        256,
+        384,
+        512,
+        768,
+        1024,
+        1536,
+        2048,
+        3072,
+        4096,
+    )
+}
+GEMMA4_LONG_DECODE_OUTPUTS = {
+    16,
+    32,
+    64,
+    128,
+    192,
+    256,
+    384,
+    512,
+    768,
+    1024,
+    1536,
+    2048,
+}
 CAUSAL_LM_FULL_FLOW_SHAPES = {
     (1, 128),
     (1, 256),
@@ -306,6 +342,106 @@ def test_gemma_arch_configs_expand_to_expected_counts(
         "gemma-3-1b-pt",
     }
     assert_causal_lm_full_flow_variants(variants)
+
+
+@pytest.mark.parametrize(
+    ("config_name", "expected_count"),
+    GEMMA4_CONFIG_VARIANT_COUNTS.items(),
+)
+def test_gemma4_arch_configs_expand_to_expected_counts(
+    config_name: str, expected_count: int
+) -> None:
+    config = load_arch_config(ARCH_CONFIG_DIR / config_name)
+
+    variants = expand_arch_config(config)
+    full_flow_variants = [
+        variant for variant in variants if variant.variant_config.run_training
+    ]
+    long_decode_variants = [
+        variant
+        for variant in variants
+        if variant.variant_config.run_decode
+        and not variant.variant_config.run_training
+        and not variant.variant_config.run_prefill
+        and variant.variant_config.gemma4_config is not None
+        and variant.variant_config.gemma4_config.hidden_size == 768
+        and variant.variant_config.gemma4_config.num_hidden_layers == 16
+    ]
+
+    assert len(variants) == expected_count
+    assert {variant.base_model.name for variant in variants} == {"gemma4"}
+    assert all(not variant.base_model.pretrained for variant in variants)
+    assert all(is_causal_lm_model_name(variant.base_model.name) for variant in variants)
+    assert all(variant.source == "variant_config_grid" for variant in variants)
+    assert all(not variant.variant_config.run_inference for variant in variants)
+    assert all(variant.variant_config.use_fake_text_dataset for variant in variants)
+    assert all(not variant.mutations for variant in variants)
+    assert all(variant.variant_config.qwen3_config is None for variant in variants)
+    assert all(
+        variant.variant_config.gemma4_config is not None for variant in variants
+    )
+    assert all(
+        variant.variant_config.target_input_channels is None for variant in variants
+    )
+    assert all(
+        variant.variant_config.target_output_classes is None for variant in variants
+    )
+    assert all(
+        variant.variant_config.batch_size
+        == variant.variant_config.example_input_shape[0]
+        for variant in variants
+    )
+    assert all(
+        variant.variant_config.example_input_shape[1]
+        + (
+            variant.variant_config.decode_max_output_length
+            if variant.variant_config.run_decode
+            else 0
+        )
+        <= variant.variant_config.gemma4_config.max_position_embeddings
+        for variant in variants
+        if variant.variant_config.gemma4_config is not None
+    )
+    assert all(
+        variant.variant_config.run_prefill and variant.variant_config.run_decode
+        for variant in full_flow_variants
+    )
+    assert len(long_decode_variants) == 288
+    assert {
+        tuple(variant.variant_config.example_input_shape)
+        for variant in long_decode_variants
+    } == GEMMA4_LONG_DECODE_SHAPES
+    assert {
+        variant.variant_config.decode_max_output_length
+        for variant in long_decode_variants
+    } == GEMMA4_LONG_DECODE_OUTPUTS
+
+    if config_name == "gemma4_v100.yaml":
+        assert len(full_flow_variants) == 18
+        assert all(
+            variant.variant_config.gemma4_config is not None
+            and variant.variant_config.gemma4_config.hidden_size <= 1280
+            for variant in full_flow_variants
+        )
+        assert all(
+            variant.variant_config.example_input_shape[0]
+            * variant.variant_config.example_input_shape[1]
+            <= 512
+            for variant in full_flow_variants
+        )
+    else:
+        assert len(full_flow_variants) == 25
+        assert max(
+            variant.variant_config.gemma4_config.hidden_size
+            for variant in full_flow_variants
+            if variant.variant_config.gemma4_config is not None
+        ) == 1792
+        assert {
+            tuple(variant.variant_config.example_input_shape)
+            for variant in full_flow_variants
+            if variant.variant_config.gemma4_config is not None
+            and variant.variant_config.gemma4_config.hidden_size == 1792
+        } == {(1, 128)}
 
 
 @pytest.mark.parametrize(

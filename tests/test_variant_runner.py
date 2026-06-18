@@ -11,6 +11,8 @@ import pytest
 import torch
 import torch.nn as nn
 from transformers import (
+    Gemma4ForCausalLM,
+    Gemma4TextConfig,
     LlamaConfig,
     LlamaForCausalLM,
     Qwen3Config,
@@ -286,6 +288,65 @@ def build_qwen_variant(
     return expand_arch_config(config)[0]
 
 
+def build_gemma4_config_override(**overrides: object) -> dict[str, object]:
+    config: dict[str, object] = {
+        "vocab_size": 32,
+        "hidden_size": 16,
+        "intermediate_size": 32,
+        "num_hidden_layers": 2,
+        "num_attention_heads": 2,
+        "num_key_value_heads": 2,
+        "head_dim": 8,
+        "max_position_embeddings": 32,
+        "sliding_window": 8,
+        "vocab_size_per_layer_input": 32,
+        "hidden_size_per_layer_input": 4,
+    }
+    config.update(overrides)
+    return config
+
+
+def build_gemma4_variant(
+    *,
+    base_model_name: str = "gemma4",
+    variant_name: str = "gemma4_runtime_smoke",
+    variant_config_overrides: dict[str, object] | None = None,
+) -> ResolvedVariantSpec:
+    variant_config: dict[str, object] = {
+        "example_input_shape": [2, 8],
+        "run_training": False,
+        "run_inference": False,
+        "run_prefill": False,
+        "export_onnx": False,
+        "batch_size": 2,
+        "training_measurement_min_seconds": 1e-9,
+        "prefill_measurement_min_seconds": 1e-9,
+        "decode_measurement_min_seconds": 1e-9,
+        "use_fake_text_dataset": True,
+        "gemma4_config": build_gemma4_config_override(),
+    }
+    if variant_config_overrides is not None:
+        variant_config.update(variant_config_overrides)
+
+    config = ArchConfig.model_validate(
+        {
+            "base_model_groups": [
+                {
+                    "base_model": {"name": base_model_name, "pretrained": False},
+                    "single_variant_define": [
+                        {
+                            "name": variant_name,
+                            "variant_config": variant_config,
+                            "mutations": [],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    return expand_arch_config(config)[0]
+
+
 def build_llama_variant(
     *,
     base_model_name: str = "Llama-3.2-1B",
@@ -342,6 +403,28 @@ def build_tiny_qwen_model() -> Qwen3ForCausalLM:
         use_cache=False,
     )
     return Qwen3ForCausalLM(config)
+
+
+def build_tiny_gemma4_model() -> Gemma4ForCausalLM:
+    config = Gemma4TextConfig(
+        vocab_size=32,
+        hidden_size=16,
+        intermediate_size=32,
+        num_hidden_layers=2,
+        num_attention_heads=2,
+        num_key_value_heads=2,
+        head_dim=8,
+        max_position_embeddings=32,
+        sliding_window=8,
+        layer_types=["sliding_attention", "full_attention"],
+        vocab_size_per_layer_input=32,
+        hidden_size_per_layer_input=4,
+        pad_token_id=0,
+        bos_token_id=2,
+        eos_token_id=1,
+        use_cache=False,
+    )
+    return Gemma4ForCausalLM(config)
 
 
 def build_tiny_llama_model() -> LlamaForCausalLM:
@@ -1029,6 +1112,38 @@ def test_qwen_architecture_only_onnx_keeps_full_logits(tmp_path: Path) -> None:
     assert [dimension.dim_value for dimension in output_shape] == [2, 8, 32]
 
 
+def test_gemma4_architecture_only_onnx_keeps_full_logits(tmp_path: Path) -> None:
+    config_path = tmp_path / "gemma4_variants.yaml"
+    variant = build_gemma4_variant(
+        variant_name="gemma4_architecture_only",
+        variant_config_overrides={
+            "export_onnx": True,
+            "onnx_export_mode": "architecture_only",
+        },
+    )
+    model = build_tiny_gemma4_model()
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_gemma4_architecture_only"),
+    )
+
+    result = export_onnx_model(variant, model, context, True)
+
+    assert result.graph_info["runtime_input_names"] == [
+        "input_ids",
+        "attention_mask",
+    ]
+    assert result.graph_info["output_names"] == ["logits"]
+    assert result.graph_info["initializer_names"] == []
+    exported_model = onnx.load(result.path)
+    output_shape = exported_model.graph.output[0].type.tensor_type.shape.dim
+    assert [dimension.dim_value for dimension in output_shape] == [2, 8, 32]
+
+
 def test_build_variant_model_builds_qwen3_model_from_config() -> None:
     variant = build_qwen_variant(
         variant_config_overrides={
@@ -1052,6 +1167,38 @@ def test_build_variant_model_builds_qwen3_model_from_config() -> None:
     assert model.config.vocab_size == 64
     assert model.config.hidden_size == 32
     assert model.config.num_hidden_layers == 2
+    assert model.config.use_cache is False
+    assert next(model.parameters()).dtype is torch.float16
+
+
+def test_build_variant_model_builds_gemma4_model_from_config() -> None:
+    variant = build_gemma4_variant(
+        variant_config_overrides={
+            "gemma4_config": build_gemma4_config_override(
+                vocab_size=64,
+                hidden_size=32,
+                intermediate_size=64,
+                num_hidden_layers=3,
+                num_attention_heads=4,
+                num_key_value_heads=2,
+                head_dim=8,
+                max_position_embeddings=64,
+            )
+        }
+    )
+
+    model = build_variant_model(variant)
+
+    assert isinstance(model, Gemma4ForCausalLM)
+    assert model.config.model_type == "gemma4_text"
+    assert model.config.vocab_size == 64
+    assert model.config.hidden_size == 32
+    assert model.config.num_hidden_layers == 3
+    assert model.config.layer_types == [
+        "sliding_attention",
+        "sliding_attention",
+        "full_attention",
+    ]
     assert model.config.use_cache is False
     assert next(model.parameters()).dtype is torch.float16
 
@@ -1798,6 +1945,21 @@ def test_run_inference_measures_until_min_duration(
     assert result.timings.ended_at_ts == 105.0
 
 
+def test_train_model_measures_gemma4_sft() -> None:
+    variant = build_gemma4_variant(
+        variant_config_overrides={
+            "run_training": True,
+            "training_measurement_min_seconds": 1e-9,
+        }
+    )
+    model = build_tiny_gemma4_model()
+
+    result = train_model(variant, model, torch.device("cpu"))
+
+    assert result.metrics["total_steps"] >= 1
+    assert np.isfinite(result.metrics["final_loss"])
+
+
 def test_run_prefill_measures_qwen_forward() -> None:
     variant = build_qwen_variant(
         variant_config_overrides={
@@ -1806,6 +1968,23 @@ def test_run_prefill_measures_qwen_forward() -> None:
         }
     )
     model = build_tiny_qwen_model()
+
+    result = run_prefill(variant, model, torch.device("cpu"))
+
+    assert result.metrics["iterations"] >= 1
+    assert result.metrics["batch_size"] == 2
+    assert result.metrics["sequence_length"] == 8
+    assert result.metrics["num_outputs"] == model.config.vocab_size
+
+
+def test_run_prefill_measures_gemma4_forward() -> None:
+    variant = build_gemma4_variant(
+        variant_config_overrides={
+            "run_prefill": True,
+            "prefill_measurement_min_seconds": 1e-9,
+        }
+    )
+    model = build_tiny_gemma4_model()
 
     result = run_prefill(variant, model, torch.device("cpu"))
 
@@ -1824,6 +2003,25 @@ def test_run_decode_measures_qwen_generation() -> None:
         }
     )
     model = build_tiny_qwen_model()
+
+    result = run_decode(variant, model, torch.device("cpu"))
+
+    assert result.metrics["iterations"] >= 1
+    assert result.metrics["batch_size"] == 2
+    assert result.metrics["sequence_length"] == 8
+    assert result.metrics["decode_max_output_length"] == 4
+    assert result.metrics["generated_output_length"] <= 4
+
+
+def test_run_decode_measures_gemma4_generation() -> None:
+    variant = build_gemma4_variant(
+        variant_config_overrides={
+            "run_decode": True,
+            "decode_max_output_length": 4,
+            "decode_measurement_min_seconds": 1e-9,
+        }
+    )
+    model = build_tiny_gemma4_model()
 
     result = run_decode(variant, model, torch.device("cpu"))
 
