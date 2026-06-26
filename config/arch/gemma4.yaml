@@ -100,17 +100,17 @@ base_model_groups:
       example_input_shape:
       - 1
       - 128
-      run_training: false
+      run_training: true
       run_inference: false
       run_prefill: true
-      run_decode: false
+      run_decode: true
       pre_inference_cooldown_seconds: 5.0
       pre_prefill_cooldown_seconds: 5.0
       pre_decode_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 60.0
       prefill_measurement_min_seconds: 60.0
       decode_measurement_min_seconds: 60.0
-      decode_max_output_length: 0
+      decode_max_output_length: 32
       export_onnx: true
       onnx_export_mode: architecture_only
       batch_size: 1
@@ -130,11 +130,11 @@ base_model_groups:
     axes:
     - name: arch
       values:
-      - name: h1536_l24
+      - name: h1280_l22
         overrides:
-          gemma4_config.hidden_size: 1536
-          gemma4_config.intermediate_size: 6144
-          gemma4_config.num_hidden_layers: 24
+          gemma4_config.hidden_size: 1280
+          gemma4_config.intermediate_size: 5120
+          gemma4_config.num_hidden_layers: 22
           gemma4_config.num_attention_heads: 8
           gemma4_config.num_key_value_heads: 4
     - name: shape
@@ -168,6 +168,162 @@ base_model_groups:
           example_input_shape:
           - 2
           - 256
+          batch_size: 2
+      - name: bs4_s128
+        overrides:
+          example_input_shape:
+          - 4
+          - 128
+          batch_size: 4
+- base_model:
+    name: gemma4
+    pretrained: false
+  variant_config_grid:
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 128
+      run_training: true
+      run_inference: false
+      run_prefill: true
+      run_decode: true
+      pre_inference_cooldown_seconds: 5.0
+      pre_prefill_cooldown_seconds: 5.0
+      pre_decode_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 60.0
+      prefill_measurement_min_seconds: 60.0
+      decode_measurement_min_seconds: 60.0
+      decode_max_output_length: 32
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      batch_size: 1
+      training_measurement_min_seconds: 60.0
+      use_fake_text_dataset: true
+      gemma4_config:
+        vocab_size: 262144
+        hidden_size: 768
+        intermediate_size: 3072
+        num_hidden_layers: 16
+        num_attention_heads: 6
+        num_key_value_heads: 3
+        head_dim: 256
+        max_position_embeddings: 131072
+        tie_word_embeddings: true
+        sliding_window: 512
+    axes:
+    - name: arch
+      values:
+      - name: h1792_l28
+        overrides:
+          gemma4_config.hidden_size: 1792
+          gemma4_config.intermediate_size: 7168
+          gemma4_config.num_hidden_layers: 28
+          gemma4_config.num_attention_heads: 8
+          gemma4_config.num_key_value_heads: 4
+    - name: shape
+      values:
+      - name: bs1_s128
+        overrides:
+          example_input_shape:
+          - 1
+          - 128
+          batch_size: 1
+- base_model:
+    name: gemma4
+    pretrained: false
+  variant_config_grid:
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 128
+      run_training: false
+      run_inference: false
+      run_prefill: true
+      run_decode: false
+      pre_inference_cooldown_seconds: 5.0
+      pre_prefill_cooldown_seconds: 5.0
+      pre_decode_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 60.0
+      prefill_measurement_min_seconds: 60.0
+      decode_measurement_min_seconds: 60.0
+      decode_max_output_length: 0
+      export_onnx: true
+      onnx_export_mode: architecture_only
+      batch_size: 1
+      training_measurement_min_seconds: 60.0
+      use_fake_text_dataset: true
+      gemma4_config:
+        vocab_size: 262144
+        hidden_size: 768
+        intermediate_size: 3072
+        num_hidden_layers: 16
+        num_attention_heads: 6
+        num_key_value_heads: 3
+        head_dim: 256
+        max_position_embeddings: 131072
+        tie_word_embeddings: true
+        sliding_window: 512
+    axes:
+    - name: arch
+      values:
+      - name: h2048_l30
+        overrides:
+          gemma4_config.hidden_size: 2048
+          gemma4_config.intermediate_size: 8192
+          gemma4_config.num_hidden_layers: 30
+          gemma4_config.num_attention_heads: 8
+          gemma4_config.num_key_value_heads: 4
+      - name: h2304_l30
+        overrides:
+          gemma4_config.hidden_size: 2304
+          gemma4_config.intermediate_size: 9216
+          gemma4_config.num_hidden_layers: 30
+          gemma4_config.num_attention_heads: 8
+          gemma4_config.num_key_value_heads: 4
+      - name: h2560_l32
+        overrides:
+          gemma4_config.hidden_size: 2560
+          gemma4_config.intermediate_size: 10240
+          gemma4_config.num_hidden_layers: 32
+          gemma4_config.num_attention_heads: 10
+          gemma4_config.num_key_value_heads: 5
+    - name: shape
+      values:
+      - name: bs1_s64
+        overrides:
+          example_input_shape:
+          - 1
+          - 64
+          batch_size: 1
+      - name: bs1_s128
+        overrides:
+          example_input_shape:
+          - 1
+          - 128
+          batch_size: 1
+      - name: bs1_s256
+        overrides:
+          example_input_shape:
+          - 1
+          - 256
+          batch_size: 1
+      - name: bs1_s512
+        overrides:
+          example_input_shape:
+          - 1
+          - 512
+          batch_size: 1
+      - name: bs2_s64
+        overrides:
+          example_input_shape:
+          - 2
+          - 64
+          batch_size: 2
+      - name: bs2_s128
+        overrides:
+          example_input_shape:
+          - 2
+          - 128
           batch_size: 2
 - base_model:
     name: gemma4
@@ -207,13 +363,27 @@ base_model_groups:
     axes:
     - name: arch
       values:
-      - name: h1536_l24
+      - name: h2048_l30
         overrides:
-          gemma4_config.hidden_size: 1536
-          gemma4_config.intermediate_size: 6144
-          gemma4_config.num_hidden_layers: 24
+          gemma4_config.hidden_size: 2048
+          gemma4_config.intermediate_size: 8192
+          gemma4_config.num_hidden_layers: 30
           gemma4_config.num_attention_heads: 8
           gemma4_config.num_key_value_heads: 4
+      - name: h2304_l30
+        overrides:
+          gemma4_config.hidden_size: 2304
+          gemma4_config.intermediate_size: 9216
+          gemma4_config.num_hidden_layers: 30
+          gemma4_config.num_attention_heads: 8
+          gemma4_config.num_key_value_heads: 4
+      - name: h2560_l32
+        overrides:
+          gemma4_config.hidden_size: 2560
+          gemma4_config.intermediate_size: 10240
+          gemma4_config.num_hidden_layers: 32
+          gemma4_config.num_attention_heads: 10
+          gemma4_config.num_key_value_heads: 5
     - name: shape
       values:
       - name: decode_bs1_s128
@@ -245,6 +415,9 @@ base_model_groups:
       - name: o128
         overrides:
           decode_max_output_length: 128
+      - name: o256
+        overrides:
+          decode_max_output_length: 256
 - base_model:
     name: gemma4
     pretrained: false
@@ -409,24 +582,18 @@ base_model_groups:
           - 2
           - 1536
           batch_size: 2
-      - name: token_bs2_s2048
-        overrides:
-          example_input_shape:
-          - 2
-          - 2048
-          batch_size: 2
-      - name: token_bs2_s3072
-        overrides:
-          example_input_shape:
-          - 2
-          - 3072
-          batch_size: 2
-      - name: token_bs2_s4096
-        overrides:
-          example_input_shape:
-          - 2
-          - 4096
-          batch_size: 2
+      # - name: token_bs2_s2048
+      #   overrides:
+      #     example_input_shape:
+      #     - 2
+      #     - 2048
+      #     batch_size: 2
+      # # - name: token_bs2_s3072
+      # #   overrides:
+      # #     example_input_shape:
+      # #     - 2
+      # #     - 3072
+      # #     batch_size: 2
     - name: output
       values:
       - name: o16
@@ -462,6 +629,6 @@ base_model_groups:
       - name: o1536
         overrides:
           decode_max_output_length: 1536
-      - name: o2048
-        overrides:
-          decode_max_output_length: 2048
+      # - name: o2048
+      #   overrides:
+      #     decode_max_output_length: 2048

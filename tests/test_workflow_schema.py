@@ -69,6 +69,64 @@ def test_workflow_schema_loads_valid_minimal_workflow() -> None:
     assert planner.runtime.sequence_length == 512
 
 
+def test_workflow_schema_loads_execution_and_prompt_template() -> None:
+    payload = build_valid_workflow_payload()
+    nodes = payload["nodes"]
+    assert isinstance(nodes, list)
+    nodes[1]["prompt_template"] = "Solve: {input_text}"
+    nodes[1]["execution"] = {
+        "model_path": "/data/Models/Qwen/Qwen3-14B",
+        "devices": ["cuda:0", "cuda:1"],
+        "max_new_tokens": 128,
+    }
+
+    workflow = Workflow.model_validate(payload)
+    planner = node_by_name(workflow, "planner")
+
+    assert planner.prompt_template == "Solve: {input_text}"
+    assert planner.execution is not None
+    assert planner.execution.devices == ["cuda:0", "cuda:1"]
+    assert planner.execution.max_new_tokens == 128
+    assert planner.execution.use_chat_template is True
+    assert planner.execution.enable_thinking is False
+
+
+def test_workflow_schema_rejects_empty_execution_devices() -> None:
+    payload = build_valid_workflow_payload()
+    nodes = payload["nodes"]
+    assert isinstance(nodes, list)
+    nodes[1]["execution"] = {
+        "model_path": "/data/Models/Qwen/Qwen3-14B",
+        "devices": [],
+    }
+
+    with pytest.raises(ValidationError, match="devices"):
+        Workflow.model_validate(payload)
+
+
+def test_workflow_schema_loads_evaluator_node() -> None:
+    payload = build_valid_workflow_payload()
+    nodes = payload["nodes"]
+    assert isinstance(nodes, list)
+    nodes.insert(
+        2,
+        {
+            "name": "judge",
+            "type": "evaluator",
+            "task": "gsm8k_numeric_exact_match",
+        },
+    )
+    payload["edges"] = [
+        {"source": "input", "target": "planner", "attributes": {}},
+        {"source": "planner", "target": "judge", "attributes": {}},
+        {"source": "judge", "target": "output", "attributes": {"condition": "passed"}},
+    ]
+
+    workflow = Workflow.model_validate(payload)
+
+    assert node_by_name(workflow, "judge").type == "evaluator"
+
+
 def test_workflow_schema_strips_node_description() -> None:
     payload = build_valid_workflow_payload()
     nodes = payload["nodes"]

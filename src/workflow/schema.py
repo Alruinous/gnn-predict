@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from common.validate import NonEmptyStr, NonNegativeInt, PositiveInt
 from workflow.types import (
@@ -29,6 +29,34 @@ class WorkflowModelConfig(BaseModel):
     parameters: dict[str, Any]
 
 
+class WorkflowExecutionConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_path: NonEmptyStr
+    devices: list[NonEmptyStr]
+    dtype: NonEmptyStr = "float16"
+    max_new_tokens: PositiveInt | None = None
+    do_sample: bool = False
+    temperature: float | None = None
+    use_chat_template: bool = True
+    enable_thinking: bool = False
+
+    @field_validator("devices")
+    @classmethod
+    def validate_devices(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ValueError("execution devices must not be empty")
+        for device in value:
+            if not device.startswith("cuda:"):
+                raise ValueError("execution devices must use cuda:N syntax")
+            index_text = device.split(":", maxsplit=1)[1]
+            if not index_text.isdigit():
+                raise ValueError("execution devices must use cuda:N syntax")
+        if len(value) != len(set(value)):
+            raise ValueError("execution devices must be unique")
+        return value
+
+
 class WorkflowNodeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -36,8 +64,10 @@ class WorkflowNodeConfig(BaseModel):
     type: NodeType
     task: NonEmptyStr | None = None
     description: NonEmptyStr | None = None
+    prompt_template: NonEmptyStr | None = None
     model: WorkflowModelConfig | None = None
     runtime: WorkflowRuntimeConfig | None = None
+    execution: WorkflowExecutionConfig | None = None
 
 
 class WorkflowEdgeConfig(BaseModel):

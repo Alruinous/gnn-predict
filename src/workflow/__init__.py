@@ -8,6 +8,7 @@ from workflow.loader import load_workflow, load_workflows
 from workflow.schema import (
     Workflow,
     WorkflowEdgeConfig,
+    WorkflowExecutionConfig,
     WorkflowModelConfig,
     WorkflowNodeConfig,
     WorkflowNodeResult,
@@ -76,6 +77,7 @@ __all__ = [
     "WorkflowCachedModel",
     "WorkflowDeviceState",
     "WorkflowEdgeConfig",
+    "WorkflowExecutionConfig",
     "WorkflowGnnPredictor",
     "WorkflowGnnPredictorConfig",
     "WorkflowModelConfig",

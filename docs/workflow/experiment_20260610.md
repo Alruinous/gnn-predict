@@ -22,9 +22,8 @@
 
 文档层面，未发现 `dcs/` 目录；本次按 `docs/` 作为项目背景文档来源。重点参考：
 
-- `docs/workflow/data_20260609.md`
-- `docs/workflow/run_20260609.md`
-- `docs/preview/20260602.md`
+- `docs/workflow/schema_runtime_20260626.md`
+- `docs/workflow/research_plan_20260626.md`
 - `docs/train/gnn_model_v3_op_reclass_full_retrain_20260607.md`
 - `docs/train/gnn_model_llm_full_retrain_20260607.md`
 

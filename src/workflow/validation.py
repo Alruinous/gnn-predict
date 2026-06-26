@@ -17,9 +17,17 @@ from gnn_archs.config import (
     is_text_model_name,
     normalize_model_identifier,
 )
-from workflow.schema import Workflow, WorkflowNodeConfig
+from workflow.schema import Workflow, WorkflowEdgeConfig, WorkflowNodeConfig
 
 BOUNDARY_NODE_TYPES = {"input", "output"}
+MODEL_NODE_TYPES = {"agent", "tool"}
+EVALUATOR_TASKS = {
+    "gsm8k_numeric_exact_match",
+    "mbpp_pass_at_1",
+    "summary_rouge",
+    "summary_llm_judge",
+}
+EDGE_CONDITIONS = {"passed", "failed", "default"}
 FORBIDDEN_MODEL_PARAMETER_FIELDS = {"mutations", "pretrained", "task"}
 RECOMMENDER_CONFIG_BY_NAME = {
     "deepfm": ("deepfm_config", DeepFMConfigOverride),
@@ -51,10 +59,14 @@ def validate_node_configs(workflow: Workflow) -> None:
                 node.task is not None
                 or node.model is not None
                 or node.runtime is not None
+                or node.execution is not None
+                or node.prompt_template is not None
             ):
-                raise ValueError(
-                    f"boundary nodes must omit task, model, and runtime: {node.name}"
-                )
+                message = "boundary nodes must omit task, model, runtime, and execution"
+                raise ValueError(f"{message}: {node.name}")
+            continue
+        if node.type == "evaluator":
+            validate_evaluator_node(node)
             continue
         if node.task is None:
             raise ValueError(f"agent/tool node must define task: {node.name}")
@@ -64,6 +76,17 @@ def validate_node_configs(workflow: Workflow) -> None:
             raise ValueError(f"agent/tool node must define runtime: {node.name}")
         validate_runtime(node)
         validate_model(node)
+
+
+def validate_evaluator_node(node: WorkflowNodeConfig) -> None:
+    if node.task not in EVALUATOR_TASKS:
+        raise ValueError(f"evaluator node task is unsupported: {node.name}")
+    if node.model is not None or node.runtime is not None or node.execution is not None:
+        raise ValueError(
+            f"evaluator nodes must omit model, runtime, and execution: {node.name}"
+        )
+    if node.prompt_template is not None:
+        raise ValueError(f"evaluator nodes must omit prompt_template: {node.name}")
 
 
 def validate_runtime(node: WorkflowNodeConfig) -> None:
@@ -216,8 +239,22 @@ def validate_edges(
             raise ValueError(f"edge source is undefined: {edge.source}")
         if edge.target not in node_map:
             raise ValueError(f"edge target is undefined: {edge.target}")
-        if edge.attributes:
-            raise ValueError("edge attributes must be an empty map")
+        validate_edge_attributes(edge, node_map[edge.source])
+
+
+def validate_edge_attributes(
+    edge: WorkflowEdgeConfig,
+    source_node: WorkflowNodeConfig,
+) -> None:
+    if not edge.attributes:
+        return
+    if set(edge.attributes) != {"condition"}:
+        raise ValueError("edge attributes only support condition")
+    condition = edge.attributes["condition"]
+    if condition not in EDGE_CONDITIONS:
+        raise ValueError(f"edge condition is unsupported: {condition}")
+    if source_node.type != "evaluator":
+        raise ValueError("edge condition is only allowed from evaluator nodes")
 
 
 def validate_acyclic(

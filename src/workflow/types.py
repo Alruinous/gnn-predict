@@ -7,6 +7,7 @@ NodeType = Literal[
     "output",
     "agent",
     "tool",
+    "evaluator",
 ]
 WorkflowPhase = Literal["inference", "prefill", "decode"]
 WorkflowRunMode = Literal["serial", "parallel", "adaptive"]

@@ -80,7 +80,68 @@ def test_workflow_validation_rejects_non_empty_edge_attributes() -> None:
     edges[0]["attributes"] = {"weight": 1}
     workflow = build_workflow(payload)
 
-    with pytest.raises(ValueError, match="attributes must be an empty map"):
+    with pytest.raises(ValueError, match="only support condition"):
+        validate_workflow(workflow)
+
+
+def test_workflow_validation_accepts_evaluator_condition_edges() -> None:
+    payload = build_parallel_workflow_payload()
+    nodes = payload["nodes"]
+    assert isinstance(nodes, list)
+    nodes.insert(
+        2,
+        {
+            "name": "judge",
+            "type": "evaluator",
+            "task": "gsm8k_numeric_exact_match",
+        },
+    )
+    payload["edges"] = [
+        {"source": "input", "target": "planner", "attributes": {}},
+        {"source": "planner", "target": "judge", "attributes": {}},
+        {"source": "judge", "target": "output", "attributes": {"condition": "passed"}},
+        {
+            "source": "judge",
+            "target": "summarizer",
+            "attributes": {"condition": "failed"},
+        },
+        {"source": "summarizer", "target": "output", "attributes": {}},
+    ]
+    workflow = build_workflow(payload)
+
+    validate_workflow(workflow)
+
+
+def test_workflow_validation_accepts_summary_evaluator_tasks() -> None:
+    payload = build_parallel_workflow_payload()
+    nodes = payload["nodes"]
+    assert isinstance(nodes, list)
+    nodes.insert(
+        2,
+        {
+            "name": "judge",
+            "type": "evaluator",
+            "task": "summary_llm_judge",
+        },
+    )
+    payload["edges"] = [
+        {"source": "input", "target": "planner", "attributes": {}},
+        {"source": "planner", "target": "judge", "attributes": {}},
+        {"source": "judge", "target": "output", "attributes": {}},
+    ]
+    workflow = build_workflow(payload)
+
+    validate_workflow(workflow)
+
+
+def test_workflow_validation_rejects_condition_from_non_evaluator() -> None:
+    payload = build_parallel_workflow_payload()
+    edges = payload["edges"]
+    assert isinstance(edges, list)
+    edges[1]["attributes"] = {"condition": "passed"}
+    workflow = build_workflow(payload)
+
+    with pytest.raises(ValueError, match="only allowed from evaluator"):
         validate_workflow(workflow)
 
 
