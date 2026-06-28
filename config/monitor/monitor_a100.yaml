@@ -197,3 +197,11 @@ targets:
     pod_name: sg-wangjh-260611-e092f-default0-0
     gpu_id: "3"
     output_csv: "csv/a100/qwen3_monitor.csv"
+
+  gemma4:
+    enabled: true
+    result_json: res/gemma4/results/gemma4_a100_1782305729_results.json
+    node_name: inspur-gpu-04
+    pod_name: sg-wangjh-260624-52e55-default0-0
+    gpu_id: "0"
+    output_csv: "csv/a100/gemma4_monitor.csv"

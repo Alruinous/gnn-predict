@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -40,6 +40,7 @@ class WorkflowExecutionConfig(BaseModel):
     temperature: float | None = None
     use_chat_template: bool = True
     enable_thinking: bool = False
+    truncation_side: Literal["left", "right"] | None = None
 
     @field_validator("devices")
     @classmethod

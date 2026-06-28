@@ -59,6 +59,7 @@ class TextGenerationBackend(Protocol):
 class WorkflowRunState(TypedDict, total=False):
     sample: TaskSample
     dataset: WorkflowDataset
+    sample_started_at: float
     node_outputs: dict[str, str]
     evaluator_results: dict[str, dict[str, Any]]
     node_records: list[dict[str, Any]]
@@ -130,7 +131,14 @@ class LocalQwenTextGenerationBackend:
         if node.runtime is not None and node.runtime.sequence_length is not None:
             tokenization_kwargs["truncation"] = True
             tokenization_kwargs["max_length"] = node.runtime.sequence_length
-        inputs = loaded.tokenizer(prompt_text, **tokenization_kwargs)
+        old_truncation_side = getattr(loaded.tokenizer, "truncation_side", None)
+        if execution.truncation_side is not None:
+            loaded.tokenizer.truncation_side = execution.truncation_side
+        try:
+            inputs = loaded.tokenizer(prompt_text, **tokenization_kwargs)
+        finally:
+            if old_truncation_side is not None:
+                loaded.tokenizer.truncation_side = old_truncation_side
         inputs = {name: value.to(loaded.input_device) for name, value in inputs.items()}
         input_length = inputs["input_ids"].shape[-1]
         generation_kwargs = build_generation_kwargs(node)
@@ -706,13 +714,21 @@ def run_model_node(
     prompt = render_prompt(node, state)
     generation = backend.generate(node, prompt)
     output = generation.text
-    duration_sec = time.perf_counter() - started_at
+    ended_at = time.perf_counter()
+    duration_sec = ended_at - started_at
+    relative_started_at, relative_ended_at = relative_node_times(
+        state,
+        started_at,
+        ended_at,
+    )
     node_outputs = dict(state.get("node_outputs", {}))
     node_outputs[node.name] = output
     node_records = list(state.get("node_records", []))
     node_record: dict[str, Any] = {
         "node_name": node.name,
         "type": node.type,
+        "started_at": relative_started_at,
+        "ended_at": relative_ended_at,
         "duration_sec": duration_sec,
         "output": output,
         "input_token_count": generation.input_token_count,
@@ -747,7 +763,13 @@ def run_evaluator_node(
         dataset,
         summary_judge,
     )
-    duration_sec = time.perf_counter() - started_at
+    ended_at = time.perf_counter()
+    duration_sec = ended_at - started_at
+    relative_started_at, relative_ended_at = relative_node_times(
+        state,
+        started_at,
+        ended_at,
+    )
     evaluator_results = dict(state.get("evaluator_results", {}))
     evaluator_results[node.name] = result
     node_records = list(state.get("node_records", []))
@@ -755,6 +777,8 @@ def run_evaluator_node(
         {
             "node_name": node.name,
             "type": node.type,
+            "started_at": relative_started_at,
+            "ended_at": relative_ended_at,
             "duration_sec": duration_sec,
             "result": result,
             "passed": passed,
@@ -765,6 +789,15 @@ def run_evaluator_node(
         "node_records": node_records,
         "last_evaluator_passed": passed,
     }
+
+
+def relative_node_times(
+    state: WorkflowRunState,
+    started_at: float,
+    ended_at: float,
+) -> tuple[float, float]:
+    sample_started_at = float(state.get("sample_started_at", started_at))
+    return started_at - sample_started_at, ended_at - sample_started_at
 
 
 def evaluate_output(
@@ -1045,10 +1078,14 @@ def initial_run_state(
     dataset: WorkflowDataset,
     *,
     chunk_count: int = DEFAULT_INPUT_CHUNK_COUNT,
+    sample_started_at: float | None = None,
 ) -> WorkflowRunState:
     return {
         "sample": sample,
         "dataset": dataset,
+        "sample_started_at": (
+            sample_started_at if sample_started_at is not None else time.perf_counter()
+        ),
         "node_outputs": {},
         "evaluator_results": {},
         "node_records": [],
@@ -1075,6 +1112,7 @@ def run_parallel_sample(
         sample,
         dataset,
         chunk_count=infer_workflow_chunk_count(workflow),
+        sample_started_at=started_at,
     )
     completed = {"input"}
     pending = {node.name for node in workflow.nodes if node.type != "input"}
@@ -1207,7 +1245,7 @@ def run_sample(
     mode: WorkflowEvalMode,
 ) -> dict[str, Any]:
     started_at = time.perf_counter()
-    initial_state = initial_run_state(sample, dataset)
+    initial_state = initial_run_state(sample, dataset, sample_started_at=started_at)
     result = graph.invoke(initial_state)
     duration_sec = time.perf_counter() - started_at
     evaluator_record = final_evaluator_record(result.get("node_records", []))
