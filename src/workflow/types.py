@@ -29,7 +29,7 @@ class NodeType(Enum):
     EVALUATOR = "evaluator"
 
 
-class WorkflowRuntimeConfig(BaseModel):
+class RuntimeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     batch_size: NonNegativeInt
@@ -43,7 +43,8 @@ class WorkflowModelConfig(BaseModel):
     parameters: dict[str, Any]
 
 
-class WorkflowExecutionConfig(BaseModel):
+class ExecutionConfig(BaseModel):
+    model_name: NonEmptyStr
     model_path: NonEmptyStr
     devices: list[NonEmptyStr]
     dtype: NonEmptyStr = "float16"
@@ -70,15 +71,15 @@ class WorkflowExecutionConfig(BaseModel):
         return value
 
 
-class WorkflowNodeConfig(BaseModel):
+class NodeConfig(BaseModel):
     name: NonEmptyStr
     type: NodeType
     task: NonEmptyStr | None = None
     description: NonEmptyStr | None = None
     prompt_template: NonEmptyStr | None = None
     model: WorkflowModelConfig | None = None
-    runtime: WorkflowRuntimeConfig | None = None
-    execution: WorkflowExecutionConfig | None = None
+    runtime: RuntimeConfig | None = None
+    execution: ExecutionConfig | None = None
 
     @model_validator(mode="after")
     def validate_node_contract(self) -> Self:
@@ -112,7 +113,7 @@ class WorkflowNodeConfig(BaseModel):
         return self
 
 
-class WorkflowEdgeConfig(BaseModel):
+class EdgeConfig(BaseModel):
     source: NonEmptyStr
     target: NonEmptyStr
     attributes: dict[str, Any] = Field(default_factory=dict)
@@ -123,10 +124,10 @@ class Workflow(BaseModel):
     尽可能减少 validate，有问题也是必须优先检查 YAML 文件，而不是让代码适配配置文件。
     """
 
-    nodes: list[WorkflowNodeConfig]
-    edges: list[WorkflowEdgeConfig]
+    nodes: list[NodeConfig]
+    edges: list[EdgeConfig]
 
-    def node_map(self) -> dict[str, WorkflowNodeConfig]:
+    def node_map(self) -> dict[str, NodeConfig]:
         return {node.name: node for node in self.nodes}
 
     def node_names(self) -> list[str]:
@@ -134,9 +135,7 @@ class Workflow(BaseModel):
 
     @field_validator("nodes")
     @classmethod
-    def validate_unique_node_names(
-        cls, value: list[WorkflowNodeConfig]
-    ) -> list[WorkflowNodeConfig]:
+    def validate_unique_node_names(cls, value: list[NodeConfig]) -> list[NodeConfig]:
         names = [node.name for node in value]
         if len(names) != len(set(names)):
             raise ValueError("node names must be unique")
@@ -149,4 +148,3 @@ class WorkflowDataItem(BaseModel):
     source_node: NonEmptyStr
     target_node: NonEmptyStr
     message: AgentState
-
