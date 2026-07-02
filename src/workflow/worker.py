@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import gc
 from collections import deque
 from typing import Any
 
 import ray
+import torch
 from langchain.agents import AgentState, create_agent
 from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
@@ -11,7 +13,12 @@ from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline
 from langgraph.graph.state import CompiledStateGraph
 from ray.util.queue import Queue
 
-from src.workflow.types import ExecutionConfig, WorkflowDataItem
+from src.workflow.types import (
+    ExecutionConfig,
+    WorkerQueueItem,
+    WorkerState,
+    WorkflowDataItem,
+)
 
 
 @ray.remote
@@ -20,18 +27,19 @@ class NodeWorker:
         self,
         node_name: str,
         execution_config: ExecutionConfig,
-        prompt_template: str,
         input_queue: Queue,
         output_queues: dict[str, Queue],
+        prompt_template: str | None = None,
         tools: list[BaseTool] | None = None,
         system_prompt: str | None = None,
         denpendencies: list[str] | None = None,
     ) -> None:
+        self.status = WorkerState.IDLE
         self.node_name = node_name
         self.execution_config = execution_config
         self.prompt_template = prompt_template
-        self.input_queue = input_queue
-        self.output_queues = output_queues
+        self.input_queue: Queue[WorkerQueueItem] = input_queue
+        self.output_queues: dict[str, Queue[WorkerQueueItem]] = output_queues
         self.system_prompt = system_prompt or ""
         self.tools = tools or []
         self.dependencies = denpendencies or []
@@ -48,9 +56,6 @@ class NodeWorker:
         )
 
     def evict(self) -> None:
-        import gc
-
-        import torch
 
         self.agent = None
         gc.collect()
@@ -68,7 +73,9 @@ class NodeWorker:
         content = [
             self.store[item.session_id][source] for source in self.dependencies
         ]
-        prompt = self.prompt_template.format(content=content)
+        prompt = content
+        if self.prompt_template is not None:
+            prompt = self.prompt_template.format(content=content)
 
         assert self.agent is not None
         result = self.agent.invoke(prompt)
@@ -87,22 +94,35 @@ class NodeWorker:
             )
 
     def loop(self) -> None:
+        self.status = WorkerState.RUNNING
         while True:
             if self.agent is not None and self.pending_items:
-                self._process_item(self.pending_items.popleft())
+                item = self.pending_items.popleft()
+                self._process_item(item)
                 continue
 
-            item: WorkflowDataItem = self.input_queue.get()
+            item: WorkerQueueItem = self.input_queue.get()
+            state = item.worker_state
+            if state is not None and state == WorkerState.STOPPED:
+                self.stop()
+                break
+            data = item.data
+            if data is None:
+                continue
 
             if self.agent is None:
-                self.pending_items.append(item)
+                self.pending_items.append(data)
                 continue
 
-            self._process_item(item)
+            self._process_item(data)
 
     def invoke(self, messages: AgentState) -> dict[str, Any]:
         assert self.agent is not None
         return self.agent.invoke(messages)
+    
+    def stop(self):
+        # TODO 完善停止逻辑
+        self.evict()
 
 
 def build_agent(

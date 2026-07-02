@@ -28,10 +28,7 @@ class NodeType(Enum):
     TOOL = "tool"
     EVALUATOR = "evaluator"
 
-
 class RuntimeConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
     batch_size: NonNegativeInt
     input_shape: list[PositiveInt] | None = None
     sequence_length: PositiveInt | None = None
@@ -79,38 +76,7 @@ class NodeConfig(BaseModel):
     prompt_template: NonEmptyStr | None = None
     model: WorkflowModelConfig | None = None
     runtime: RuntimeConfig | None = None
-    execution: ExecutionConfig | None = None
-
-    @model_validator(mode="after")
-    def validate_node_contract(self) -> Self:
-        if self.type in BOUNDARY_NODE_TYPES:
-            if (
-                self.task is not None
-                or self.model is not None
-                or self.runtime is not None
-                or self.execution is not None
-                or self.prompt_template is not None
-            ):
-                raise ValueError("boundary nodes must omit task, model, and runtime")
-            return self
-        if self.type == "evaluator":
-            if self.task not in EVALUATOR_TASKS:
-                raise ValueError(f"evaluator node task is unsupported: {self.name}")
-            if (
-                self.model is not None
-                or self.runtime is not None
-                or self.execution is not None
-                or self.prompt_template is not None
-            ):
-                raise ValueError("evaluator nodes must omit model and runtime")
-            return self
-        if self.task is None:
-            raise ValueError(f"agent/tool node must define task: {self.name}")
-        if self.model is None:
-            raise ValueError(f"agent/tool node must define model: {self.name}")
-        if self.runtime is None:
-            raise ValueError(f"agent/tool node must define runtime: {self.name}")
-        return self
+    execution: ExecutionConfig
 
 
 class EdgeConfig(BaseModel):
@@ -148,3 +114,16 @@ class WorkflowDataItem(BaseModel):
     source_node: NonEmptyStr
     target_node: NonEmptyStr
     message: AgentState
+
+
+class WorkerState(Enum):
+    IDLE = "idle"
+    RUNNING = "running"
+    STOPPED = "stopped"
+
+class WorkerAction(BaseModel):
+    expected_state: WorkerState
+
+class WorkerQueueItem(BaseModel):
+    worker_state: WorkerState | None = None
+    data: WorkflowDataItem | None = None
