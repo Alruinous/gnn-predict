@@ -192,11 +192,11 @@ targets:
 
   qwen3:
     enabled: true
-    result_json: res/qwen3/results/qwen3_variants_v100_1780859141_results.json
-    node_name: dell-67
-    pod_name: sg-wangjh-260608-71bca-default0-0
-    gpu_id: "3"
-    output_csv: "csv/v100/qwen3_monitor.csv"
+    result_json: res/qwen3/results/qwen3_v100_1782759472_results.json
+    node_name: dell-68
+    pod_name: sg-wangjh-260630-d0bd4-default0-0
+    gpu_id: "2"
+    output_csv: "csv/v100_llm/qwen3_monitor.csv"
 
   llama:
     enabled: false
@@ -206,43 +206,10 @@ targets:
     gpu_id: "3"
     output_csv: "csv/llama_monitor.csv"
 
-  gemma:
-    enabled: false
-    result_json: res/gemma/results/gemma_variants_v100_1780775244_results.json
+  gemma4:
+    enabled: true
+    result_json: res/gemma4/results/gemma4_v100_1782759267_results.json
     node_name: dell-68
-    pod_name: sg-wangjh-260607-9f804-default0-0
-    gpu_id: "3"
-    output_csv: "csv/gemma_monitor.csv"
-  
-  deepfm:
-    enabled: false
-    result_json: res/deepfm/results/deepfm_variants_v100_1779097964_results.json
-    node_name: dell-67
-    pod_name: sg-wangjh-260518-3c1d7-default0-0
+    pod_name: sg-wangjh-260630-0e510-default0-0
     gpu_id: "0"
-    output_csv: "csv/deepfm_monitor.csv"
-  
-  dcn:
-    enabled: false
-    result_json: res/dcn/results/dcn_variants_v100_1779097964_results.json
-    node_name: dell-67
-    pod_name: sg-wangjh-260518-c52af-default0-0
-    gpu_id: "1"
-    output_csv: "csv/dcn_monitor.csv"
-  
-  dcnv2:
-    enabled: false
-    result_json: res/dcnv2/results/dcnv2_variants_v100_1779104355_results.json
-    node_name: dell-68
-    pod_name: sg-wangjh-260518-1404c-default0-0
-    gpu_id: "2"
-    output_csv: "csv/dcnv2_monitor.csv"
-  
-  edcn:
-    enabled: false
-    result_json: res/edcn/results/edcn_variants_v100_1779104354_results.json
-    node_name: dell-68
-    pod_name: sg-wangjh-260518-043b1-default0-0
-    gpu_id: "0"
-    output_csv: "csv/edcn_monitor.csv"
-  
+    output_csv: "csv/v100_llm/gemma4_monitor.csv"

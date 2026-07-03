@@ -192,16 +192,16 @@ targets:
   
   qwen3:
     enabled: true
-    result_json: res/qwen3_a100/results/qwen3_a100_a100_1781170508_results.json
+    result_json: res/qwen3/results/qwen3_a100_1782759445_results.json
     node_name: inspur-gpu-04
-    pod_name: sg-wangjh-260611-e092f-default0-0
-    gpu_id: "3"
-    output_csv: "csv/a100/qwen3_monitor.csv"
+    pod_name: sg-wangjh-260630-47117-default0-0
+    gpu_id: "2"
+    output_csv: "csv/a100_llm/qwen3_monitor.csv"
 
   gemma4:
     enabled: true
-    result_json: res/gemma4/results/gemma4_a100_1782305729_results.json
+    result_json: res/gemma4/results/gemma4_a100_1782758837_results.json
     node_name: inspur-gpu-04
-    pod_name: sg-wangjh-260624-52e55-default0-0
-    gpu_id: "0"
-    output_csv: "csv/a100/gemma4_monitor.csv"
+    pod_name: sg-wangjh-260630-0eb07-default0-0
+    gpu_id: "1"
+    output_csv: "csv/a100_llm/gemma4_monitor.csv"

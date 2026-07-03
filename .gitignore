@@ -13,6 +13,9 @@ res/
 test/
 /bak
 
+CLAUDE.md
+.claude/
+.claude.json
 .agents/
 .vscode/
 .idea/

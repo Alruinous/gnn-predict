@@ -1,10 +1,41 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+
+
+@pytest.fixture(scope="session")
+def ray_session():
+    import ray
+
+    # ray worker 进程不继承 driver 的 sys.path，src 和 tests 必须显式进 PYTHONPATH
+    pythonpath = ":".join([str(SRC), str(ROOT / "tests")])
+    ray.init(
+        num_cpus=4,
+        include_dashboard=False,
+        runtime_env={"env_vars": {"PYTHONPATH": pythonpath}},
+    )
+    yield
+    ray.shutdown()
+
+
+@pytest.fixture()
+def wait_until():
+    def _wait(predicate, timeout_sec: float = 60.0, interval_sec: float = 0.2) -> bool:
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            if predicate():
+                return True
+            time.sleep(interval_sec)
+        return False
+
+    return _wait

@@ -1,24 +1,14 @@
 from __future__ import annotations
 
-from collections import deque
 from enum import Enum
 from typing import Any, Literal, Self
 
-from langchain.agents import AgentState, create_agent
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from ray.util.queue import Queue
+from langchain.agents import AgentState
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from common.validate import NonEmptyStr, NonNegativeInt, PositiveInt
 
-BOUNDARY_NODE_TYPES = {"input", "output"}
-MODEL_NODE_TYPES = {"agent", "tool"}
-EVALUATOR_TASKS = {
-    "gsm8k_numeric_exact_match",
-    "mbpp_pass_at_1",
-    "summary_rouge",
-    "summary_llm_judge",
-}
-EDGE_CONDITIONS = {"passed", "failed", "default"}
+DEFAULT_QUEUE_CAPACITY = 16
 
 
 class NodeType(Enum):
@@ -27,6 +17,7 @@ class NodeType(Enum):
     AGENT = "agent"
     TOOL = "tool"
     EVALUATOR = "evaluator"
+
 
 class RuntimeConfig(BaseModel):
     batch_size: NonNegativeInt
@@ -68,15 +59,41 @@ class ExecutionConfig(BaseModel):
         return value
 
 
+class RetryConfig(BaseModel):
+    max_attempts: PositiveInt = 1
+    retry_delay_sec: NonNegativeInt = 0
+    on_exhausted: Literal["fail_workflow", "skip_item"] = "fail_workflow"
+
+
+class FailureRecord(BaseModel):
+    node_name: NonEmptyStr
+    session_id: NonEmptyStr
+    item_id: NonEmptyStr
+    attempt: PositiveInt
+    error_type: NonEmptyStr
+    error_message: str
+
+
 class NodeConfig(BaseModel):
     name: NonEmptyStr
     type: NodeType
     task: NonEmptyStr | None = None
     description: NonEmptyStr | None = None
     prompt_template: NonEmptyStr | None = None
+    system_prompt: NonEmptyStr | None = None
     model: WorkflowModelConfig | None = None
     runtime: RuntimeConfig | None = None
-    execution: ExecutionConfig
+    execution: ExecutionConfig | None = None
+    queue_capacity: PositiveInt = DEFAULT_QUEUE_CAPACITY
+    retry: RetryConfig = Field(default_factory=RetryConfig)
+
+    @model_validator(mode="after")
+    def validate_execution_presence(self) -> Self:
+        if self.type in (NodeType.AGENT, NodeType.TOOL) and self.execution is None:
+            raise ValueError(
+                f"node {self.name} of type {self.type.value} requires execution config"
+            )
+        return self
 
 
 class EdgeConfig(BaseModel):
@@ -86,9 +103,7 @@ class EdgeConfig(BaseModel):
 
 
 class Workflow(BaseModel):
-    """
-    尽可能减少 validate，有问题也是必须优先检查 YAML 文件，而不是让代码适配配置文件。
-    """
+    """尽可能减少 validate 有问题优先检查 YAML 文件 而不是让代码适配配置文件。"""
 
     nodes: list[NodeConfig]
     edges: list[EdgeConfig]
@@ -107,6 +122,17 @@ class Workflow(BaseModel):
             raise ValueError("node names must be unique")
         return value
 
+    @model_validator(mode="after")
+    def validate_edges(self) -> Self:
+        names = set(self.node_names())
+        pairs = [(edge.source, edge.target) for edge in self.edges]
+        for source, target in pairs:
+            if source not in names or target not in names:
+                raise ValueError(f"edge {source} -> {target} references unknown node")
+        if len(pairs) != len(set(pairs)):
+            raise ValueError("edges must be unique per (source, target) pair")
+        return self
+
 
 class WorkflowDataItem(BaseModel):
     session_id: NonEmptyStr
@@ -121,9 +147,13 @@ class WorkerState(Enum):
     RUNNING = "running"
     STOPPED = "stopped"
 
-class WorkerAction(BaseModel):
-    expected_state: WorkerState
 
 class WorkerQueueItem(BaseModel):
     worker_state: WorkerState | None = None
     data: WorkflowDataItem | None = None
+
+
+class WorkflowStatus(BaseModel):
+    node_states: dict[str, WorkerState]
+    queue_sizes: dict[str, int]
+    failures: list[FailureRecord]
