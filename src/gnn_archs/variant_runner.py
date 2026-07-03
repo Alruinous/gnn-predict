@@ -519,7 +519,7 @@ def export_causal_lm_onnx_model(
     opset_version = 14
     export_mode = spec.variant_config.onnx_export_mode
     export_model = CausalLMOnnxLogitsExport(model).to(context.device)
-    with temporary_causal_lm_export_attention(model):
+    with temporary_causal_lm_export_mode(model):
         torch.onnx.export(
             export_model,
             (batch["input_ids"], batch["attention_mask"]),
@@ -568,17 +568,27 @@ def export_causal_lm_onnx_model(
 
 
 @contextmanager
-def temporary_causal_lm_export_attention(model: nn.Module) -> Iterator[None]:
-    previous_values: list[tuple[Any, Any]] = []
+def temporary_causal_lm_export_mode(model: nn.Module) -> Iterator[None]:
+    previous_attention_values: list[tuple[Any, Any]] = []
+    previous_cache_values: list[tuple[Any, Any]] = []
     for config in iter_causal_lm_export_configs(model):
+        if hasattr(config, "use_cache"):
+            previous_cache_values.append((config, config.use_cache))
+            config.use_cache = False
         if hasattr(config, "_attn_implementation"):
-            previous_values.append((config, config._attn_implementation))
+            previous_attention_values.append((config, config._attn_implementation))
             config._attn_implementation = "eager"
+    generation_config = getattr(model, "generation_config", None)
+    if generation_config is not None and hasattr(generation_config, "use_cache"):
+        previous_cache_values.append((generation_config, generation_config.use_cache))
+        generation_config.use_cache = False
     try:
         yield
     finally:
-        for config, value in previous_values:
+        for config, value in previous_attention_values:
             config._attn_implementation = value
+        for config, value in previous_cache_values:
+            config.use_cache = value
 
 
 def iter_causal_lm_export_configs(model: nn.Module) -> tuple[Any, ...]:
@@ -904,17 +914,6 @@ def build_example_batch(
     is_text_model: bool,
 ) -> dict[str, torch.Tensor]:
     generator = torch.Generator().manual_seed(42)
-
-    if (
-        variant_config.deepfm_config is not None
-        or variant_config.dcn_config is not None
-        or variant_config.dcnv2_config is not None
-        or variant_config.edcn_config is not None
-    ):
-        from gnn_archs.recommender.common import build_recommender_batch
-
-        batch_size = variant_config.example_input_shape[0]
-        return build_recommender_batch(variant_config, batch_size, generator)
 
     if is_text_model:
         batch_size, sequence_length = variant_config.example_input_shape

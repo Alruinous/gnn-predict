@@ -357,7 +357,6 @@ def extract_feature_target(info: ModelRecordInfo) -> Data:
         batch_size=info.batch_size,
         gpu_name=info.gpu_name,
         phase=info.phase,
-        sample_count=parse_int_value(info.metadata["sample_count"]),
         decode_output_length=parse_int_value(info.metadata["decode_output_length"]),
     )
     data.y = torch.tensor(info.target, dtype=torch.float32).unsqueeze(0)

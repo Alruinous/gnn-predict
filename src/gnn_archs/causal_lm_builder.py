@@ -34,19 +34,19 @@ class CausalLMOnnxLogitsExport(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
     ) -> torch.Tensor:
-        return self.model(input_ids=input_ids, attention_mask=attention_mask).logits
+        return self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            use_cache=False,
+        ).logits
 
 
 def build_causal_lm_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
     validate_causal_lm_variant_spec(spec)
     if spec.variant_config.qwen3_config is not None:
-        model = build_qwen3_config_model(spec)
-        disable_causal_lm_cache(model)
-        return model
+        return build_qwen3_config_model(spec)
     if spec.variant_config.gemma4_config is not None:
-        model = build_gemma4_config_model(spec)
-        disable_causal_lm_cache(model)
-        return model
+        return build_gemma4_config_model(spec)
 
     model_path = resolve_causal_lm_model_path(spec.base_model.name)
     family = get_causal_lm_family(spec.base_model.name)
@@ -55,13 +55,11 @@ def build_causal_lm_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
             f"{family} checkpoint directory does not exist: {model_path}"
         )
 
-    model = AutoModelForCausalLM.from_pretrained(
+    return AutoModelForCausalLM.from_pretrained(
         model_path,
         dtype=torch.float16,
         local_files_only=True,
     )
-    disable_causal_lm_cache(model)
-    return model
 
 
 def build_qwen3_config_model(spec: ResolvedVariantSpec) -> nn.Module:
@@ -73,7 +71,7 @@ def build_qwen3_config_model(spec: ResolvedVariantSpec) -> nn.Module:
         pad_token_id=0,
         bos_token_id=1,
         eos_token_id=None,
-        use_cache=False,
+        use_cache=True,
         **qwen3_config.model_dump(mode="python"),
     )
     validate_qwen3_runtime_config(spec, config)
@@ -93,7 +91,7 @@ def build_gemma4_config_model(spec: ResolvedVariantSpec) -> nn.Module:
         pad_token_id=0,
         bos_token_id=2,
         eos_token_id=1,
-        use_cache=False,
+        use_cache=True,
         **config_values,
     )
     validate_gemma4_runtime_config(spec, config)
@@ -182,15 +180,3 @@ def resolve_causal_lm_model_path(model_name: str) -> Path:
     if not checkpoint_name:
         raise ValueError(f"{family} model name must not be empty")
     return CAUSAL_LM_MODEL_ROOTS[family] / checkpoint_name
-
-
-def disable_causal_lm_cache(model: nn.Module) -> None:
-    config = getattr(model, "config", None)
-    if config is not None:
-        config.use_cache = False
-        text_config = getattr(config, "text_config", None)
-        if text_config is not None:
-            text_config.use_cache = False
-    generation_config = getattr(model, "generation_config", None)
-    if generation_config is not None:
-        generation_config.use_cache = False

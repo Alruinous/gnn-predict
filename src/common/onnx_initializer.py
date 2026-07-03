@@ -11,6 +11,7 @@ from onnx import numpy_helper
 
 RUNTIME_INPUT_NAMES_METADATA_KEY = "gnn_archs.runtime_input_names"
 ONNX_EXPORT_MODE_METADATA_KEY = "gnn_archs.onnx_export_mode"
+ONNX_OPSET_VERSION = 14
 
 
 def set_model_metadata_value(model: onnx.ModelProto, key: str, value: str) -> None:

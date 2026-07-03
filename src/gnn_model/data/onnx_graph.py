@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import onnx
 import onnx_tool
 import torch
 from torch_geometric.data import Data
 
-import onnx
 from common.onnx_initializer import load_runtime_input_names
 from gnn_model.data.constants import (
     EDGE_FEATURE_DIM,
@@ -118,11 +118,9 @@ def build_graph_data_from_onnx(
     batch_size: int = 1,
     gpu_name: str = "v100",
     phase: str = "training",
-    sample_count: int = 1,
     decode_output_length: int = 0,
 ) -> Data:
     assert batch_size > 0
-    assert sample_count > 0
     assert decode_output_length >= 0
     model_path = Path(onnx_path)
     model = onnx.load(model_path)
@@ -182,7 +180,6 @@ def build_graph_data_from_onnx(
         runtime_input_names=runtime_input_names,
         phase=phase,
         batch_size=batch_size,
-        sample_count=sample_count,
         decode_output_length=decode_output_length,
         gpu_name=gpu_name,
         graph=graph,
@@ -547,7 +544,6 @@ def build_graph_feature_vector(
     runtime_input_names: list[str],
     phase: str,
     batch_size: int,
-    sample_count: int,
     decode_output_length: int,
     gpu_name: str,
     graph: Any,
@@ -575,7 +571,6 @@ def build_graph_feature_vector(
     feature_vector = [
         float(PHASE_TO_INDEX[normalized_phase]),
         float(batch_size),
-        float(sample_count),
         float(decode_output_length),
         *GPU_SPECS[normalized_gpu_name],
         float(parameter_input_count),

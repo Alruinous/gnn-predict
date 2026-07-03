@@ -100,7 +100,6 @@ GPU_SPEC_FIELDS = (
 GRAPH_FEATURE_NAMES = (
     "phase_token_id",
     "batch_size",
-    "sample_count",
     "decode_output_length",
     *GPU_SPEC_FIELDS,
     "parameter_input_count",
