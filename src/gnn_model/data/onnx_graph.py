@@ -4,7 +4,7 @@ import math
 from collections import deque
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import onnx
@@ -115,6 +115,7 @@ OP_TYPE_CATEGORY_BY_RAW_OP = {
 def build_graph_data_from_onnx(
     onnx_path: str | Path,
     *,
+    runtime_input_names: list[str] | None = None,
     batch_size: int = 1,
     gpu_name: str = "v100",
     phase: str = "training",
@@ -124,7 +125,8 @@ def build_graph_data_from_onnx(
     assert decode_output_length >= 0
     model_path = Path(onnx_path)
     model = onnx.load(model_path)
-    runtime_input_names = load_runtime_input_names(model)
+    if runtime_input_names is None:
+        runtime_input_names = load_runtime_input_names(model)
     runtime_inputs = build_runtime_inputs(
         model,
         runtime_input_names=runtime_input_names,

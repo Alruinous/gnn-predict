@@ -27,6 +27,17 @@ Causal LM 目前主要覆盖三类阶段：
 
 `decode_output_length` 是 decode 阶段的重要运行特征。非 decode 阶段该值为 `0`。
 
+## Workflow 使用口径
+
+当前 `decode` 样本不是纯 KV cache decode step，而是从 prompt 调用
+`generate(max_new_tokens=decode_output_length)` 的端到端生成请求。
+
+该运行目标包含 prompt prefill、逐 token decode 和 generate 框架开销。workflow
+中应把它理解为一次 LLM 节点请求的整体生成成本，不应再与 `prefill` 样本相加作为总耗时。
+
+如果后续需要分阶段预测，应新增纯 KV cache decode 数据口径，而不是复用当前
+`decode` 样本。
+
 ## 输入与标签
 
 首版使用 fake token，不引入真实 tokenizer 样本。
