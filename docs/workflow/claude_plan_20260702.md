@@ -114,3 +114,154 @@
 4. `uv run ruff format` 同上路径
 5. `uv run ty check src/workflow main.py tests`
 6. 端到端冒烟测试本身（`test_workflow_end_to_end_smoke.py`）即验证真实 Ray actor + Queue 连线跑通 fan-out/fan-in/drain，不依赖真实 GPU/HuggingFace 模型（通过 `agent_factory` stub 注入）。
+
+# Phase 2：预测感知的 Workflow 调度系统（workflow.tex Algorithm 1 落地）
+
+## Context
+
+Phase 1 骨架（`docs/workflow/claude_plan_20260702.md`）已全部实现并通过测试：队列连通、fan-in、有界队列、重试、终端结果、agent_factory 测试缝、4 个测试文件。当前 `src/workflow/` 仅有静态 eager-load 模式——每个 NodeWorker 独占加载模型、无资源池/预测/驱逐/prefetch。
+
+本阶段实现论文核心系统（`docs/draft/workflow.tex` Algorithm 1 + claims 节）：面向 workflow DAG，用 GNN 预测器（`output/gnn_llm_only_full_retrain_20260702` checkpoint）预测各节点推理耗时、显存峰值、部署耗时，由 controller 侧调度器集中决定模型实例的**加载 / 预取 / 复用 / 驱逐**与加速卡放置（本机 4× V100-SXM2-32GB）。
+
+**文献调研结论**（支撑设计与后续论文写作，报告已由调研 agent 产出）：
+- 新颖性确认：现有 workflow 感知服务系统（Parrot/Autellix/Kairos/SAGA/Pythia/KVFlow/PBKV/Helium）生命周期客体均为 KV cache 或请求路由，模型权重一律预驻留；模型级生命周期系统（ServerlessLLM/Torpor/Aegaeon/MuxServe/Prism）均 workflow 无关。"GNN 结构性能预测 → 整模型实例生命周期 → 受限本地 GPU"是空白交点。最接近的对比对象：PBKV（GNN 预测控制流、客体 KV）、ServerlessLLM（解析式装载时间成本模型、无 DAG 前瞻）、KVFlow/Continuum（结构距离驱逐评分模板，KV 层）。
+- 机制借鉴：ServerlessLLM 的显式装载时间成本模型择卡；KVFlow 的 steps-to-execution 驱逐评分 + 后台预取；Continuum 的 TTL=f(空闲预测, 重装成本)；Kairos 的显存时间线 + 在线偏差修正。
+- 基线阶梯（决定可插拔要求）：static eager-load / on-demand+LRU 无预取 / 历史均值预测 / GNN 完整系统 / oracle 回放。
+
+## 已确认的用户决策与关键假设
+
+1. **【用户已确认】模型实例独立为 ModelInstance Ray actor**：与 NodeWorker 解耦，每个部署副本一个 actor 绑定单卡；多个节点可共享同一实例（引用语义）；NodeWorker 保留 fan-in/prompt 组装，经 LangChain ChatModel shim 转发推理。
+2. **【超时默认，采用推荐项】覆盖缺口分阶段**：系统开发立即开始；实验先用 Qwen3-0.6B/1.7B/4B（与合成变体 h1024_l28/h2048_l28/h2560_l36 结构完全同构，vocab 一致已核实）；超出覆盖的 token 长度用最近 ONNX 桶 clamp + 显式 flag。**Qwen3-8B（h4096_l36）导出与长序列（s>1024）数据采集是论文正式实验的前置任务，单独排期，不在本次实现范围**。
+3. **【超时默认，采用推荐项】交付范围**：tex 算法完整闭环 + 可插拔策略（驱逐 max_vram/min_vram/longest_idle/shortest_idle；放置 best_fit/worst_fit；预测源 gnn/history_mean/static）+ 对齐 `experiment_20260629.md` 50 字段 schema 的统一 trace。实验脚本本身为后续单独任务。
+4. **【超时默认，采用推荐项】T_deploy 来源**：离线 profiling 脚本实测各真实模型加载耗时/空闲显存写入模型注册表；运行时用实测值在线更新；GNN deployment 预测仅作未 profile 模型的兜底（训练分布是合成 model_build，与真实 from_pretrained 非同一分布）。
+
+预测器使用边界（写入代码注释与 flags，来自 manifest usage_notes）：**prefill run_duration WAPE 5.56 永不使用**（用历史均值+静态兜底）；decode run_duration（WAPE 0.095）与 gpu_mem（WAPE 0.063）可用但显存最大低估 24.3GB，只作带 eps_mem 安全边际的软门控，OOM 硬防线在实例边界 catch。
+
+## 架构
+
+三平面分离，保持 dev.md 约束（controller 不侵入 prompt 逻辑、worker 不知全局调度）：
+
+- **数据面（不变）**：NodeWorker.loop() 拉队列、`resolve_session_content` fan-in、组装 prompt。
+- **控制面（新）**：命名 Ray actor `SchedulerActor` 持有模型池、加速卡账本、预测源、ETA 表、trace writer；tick 循环是纯决策函数 `plan_tick`（状态入→动作出）的薄壳，tex 算法可无 Ray/GPU 单测。
+- **执行面（新）**：`ModelInstance` actor（每副本一个、绑单卡、generation 级 API）；NodeWorker 经 `InstanceChatModel`（BaseChatModel 子类，`_generate` 内 `ray.get(instance.generate.remote(...))`）接入，`create_agent`/`agent_factory` 缝保持。
+- **协议**：worker fan-in 就绪后 `ray.get(scheduler.acquire.remote(node, session, item, input_tokens))` 阻塞至授予 `GrantInfo(instance_id, actor_name, device)`（内部 threading.Event + 超时 raise）；用完 `release(..., result, oom)` 上报实测值。ETA 无需额外 RPC：授予即记 RunningTask(t_start=t_grant, est_duration=同 tick 预测值)。
+- **向后兼容**：`Workflow.scheduler is None` → Phase-1 静态路径逐字节不变，现有测试全部保持通过。
+
+## 分阶段实现（每阶段可独立提交并有测试门）
+
+### Sub-stage 0 — 配置 schema、模型注册表、profiling 脚本
+
+文件：`src/workflow/types.py`（扩展）、`src/workflow/registry.py`（新）、`config/workflow/model_registry_v100.yaml`（新）、`scripts/profile_workflow_models.py`（新）。
+
+- `types.py` 新增：`GpuDeviceConfig(device, gpu_name="v100", total_mem_mb)`、`GnnPredictorConfig(checkpoint_path, effective_config_path, scaler_dir, target_names, prewarm)`、`SchedulerConfig(tick_interval_sec=0.5, eps_time_sec=1.0, eps_mem_mb=2048, placement_policy, eviction_policy, prediction_source, prefetch_enabled=True, adaptive_max_new_tokens=False, acquire_timeout_sec=600, devices, model_registry_path, gnn|None, trace_path|None)`；`Workflow.scheduler: SchedulerConfig | None`；`ExecutionConfig.devices` 改 optional（validator：静态模式必填、managed 模式忽略）；`InstanceState(LOADING/IDLE/BUSY/EVICTING)`、`GrantInfo`、`GenerateResult(text, input_tokens, output_tokens, duration_sec)`、`PredictionResult(duration_sec, vram_mb, deploy_sec, source, flags)`。
+- `registry.py`：`ModelSpec(name, path, onnx_template, onnx_dir, param_count_b, profiled_load_sec|None, profiled_idle_vram_mb|None, static_prefill_sec, static_decode_sec, static_vram_mb)`；`load_model_registry(path)`；`discover_onnx_buckets(spec)`（glob prefill `{tpl}_bs1_s*.onnx` 与 decode `{tpl}_decode_bs1_s*_o*.onnx`，空则 fail-fast）。注册表含 qwen3-0.6b/1.7b/4b 三条映射；8b 条目留注释说明前置采集任务。
+- profiling 脚本：每模型 ×3 次子进程实测（pynvml used 前后差 + from_pretrained 墙钟），取中位数回写注册表 YAML。
+
+验证：`tests/test_workflow_types.py` 扩展 + 新 `tests/test_workflow_registry.py`（tmp_path 假 onnx 目录）。
+
+### Sub-stage 1 — ModelInstance actor + ChatModel shim（手动分派可用）
+
+文件：`src/workflow/model_instance.py`、`src/workflow/chat_shim.py`（新）、`tests/test_workflow_model_instance.py`、`scripts/smoke_model_instance.py`（GPU 冒烟）。
+
+- `ModelInstance`（`@ray.remote(max_concurrency=4)`）：`__init__(instance_id, spec, device, dtype, pipeline_factory|None)`（pipeline_factory 为测试缝，镜像 agent_factory）；`load() -> InstanceLoadReport(load_sec, idle_vram_mb)`（真实路径 AutoTokenizer + AutoModelForCausalLM.from_pretrained(device_map={"":idx})，pynvml 测占用）；`generate(messages, max_new_tokens, ...) -> GenerateResult`（实例侧 `tokenizer.apply_chat_template` 复现 ChatHuggingFace 的 prompt 格式化，返回精确 token 计数与耗时）；串行执行，BUSY 状态标志；**唯一窄异常边界**：`except torch.cuda.OutOfMemoryError` 仅包 `model.generate` → empty_cache + 重抛类型化 `InstanceOomError`。
+- `chat_shim.py`：`InstanceChatModel(BaseChatModel)`（`bound_actor_name` 每 item 由 worker 绑定；单线程 `_process_item` 保证安全）+ `build_managed_agent(config, system_prompt, tools, device)`（复用 `langchain.agents.create_agent`）。
+
+验证：CPU fake 测试 + Qwen3-0.6B 单卡真实冒烟脚本。
+
+### Sub-stage 2 — ModelPool 与加速卡账本（纯 Python）
+
+文件：`src/workflow/resource.py`（新）、`tests/test_workflow_resource.py`。
+
+- `InstanceRecord(instance_id, spec_name, actor_name, device, state, idle_since, busy_task, measured_load_sec, measured_idle_vram_mb, reserved_vram_mb, suspect)`；`AcceleratorState(device, gpu_name, total_mem_mb, nvml_free_mb)`；`ModelPool`（普通类）：`idle_instances/loading_instances/predicted_free_mb(=min(nvml视图, 账本视图))/evictable`。
+- pynvml 封装 `probe_devices(...)`（调度器进程无 CUDA 上下文，pynvml 可见全局占用，优于 mem_get_info）。
+- 可插拔策略为**纯函数**（python-norms，不搞类层次）：`select_accelerator(pool, need_mb, policy)`（best_fit=最小满足空闲 / worst_fit=最大空闲）；`select_eviction_victim(pool, device, deficit_mb, policy)`（仅 IDLE、实测显存 ≥ 缺口——tex 必要条件；四种 victim 策略）。驱逐用**实测**空闲显存而非预测值（per tex）。
+
+验证：纯单测覆盖账本运算、两种放置 × 四种驱逐策略、只逐空闲不变量。
+
+### Sub-stage 3 — 调度核心：纯决策函数（tex Algorithm 1 逐行映射）
+
+文件：`src/workflow/scheduler.py`（本阶段只有函数）、`tests/test_workflow_scheduler_core.py`。
+
+`plan_tick(state, t_now, config, predict, deploy_time) -> list[Action]`，Action = `Grant | Load(spec, device, prefetch) | Evict(instance_id, reason)`：
+
+- `C_ready` = 已挂起的 acquire 请求（fan-in 完整性由构造保证——worker 只在 resolve 就绪后才 acquire）；`C_near` = 所有依赖要么已完成、要么正在上游 RunningTask 中的 (session, node)，`t_ready_hat = max(t_start + est_duration)`（tex fan-in max 规则）。
+- 按拓扑序（Kahn，init 时一次）遍历，节点内 FIFO（tex 固定）。
+- `PredictTokens`：ready 用 worker 传来的精确 input_tokens；near 用上游历史平均输出 token（冷启动兜底 max_new_tokens）+ prompt 模板 token 开销（init 时 tokenize 一次）；L_out 同理。
+- `predict(spec, in, out, gpu)` → PredictionResult；ready 且有 idle 实例 → Grant（规划账本内立即置 BUSY 防同 tick 重复授予）。
+- `T_deploy` 兜底链：profiled → 运行时实测滑动均值 → GNN deployment 预测。
+- `t_now + T_deploy + eps_time >= t_ready_hat` 才走加载分支（ready 任务 t_ready_hat=0 恒真）→ `select_accelerator(M_peak + eps_mem)` → 不足则 `select_eviction_victim` → Evict 后重试 → `Load(prefetch=x∈C_near)`。
+- **副本泛滥防护**（tex 循环的必要细化）：同 tick 内 LOADING 实例先 FIFO 匹配未服务候选，只有未匹配者才触发新 Load；`prefetch_enabled=False` 时加载分支仅对 C_ready 开放。
+- 无法服务的任务留在 pending，下一 tick 重扫（tex FIFO buffer）。
+- Token budget 最小实现：`vram_mb + eps_mem > max(total_mem)` → fail-fast（acquire raise 显式原因，绝不静默截断）；`adaptive_max_new_tokens` 开关下折半重预测并在 GrantInfo 携带 clamp 值（默认关，研究旋钮）。
+
+验证：无 Ray/GPU 纯单测——ready 分派、near-ready 预取时机（早于阈值不触发）、驱逐链式重选卡、全策略组合、FIFO/拓扑序、副本防护、ETA fan-in max。**这是论文算法的直接测试载体**。
+
+### Sub-stage 4 — SchedulerActor 壳、acquire/grant 协议、managed 模式接线
+
+文件：`scheduler.py`（加 actor）、`worker.py`（managed 路径）、`controller.py`（接线）、`tests/test_workflow_scheduler_actor.py`、`tests/test_workflow_managed_end_to_end.py`。
+
+- `SchedulerActor`（`@ray.remote(max_concurrency=32)`，threading.Lock 守护共享态）：`acquire()`（注册 PendingAcquire + Event，`event.wait(timeout)` 超时 raise TimeoutError → 走 worker 现有重试边界成 FailureRecord）；`release()`（关 RunningTask、置 IDLE+idle_since、喂历史统计、更新下游 done_deps）；`run()`（Δt tick：pynvml 刷新 → plan_tick → 执行动作）；`stop()`（停循环、逐全部实例、flush trace）；`instance_factory` 与 `clock` 注入为测试缝。
+- 实例生命周期执行：Load → `ModelInstance.options(name=...).remote()` + `load.remote()`，每 tick `ray.wait(timeout=0)` 轮询完成 → LOADING→IDLE、记实测 load_sec/idle_vram（在线更新 T_deploy）；Evict → `ray.kill`（进程退出释放 CUDA 内存，简单可靠路径）。
+- `worker.py` managed 路径（增量小）：构造参数加 `scheduler_name|None`；`load()` 在 managed 模式建 shim agent + CPU tokenizer（精确 input token 计数，worker 永不持 GPU 权重）；`_invoke_agent_with_retry` 每次尝试 = acquire → 绑 shim → invoke → finally release（OOM 标志在 except 路径上报）。
+- `controller.py`：`workflow.scheduler is not None` 时建命名 SchedulerActor、workers 传 `scheduler_name` 与 `build_managed_agent`、start_workflow 跳过 GPU 权重 eager-load 改 `scheduler.run.remote()`、stop_workflow 追加 `ray.get(scheduler.stop.remote())`；静态模式路径不动。
+
+验证：FakeInstance（sleep+固定 vram）CPU 集成测试（acquire 阻塞至加载完成、双节点共享单实例串行、积压触发第二副本、超时 raise）；managed 端到端（fan-in 图 + scheduler 段）；**全量回归 `uv run python -m pytest -q` 确保 Phase-1 不破**。
+
+### Sub-stage 5 — 预测源（gnn / history_mean / static）
+
+文件：`src/workflow/prediction.py`（新）、`tests/test_workflow_prediction.py`。
+
+- Protocol：`predict(spec, input_tokens, output_tokens, gpu_name) -> PredictionResult`。
+- `StaticPredictor`：注册表常量。`HistoryMeanPredictor`：release 喂的 (node, spec) 实测滑动均值，显存取观测 max，冷启动回落 static。
+- `GnnPredictor` 初始化（一次，CPU）：直接构造 `IntelliGraphLargeModelPredictor`（`src/gnn_model/models/predictor.py:20`，dims 取 `src/gnn_model/data/constants.py` 常量，targets 取 manifest 9 目标序）→ `load_state_dict(strict=True)` 即结构契约校验 → 加载 3 个特征 scaler pickle + `load_target_scalers`（`src/gnn_model/data/scaler.py:128`）→ prewarm 缓存本 workflow 所用 spec 全部桶的**未缩放** PyG Data（把昂贵的 onnx_tool shape-infer 移出 tick）。
+- 查询路径：桶选择（decode：最小 s≥input_tokens，clamp+flag `input_bucket_clamped`；再最小 o≥output_tokens，clamp+flag）→ 缓存 Data `.clone()`、改 `graph_features[0,3]=output_tokens`（已核实 index 3=decode_output_length）→ 本地 `scale_features_only`（镜像 `scaler.py::scale_data` 特征段，无 data.y）→ forward `[1,9]` → `inverse_transform_targets`（`src/gnn_model/training/metrics.py`）。
+- **组合规则显式化（不静默）**：`vram_mb` = decode 图 col 7；`duration_sec` = decode 图 col 1 + prefill 历史均值（冷启动 static），flag `prefill_from_history/prefill_static_fallback`——**GNN prefill 时长永不使用**；`deploy_sec` = col 0 仅作兜底链末端。结果缓存 keyed (spec, s桶, o桶, output_tokens, gpu)。
+
+验证：桶选择纯单测（精确/clamp/flag）；组合规则 stub 测试；`@pytest.mark.slow` 真实 checkpoint 单查询 sanity 测试（CPU）。
+
+### Sub-stage 6 — 驱逐执行、OOM 处理、token-budget fail-fast 收尾
+
+- 驱逐后链式 Load 前 pynvml 复测（ray.kill 进程退出异步，轮询 nvml_free 至反映释放或 5s 超时 + trace 警告）。
+- OOM：`release(oom=True)` → 实例标 suspect → 下一 tick 无条件 Evict（分配器状态可能已污染）→ 重试重新 acquire；FailureRecord 复用现有 `failure_queue`（`worker.py:161-171`）。
+
+验证：actor 测试覆盖 OOM→驱逐→重试成功、超大预测快速失败、adaptive clamp。
+
+### Sub-stage 7 — Trace 记录 + 真实 GPU 闭环冒烟
+
+文件：`src/workflow/trace.py`（新）、`config/workflow/managed_smoke_20260703/fan_in_managed.yaml`（新）、`scripts/smoke_managed_workflow.py`（新）。
+
+- `TraceWriter`：SchedulerActor 单写者，JSON lines 到 `output/<run>/trace.jsonl`，字段名严格取自 `experiment_20260629.md` 50 字段 schema（DCGM-only 字段缺省不改名）；`prediction_metrics`=PredictionResult dump（含 source/flags），`schedule_decision`∈{dispatch, load, prefetch, evict, reuse, reject_vram}。事件点：task_submit / acquire_request / predict / grant / load_start/end / prefetch_start/end / evict / infer_start/end / oom / session_complete。worker/instance 不直接写，经调度器。
+- 冒烟 YAML：reader → chunk_a/chunk_b（qwen3-0.6b，验证同 spec 共享实例）→ reducer（qwen3-1.7b），带 scheduler 段与真实 GNN manifest 路径，execution 不写 devices。
+- 冒烟脚本：4 sessions 真跑 4× V100，断言 trace 含 ≥1 reuse、≥1 load、全部 session 完成、零失败。**这是论文闭环 demo；正式实验脚本为后续任务**。
+
+## 复用的现有代码（不重复造）
+
+- `worker.py::resolve_session_content`、重试边界、`agent_factory` 缝、STOPPED 哨兵——全部保留。
+- `controller.py::prepare_queues_for_workflow` 的邻接/依赖构建模式（拓扑序复用其结构）。
+- `src/gnn_model/models/predictor.py::IntelliGraphLargeModelPredictor`、`data/onnx_graph.py::build_graph_data_from_onnx`、`data/scaler.py::load_target_scalers`、`training/metrics.py::inverse_transform_targets`、`data/constants.py` 维度常量——gnn_model 包零修改。
+- `common/validate.py` 类型、`common/log.py::get_logger`、`tests/conftest.py::ray_session/wait_until`。
+- pynvml（pyproject 已有依赖）。
+
+## 验证方式
+
+1. 每阶段：`uv run python -m pytest -q tests/test_workflow_*.py` + 新增测试。
+2. 全量回归：`uv run python -m pytest -q`（Phase-1 四个测试文件必须原样通过）。
+3. `uv run ruff check main.py src scripts tests && uv run ruff format ... && uv run ty check src main.py tests`。
+4. GPU 冒烟（人工两步）：`scripts/smoke_model_instance.py`（Sub-stage 1 后）与 `scripts/smoke_managed_workflow.py`（Sub-stage 7 后，验证真实加载/复用/预取/驱逐闭环 + trace 完整性）。
+5. profiling 脚本一次性运行填充注册表（Sub-stage 0 后、GPU 冒烟前）。
+
+## 风险与已知边界（写入实现注释/文档）
+
+1. **账本与现实漂移**：共享机器上外部进程可在 tick 与加载完成之间侵占显存；`predicted_free_mb` 取账本/nvml 双视图 min + eps_mem + 实例边界 OOM 路径缓解，不根治。
+2. **prefill 冷启动**：历史累积前 ETA 用 static prefill + GNN decode，首轮预取时机粗糙——预取只是优化不影响正确性，flags 可审计。
+3. **4B（h2560_l36）覆盖薄**（prefill s≤512、decode o≤32）：真实摘要输入会持续 `input_bucket_clamped`，4B 预测属外推。前置采集任务（8B 导出 + 三模型长序列行）是论文正式数据的先决条件。
+4. **decode 图作显存代理**：假设满 KV 的 decode 峰值 ≥ prefill 峰值；长输入短输出场景可能反转，预留 `max(prefill_vram, decode_vram)` 一行扩展，先按 decode-only 并对照冒烟 trace 检查。
+5. infer_start 语义定义为 grant 时刻（与 worker 实际 invoke 相差微秒级，可忽略）。
+
+## 明确不做的事
+
+- 不写正式实验脚本/对照组 runner（后续任务，本计划交付其依赖的可插拔策略与 trace）。
+- 不采集新监控数据、不重训 GNN（单独排期）。
+- 不做跨机分布式、任意环、exactly-once、复杂窗口（dev.md 红线）。
+- 不恢复已删除重架构代码；文件名自然重合（scheduler.py/resource.py/trace.py/prediction.py）但全部重新设计。
+- buffer 消费策略固定 FIFO（tex 明确不研究）。
