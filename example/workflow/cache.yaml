@@ -1,0 +1,17 @@
+cache_groups:
+  - name: qwen3_8b_1
+    model_name: Qwen3-8B
+    model_path: /data/Models/Qwen/Qwen3-8B
+    phases: [prefill, decode]
+    batch_size_list: [1, 2]
+    sequence_length_list: [2048, 4096, 8192]
+    decode_max_output_length_list: [32, 64, 128, 256, 512]
+    dtype: float16
+  - name: qwen3_8b_2
+    model_name: Qwen3-8B
+    model_path: /data/Models/Qwen/Qwen3-8B
+    phases: [prefill, decode]
+    batch_size_list: [4]
+    sequence_length_list: [2048]
+    decode_max_output_length_list: [32]
+    dtype: float16
