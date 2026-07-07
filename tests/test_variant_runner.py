@@ -34,6 +34,7 @@ from gnn_archs.result import (
 )
 from gnn_archs.util.onnx_initializer import write_randomized_onnx_model
 from gnn_archs.util.variant_expander import expand_arch_config
+from gnn_model.data.onnx_graph import build_graph_data_from_onnx
 from gnn_archs.variant_runner import (
     RunContext,
     build_example_batch,
@@ -41,6 +42,7 @@ from gnn_archs.variant_runner import (
     build_variant_model,
     count_parameters,
     derive_config_output_name,
+    export_causal_lm_decode_onnx,
     export_onnx_model,
     prepare_output_layout,
     run_decode,
@@ -400,7 +402,7 @@ def build_tiny_qwen_model() -> Qwen3ForCausalLM:
         pad_token_id=0,
         bos_token_id=1,
         eos_token_id=None,
-        use_cache=False,
+        use_cache=True,
     )
     return Qwen3ForCausalLM(config)
 
@@ -422,7 +424,7 @@ def build_tiny_gemma4_model() -> Gemma4ForCausalLM:
         pad_token_id=0,
         bos_token_id=2,
         eos_token_id=1,
-        use_cache=False,
+        use_cache=True,
     )
     return Gemma4ForCausalLM(config)
 
@@ -439,7 +441,7 @@ def build_tiny_llama_model() -> LlamaForCausalLM:
         pad_token_id=0,
         bos_token_id=1,
         eos_token_id=2,
-        use_cache=False,
+        use_cache=True,
     )
     return LlamaForCausalLM(config)
 
@@ -1099,17 +1101,26 @@ def test_qwen_architecture_only_onnx_keeps_full_logits(tmp_path: Path) -> None:
         logger=logging.getLogger("test_qwen_architecture_only"),
     )
 
+    assert model.config.use_cache is True
+    assert model.generation_config.use_cache is True
     result = export_onnx_model(variant, model, context, True)
 
     assert result.graph_info["runtime_input_names"] == [
         "input_ids",
         "attention_mask",
     ]
-    assert result.graph_info["output_names"] == ["logits"]
+    assert result.graph_info["output_names"] == [
+        "logits",
+        "present_0_key",
+        "present_0_value",
+    ]
     assert result.graph_info["initializer_names"] == []
     exported_model = onnx.load(result.path)
     output_shape = exported_model.graph.output[0].type.tensor_type.shape.dim
     assert [dimension.dim_value for dimension in output_shape] == [2, 8, 32]
+    assert Path(result.path).name == "qwen_architecture_only_prefill.onnx"
+    assert model.config.use_cache is True
+    assert model.generation_config.use_cache is True
 
 
 def test_gemma4_architecture_only_onnx_keeps_full_logits(tmp_path: Path) -> None:
@@ -1131,17 +1142,28 @@ def test_gemma4_architecture_only_onnx_keeps_full_logits(tmp_path: Path) -> None
         logger=logging.getLogger("test_gemma4_architecture_only"),
     )
 
+    assert model.config.use_cache is True
+    assert model.generation_config.use_cache is True
     result = export_onnx_model(variant, model, context, True)
 
     assert result.graph_info["runtime_input_names"] == [
         "input_ids",
         "attention_mask",
     ]
-    assert result.graph_info["output_names"] == ["logits"]
+    assert result.graph_info["output_names"] == [
+        "logits",
+        "present_0_key",
+        "present_0_value",
+        "present_1_key",
+        "present_1_value",
+    ]
     assert result.graph_info["initializer_names"] == []
     exported_model = onnx.load(result.path)
     output_shape = exported_model.graph.output[0].type.tensor_type.shape.dim
     assert [dimension.dim_value for dimension in output_shape] == [2, 8, 32]
+    assert Path(result.path).name == "gemma4_architecture_only_prefill.onnx"
+    assert model.config.use_cache is True
+    assert model.generation_config.use_cache is True
 
 
 def test_build_variant_model_builds_qwen3_model_from_config() -> None:
@@ -1167,7 +1189,7 @@ def test_build_variant_model_builds_qwen3_model_from_config() -> None:
     assert model.config.vocab_size == 64
     assert model.config.hidden_size == 32
     assert model.config.num_hidden_layers == 2
-    assert model.config.use_cache is False
+    assert model.config.use_cache is True
     assert next(model.parameters()).dtype is torch.float16
 
 
@@ -1199,7 +1221,7 @@ def test_build_variant_model_builds_gemma4_model_from_config() -> None:
         "sliding_attention",
         "full_attention",
     ]
-    assert model.config.use_cache is False
+    assert model.config.use_cache is True
     assert next(model.parameters()).dtype is torch.float16
 
 
@@ -1233,7 +1255,7 @@ def test_build_variant_model_dispatches_llama_to_causal_lm_builder(
     assert recorded["model_path"] == tmp_path
     assert recorded["dtype"] is torch.float16
     assert recorded["local_files_only"] is True
-    assert model.config.use_cache is False
+    assert model.config.use_cache is True
 
 
 def test_build_variant_model_rejects_llama_mutations() -> None:
@@ -1300,18 +1322,90 @@ def test_causal_lm_architecture_only_onnx_keeps_full_logits(
         logger=logging.getLogger("test_llama_architecture_only"),
     )
 
+    assert model.config.use_cache is True
+    assert model.generation_config.use_cache is True
     result = export_onnx_model(variant, model, context, True)
 
     assert result.graph_info["runtime_input_names"] == [
         "input_ids",
         "attention_mask",
     ]
-    assert result.graph_info["output_names"] == ["logits"]
+    assert result.graph_info["output_names"] == [
+        "logits",
+        "present_0_key",
+        "present_0_value",
+    ]
     assert result.graph_info["initializer_names"] == []
     assert model.config._attn_implementation == "sdpa"
+    assert model.config.use_cache is True
+    assert model.generation_config.use_cache is True
     exported_model = onnx.load(result.path)
     output_shape = exported_model.graph.output[0].type.tensor_type.shape.dim
     assert [dimension.dim_value for dimension in output_shape] == [2, 8, 32]
+    assert Path(result.path).name == "llama_architecture_only_prefill.onnx"
+
+
+def test_causal_lm_decode_onnx_exports_past_kv_inputs(tmp_path: Path) -> None:
+    config_path = tmp_path / "qwen3_variants.yaml"
+    variant = build_qwen_variant(
+        variant_name="qwen_decode_cached",
+        variant_config_overrides={
+            "export_onnx": True,
+            "onnx_export_mode": "architecture_only",
+            "run_decode": True,
+            "decode_max_output_length": 3,
+        },
+    )
+    model = build_tiny_qwen_model()
+    output_layout = prepare_output_layout(tmp_path / "output", config_path)
+    context = RunContext(
+        config_path=config_path,
+        output_layout=output_layout,
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_qwen_decode_cached"),
+    )
+
+    result = export_causal_lm_decode_onnx(variant, model, context)
+
+    assert Path(result.path).name == "qwen_decode_cached_decode.onnx"
+    assert result.graph_info["output_names"] == [
+        "logits",
+        "present_0_key",
+        "present_0_value",
+    ]
+    runtime_input_names = result.graph_info["runtime_input_names"]
+    assert runtime_input_names == [
+        "input_ids",
+        "attention_mask",
+        "past_0_key",
+        "past_0_value",
+    ]
+    onnx_model = onnx.load(result.path)
+    graph_input_names = {value.name for value in onnx_model.graph.input}
+    assert set(runtime_input_names) <= graph_input_names
+    logits_shape = onnx_model.graph.output[0].type.tensor_type.shape.dim
+    assert [dimension.dim_value for dimension in logits_shape] == [2, 1, 32]
+    past_key_input = next(
+        value for value in onnx_model.graph.input if value.name == "past_0_key"
+    )
+    past_key_shape = [
+        dimension.dim_value
+        for dimension in past_key_input.type.tensor_type.shape.dim
+    ]
+    assert past_key_shape == [2, 2, 10, 8]
+
+    data = build_graph_data_from_onnx(
+        result.path,
+        batch_size=2,
+        runtime_input_names=list(runtime_input_names),
+        phase="decode",
+        gpu_name="v100",
+        decode_output_length=3,
+    )
+    assert data.x is not None
+    assert data.x.shape[0] > 0
+    assert data.graph_features.shape[0] == 1
 
 
 def test_build_variant_model_builds_t5_model_with_eos_inputs() -> None:

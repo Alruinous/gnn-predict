@@ -212,9 +212,11 @@ def process_csv(csv_file: str | Path) -> CsvProcessResult:
         (pl.col("duration_sec") / pl.col("phase_rounds")).alias(
             RUN_DURATION_SOURCE_FIELD
         ),
-        pl.struct(["result_json", "variant_name"])
+        pl.struct(["result_json", "variant_name", "phase"])
         .map_elements(
-            lambda row: str(resolve_onnx_path(row["result_json"], row["variant_name"])),
+            lambda row: str(
+                resolve_onnx_path(row["result_json"], row["variant_name"], row["phase"])
+            ),
             return_dtype=pl.String,
         )
         .alias("variant_path"),
@@ -317,10 +319,15 @@ def build_model_record_info(
     )
 
 
-def resolve_onnx_path(result_json: object, variant_name: object) -> Path:
+def resolve_onnx_path(
+    result_json: object,
+    variant_name: object,
+    phase: str = "",
+) -> Path:
     result_path = Path(str(result_json).strip())
     variant = str(variant_name).strip()
-    return result_path.parent.parent / "onnx_models" / f"{variant}.onnx"
+    suffix = f"_{phase.strip()}" if phase.strip() in {"prefill", "decode"} else ""
+    return result_path.parent.parent / "onnx_models" / f"{variant}{suffix}.onnx"
 
 
 def parse_int_value(value: object) -> int:

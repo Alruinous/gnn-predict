@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from transformers import (
     AutoModelForCausalLM,
+    DynamicCache,
     Gemma4ForCausalLM,
     Gemma4TextConfig,
     Qwen3Config,
@@ -24,7 +25,7 @@ CAUSAL_LM_MODEL_ROOTS = {
 }
 
 
-class CausalLMOnnxLogitsExport(nn.Module):
+class CausalLMPrefillOnnxExport(nn.Module):
     def __init__(self, model: nn.Module) -> None:
         super().__init__()
         self.model = model
@@ -33,12 +34,112 @@ class CausalLMOnnxLogitsExport(nn.Module):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-    ) -> torch.Tensor:
-        return self.model(
+    ) -> tuple[torch.Tensor, ...]:
+        outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            use_cache=False,
-        ).logits
+            use_cache=True,
+        )
+        return (outputs.logits, *flatten_causal_lm_kv_cache(outputs.past_key_values))
+
+
+class CausalLMDecodeOnnxExport(nn.Module):
+    def __init__(self, model: nn.Module) -> None:
+        super().__init__()
+        self.model = model
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        *past_kv_flat: torch.Tensor,
+    ) -> tuple[torch.Tensor, ...]:
+        past_kv_pairs = pair_causal_lm_kv_inputs(past_kv_flat)
+        cache = build_causal_lm_dynamic_cache(past_kv_pairs)
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            past_key_values=cache,
+            use_cache=True,
+        )
+        return (outputs.logits, *flatten_causal_lm_kv_cache(outputs.past_key_values))
+
+
+def flatten_causal_lm_kv_cache(cache: DynamicCache) -> tuple[torch.Tensor, ...]:
+    flat: list[torch.Tensor] = []
+    for layer in cache.layers:
+        keys = layer.keys
+        values = layer.values
+        assert isinstance(keys, torch.Tensor), type(keys)
+        assert isinstance(values, torch.Tensor), type(values)
+        flat.append(keys)
+        flat.append(values)
+    return tuple(flat)
+
+
+def pair_causal_lm_kv_inputs(
+    past_kv_flat: tuple[torch.Tensor, ...],
+) -> list[tuple[torch.Tensor, torch.Tensor]]:
+    if len(past_kv_flat) % 2 != 0:
+        raise ValueError("past KV flat inputs must contain key/value pairs")
+    return [
+        (past_kv_flat[index], past_kv_flat[index + 1])
+        for index in range(0, len(past_kv_flat), 2)
+    ]
+
+
+def build_causal_lm_dynamic_cache(
+    past_kv_pairs: list[tuple[torch.Tensor, torch.Tensor]],
+) -> DynamicCache:
+    cache = DynamicCache()
+    for layer_idx, (key, value) in enumerate(past_kv_pairs):
+        cache.update(key, value, layer_idx)
+    return cache
+
+
+def collect_causal_lm_kv_pairs(
+    cache: DynamicCache,
+) -> list[tuple[torch.Tensor, torch.Tensor]]:
+    pairs: list[tuple[torch.Tensor, torch.Tensor]] = []
+    for layer in cache.layers:
+        keys = layer.keys
+        values = layer.values
+        assert isinstance(keys, torch.Tensor), type(keys)
+        assert isinstance(values, torch.Tensor), type(values)
+        pairs.append((keys, values))
+    return pairs
+
+
+def build_causal_lm_kv_input_names(layer_count: int) -> list[str]:
+    names: list[str] = []
+    for index in range(layer_count):
+        names.append(f"past_{index}_key")
+        names.append(f"past_{index}_value")
+    return names
+
+
+def build_causal_lm_present_output_names(layer_count: int) -> list[str]:
+    names: list[str] = ["logits"]
+    for index in range(layer_count):
+        names.append(f"present_{index}_key")
+        names.append(f"present_{index}_value")
+    return names
+
+
+def run_causal_lm_dry_prefill(
+    model: nn.Module,
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+) -> DynamicCache:
+    cache = DynamicCache()
+    with torch.no_grad():
+        model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            past_key_values=cache,
+            use_cache=True,
+        )
+    return cache
 
 
 def build_causal_lm_variant_model(spec: ResolvedVariantSpec) -> nn.Module:

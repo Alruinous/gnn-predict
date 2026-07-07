@@ -99,7 +99,7 @@ def test_gnn_model_cli_extract_writes_manifest(tmp_path: Path) -> None:
     assert payload["feature_source"] == (
         "onnx_tool_static_metrics_shape_topology_features_op_reclass_identity"
     )
-    assert payload["sample_count"] == 3
+    assert payload["total_record_count"] == 3
     assert payload["target_names"] == list(TARGET_FIELDS)
     assert "extract_config_path" not in payload
     graphs = []
@@ -157,6 +157,7 @@ def build_monitor_row(
         "gpu_sm_active_percent_max": 65.0,
         "gpu_sm_occupancy_percent_max": 12.5,
         "gpu_mem_used_mb_max": 2048.0,
+        "gpu_power_watts_avg": 100.0,
     }
 
 

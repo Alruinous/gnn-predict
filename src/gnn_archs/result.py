@@ -50,6 +50,7 @@ class VariantResult(StrictModel):
     prefill: InferenceResult | None = None
     decode: InferenceResult | None = None
     onnx_export: OnnxExportResult | None = None
+    onnx_decode_export: OnnxExportResult | None = None
     metadata: dict[str, JsonScalar] = Field(default_factory=dict)
 
 

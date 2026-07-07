@@ -15,7 +15,14 @@ import torch
 import torch.nn as nn
 from transformers import BertConfig, BertForSequenceClassification
 
-from gnn_archs.causal_lm_builder import CausalLMOnnxLogitsExport
+from gnn_archs.causal_lm_builder import (
+    CausalLMDecodeOnnxExport,
+    CausalLMPrefillOnnxExport,
+    build_causal_lm_kv_input_names,
+    build_causal_lm_present_output_names,
+    collect_causal_lm_kv_pairs,
+    run_causal_lm_dry_prefill,
+)
 from gnn_archs.config import (
     get_causal_lm_family,
     is_causal_lm_model_name,
@@ -137,6 +144,7 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
     is_recommender_model = is_recommender_model_name(spec.base_model.name)
     model: nn.Module | None = None
     onnx_result: OnnxExportResult | None = None
+    onnx_decode_result: OnnxExportResult | None = None
     training_result: TrainingResult | None = None
     inference_result: InferenceResult | None = None
     prefill_result: InferenceResult | None = None
@@ -166,6 +174,11 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
                 is_text_model,
                 is_recommender_model,
             )
+            if (
+                is_causal_lm_model_name(spec.base_model.name)
+                and spec.variant_config.run_decode
+            ):
+                onnx_decode_result = export_causal_lm_decode_onnx(spec, model, context)
             timings["onnx_export"] = build_time_window(onnx_started_at, time.time())
 
         if spec.variant_config.run_training:
@@ -229,6 +242,7 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
             prefill=prefill_result,
             decode=decode_result,
             onnx_export=onnx_result,
+            onnx_decode_export=onnx_decode_result,
             metadata={
                 "device": str(context.device),
                 "gpu_node": context.gpu_node,
@@ -432,7 +446,7 @@ def export_onnx_model(
     if is_causal_lm_model_name(spec.base_model.name):
         batch = build_example_batch(spec.variant_config, model, is_text_model)
         batch = {name: tensor.to(context.device) for name, tensor in batch.items()}
-        return export_causal_lm_onnx_model(spec, model, context, batch)
+        return export_causal_lm_prefill_onnx(spec, model, context, batch)
 
     recommender_feature_names: list[str] | None = None
     if is_recommender_model:
@@ -508,29 +522,118 @@ def export_onnx_model(
     )
 
 
-def export_causal_lm_onnx_model(
+def export_causal_lm_prefill_onnx(
     spec: ResolvedVariantSpec,
     model: nn.Module,
     context: RunContext,
     batch: dict[str, torch.Tensor],
 ) -> OnnxExportResult:
-    export_path = context.output_layout.onnx_models_dir / f"{spec.name}.onnx"
+    export_path = context.output_layout.onnx_models_dir / f"{spec.name}_prefill.onnx"
     input_names = ["input_ids", "attention_mask"]
     opset_version = 14
     export_mode = spec.variant_config.onnx_export_mode
-    export_model = CausalLMOnnxLogitsExport(model).to(context.device)
+    layer_count = resolve_causal_lm_layer_count(model)
+    output_names = build_causal_lm_present_output_names(layer_count)
+    export_model = CausalLMPrefillOnnxExport(model).to(context.device)
     with temporary_causal_lm_export_mode(model):
         torch.onnx.export(
             export_model,
             (batch["input_ids"], batch["attention_mask"]),
             export_path,
             input_names=input_names,
-            output_names=["logits"],
+            output_names=output_names,
             opset_version=opset_version,
             dynamo=False,
             export_params=export_mode == "full",
         )
+    return finalize_causal_lm_onnx_export(
+        export_path,
+        opset_version,
+        input_names,
+        export_mode,
+    )
 
+
+def export_causal_lm_decode_onnx(
+    spec: ResolvedVariantSpec,
+    model: nn.Module,
+    context: RunContext,
+) -> OnnxExportResult:
+    batch_size, sequence_length = spec.variant_config.example_input_shape
+    output_length = spec.variant_config.decode_max_output_length
+    if output_length <= 0:
+        raise ValueError(
+            "decode ONNX export requires positive decode_max_output_length"
+        )
+    past_len = sequence_length + output_length - 1
+
+    model.eval()
+    device = context.device
+    generator = torch.Generator().manual_seed(42)
+    dry_input_ids = build_text_input_ids(
+        model,
+        batch_size,
+        past_len,
+        generator,
+    )
+    dry_input_ids = dry_input_ids.to(device)
+    dry_attention_mask = torch.ones(
+        (batch_size, past_len),
+        dtype=torch.long,
+        device=device,
+    )
+    past_cache = run_causal_lm_dry_prefill(model, dry_input_ids, dry_attention_mask)
+    past_kv_pairs = collect_causal_lm_kv_pairs(past_cache)
+    layer_count = len(past_kv_pairs)
+    if layer_count == 0:
+        raise ValueError("causal LM dry prefill produced no KV cache layers")
+
+    decode_input_ids = torch.zeros((batch_size, 1), dtype=torch.long, device=device)
+    decode_attention_mask = torch.ones(
+        (batch_size, sequence_length + output_length),
+        dtype=torch.long,
+        device=device,
+    )
+    past_kv_flat = tuple(
+        tensor.contiguous()
+        for pair in past_kv_pairs
+        for tensor in pair
+    )
+    input_names = [
+        "input_ids",
+        "attention_mask",
+        *build_causal_lm_kv_input_names(layer_count),
+    ]
+    output_names = build_causal_lm_present_output_names(layer_count)
+    export_path = context.output_layout.onnx_models_dir / f"{spec.name}_decode.onnx"
+    opset_version = 14
+    export_mode = spec.variant_config.onnx_export_mode
+    export_model = CausalLMDecodeOnnxExport(model).to(device)
+    with temporary_causal_lm_export_mode(model):
+        torch.onnx.export(
+            export_model,
+            (decode_input_ids, decode_attention_mask, *past_kv_flat),
+            export_path,
+            input_names=input_names,
+            output_names=output_names,
+            opset_version=opset_version,
+            dynamo=False,
+            export_params=export_mode == "full",
+        )
+    return finalize_causal_lm_onnx_export(
+        export_path,
+        opset_version,
+        input_names,
+        export_mode,
+    )
+
+
+def finalize_causal_lm_onnx_export(
+    export_path: Path,
+    opset_version: int,
+    input_names: list[str],
+    export_mode: str,
+) -> OnnxExportResult:
     onnx_model = onnx.load(export_path)
     set_model_metadata_value(
         onnx_model,
@@ -567,28 +670,31 @@ def export_causal_lm_onnx_model(
     )
 
 
+def resolve_causal_lm_layer_count(model: nn.Module) -> int:
+    for attr_name in ("num_hidden_layers", "n_layer", "num_layers"):
+        value = getattr(getattr(model, "config", None), attr_name, None)
+        if isinstance(value, int):
+            return value
+    text_config = getattr(getattr(model, "config", None), "text_config", None)
+    for attr_name in ("num_hidden_layers", "n_layer", "num_layers"):
+        value = getattr(text_config, attr_name, None)
+        if isinstance(value, int):
+            return value
+    raise ValueError("causal LM model config is missing layer count attribute")
+
+
 @contextmanager
 def temporary_causal_lm_export_mode(model: nn.Module) -> Iterator[None]:
     previous_attention_values: list[tuple[Any, Any]] = []
-    previous_cache_values: list[tuple[Any, Any]] = []
     for config in iter_causal_lm_export_configs(model):
-        if hasattr(config, "use_cache"):
-            previous_cache_values.append((config, config.use_cache))
-            config.use_cache = False
         if hasattr(config, "_attn_implementation"):
             previous_attention_values.append((config, config._attn_implementation))
             config._attn_implementation = "eager"
-    generation_config = getattr(model, "generation_config", None)
-    if generation_config is not None and hasattr(generation_config, "use_cache"):
-        previous_cache_values.append((generation_config, generation_config.use_cache))
-        generation_config.use_cache = False
     try:
         yield
     finally:
         for config, value in previous_attention_values:
             config._attn_implementation = value
-        for config, value in previous_cache_values:
-            config.use_cache = value
 
 
 def iter_causal_lm_export_configs(model: nn.Module) -> tuple[Any, ...]:
@@ -1050,6 +1156,9 @@ def summarize_variant_results(variant_results: list[VariantResult]) -> dict[str,
         "decode_count": sum(result.decode is not None for result in variant_results),
         "onnx_export_count": sum(
             result.onnx_export is not None for result in variant_results
+        ),
+        "onnx_decode_export_count": sum(
+            result.onnx_decode_export is not None for result in variant_results
         ),
     }
 
