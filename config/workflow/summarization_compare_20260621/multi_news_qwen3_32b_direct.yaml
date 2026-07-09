@@ -1,0 +1,57 @@
+nodes:
+  - name: input
+    type: input
+  - name: summarizer
+    type: tool
+    task: text_generation
+    description: Summarize Multi-News directly with Qwen3-32B.
+    prompt_template: |-
+      Summarize the related news documents into one concise multi-document summary.
+      Cover the shared event, important distinct facts, and avoid unsupported details.
+      Return only the summary.
+
+      Documents:
+      {input_text}
+    model:
+      name: qwen3
+      parameters:
+        vocab_size: 151936
+        hidden_size: 5120
+        intermediate_size: 25600
+        num_hidden_layers: 64
+        num_attention_heads: 64
+        num_key_value_heads: 8
+        head_dim: 128
+        max_position_embeddings: 40960
+        tie_word_embeddings: false
+    runtime:
+      batch_size: 1
+      sequence_length: 8192
+      decode_max_output_length: 512
+      phase: decode
+    execution:
+      model_path: /data/Models/Qwen/Qwen3-32B
+      devices:
+        - cuda:0
+        - cuda:1
+        - cuda:2
+      dtype: float16
+      max_new_tokens: 512
+      do_sample: false
+      use_chat_template: true
+      enable_thinking: false
+  - name: judge
+    type: evaluator
+    task: summary_llm_judge
+  - name: output
+    type: output
+edges:
+  - source: input
+    target: summarizer
+    attributes: {}
+  - source: summarizer
+    target: judge
+    attributes: {}
+  - source: judge
+    target: output
+    attributes: {}

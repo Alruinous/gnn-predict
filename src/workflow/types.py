@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 from enum import Enum
 from typing import Any, Literal, Self
+from uuid import uuid4
 
 from langchain.agents import AgentState
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from common.validate import NonEmptyStr, NonNegativeInt, PositiveInt
 
@@ -77,13 +79,13 @@ class FailureRecord(BaseModel):
 class NodeConfig(BaseModel):
     name: NonEmptyStr
     type: NodeType
+    model: WorkflowModelConfig
+    runtime: RuntimeConfig
+    execution: ExecutionConfig
     task: NonEmptyStr | None = None
     description: NonEmptyStr | None = None
     prompt_template: NonEmptyStr | None = None
     system_prompt: NonEmptyStr | None = None
-    model: WorkflowModelConfig | None = None
-    runtime: RuntimeConfig | None = None
-    execution: ExecutionConfig | None = None
     queue_capacity: PositiveInt = DEFAULT_QUEUE_CAPACITY
     retry: RetryConfig = Field(default_factory=RetryConfig)
 
@@ -134,12 +136,25 @@ class Workflow(BaseModel):
         return self
 
 
-class WorkflowDataItem(BaseModel):
+class WorkflowDataItem:
     session_id: NonEmptyStr
     item_id: NonEmptyStr
     source_node: NonEmptyStr
     target_node: NonEmptyStr
     message: AgentState
+
+    def __init__(
+        self,
+        session_id: str,
+        source_node: str,
+        target_node: str,
+        message: AgentState,
+    ):
+        self.session_id = session_id
+        self.item_id = str(uuid4())  # 唯一标识
+        self.source_node = source_node
+        self.target_node = target_node
+        self.message = message
 
 
 class WorkerState(Enum):
@@ -149,6 +164,7 @@ class WorkerState(Enum):
 
 
 class WorkerQueueItem(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     worker_state: WorkerState | None = None
     data: WorkflowDataItem | None = None
 
@@ -157,3 +173,29 @@ class WorkflowStatus(BaseModel):
     node_states: dict[str, WorkerState]
     queue_sizes: dict[str, int]
     failures: list[FailureRecord]
+
+
+class WorkflowModelFeatureKey(BaseModel):
+    model_name: NonEmptyStr
+    phase: Literal["prefill", "decode"]
+    gpu_name: Literal["v100", "a100"]
+    batch_size: PositiveInt
+    sequence_length: PositiveInt
+    decode_output_length: int  # 0 for prefill, decode_max_output_length for decode
+
+    @property
+    def stable_digest(self) -> str:
+        payload = "|".join(
+            (
+                self.model_name,
+                self.phase,
+                self.gpu_name,
+                str(self.batch_size),
+                str(self.sequence_length),
+                str(self.decode_output_length),
+            )
+        )
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+    def __hash__(self) -> int:
+        return int(self.stable_digest, 16)

@@ -1,0 +1,49 @@
+cache_groups:
+  - name: qwen3_0_6b
+    model_name: Qwen3-0.6B
+    model_path: /data/Models/Qwen/Qwen3-0.6B
+    phases: [decode]
+    batch_size_list: [1, 2, 3]
+    sequence_length_list: [1024, 1536, 2048, 2560, 3072, 3584, 4096, 5120, 6144, 7168, 8192]
+    decode_max_output_length_list: [128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096]
+    dtype: float16
+  - name: qwen3_1_7b
+    model_name: Qwen3-1.7B
+    model_path: /data/Models/Qwen/Qwen3-1.7B
+    phases: [decode]
+    batch_size_list: [1, 2, 3]
+    sequence_length_list: [1024, 1536, 2048, 2560, 3072, 3584, 4096, 5120, 6144, 7168, 8192]
+    decode_max_output_length_list: [128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096]
+    dtype: float16
+  - name: qwen3_4b
+    model_name: Qwen3-4B
+    model_path: /data/Models/Qwen/Qwen3-4B
+    phases: [decode]
+    batch_size_list: [1, 2, 3]
+    sequence_length_list: [1024, 1536, 2048, 2560, 3072, 3584, 4096, 5120, 6144, 7168, 8192]
+    decode_max_output_length_list: [128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096]
+    dtype: float16
+  - name: qwen3_8b
+    model_name: Qwen3-8B
+    model_path: /data/Models/Qwen/Qwen3-8B
+    phases: [decode]
+    batch_size_list: [1, 2, 3]
+    sequence_length_list: [1024, 1536, 2048, 2560, 3072, 3584, 4096, 5120, 6144, 7168, 8192]
+    decode_max_output_length_list: [128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096]
+    dtype: float16
+  - name: qwen3_14b
+    model_name: Qwen3-14B
+    model_path: /data/Models/Qwen/Qwen3-14B
+    phases: [decode]
+    batch_size_list: [1, 2, 3]
+    sequence_length_list: [1024, 1536, 2048, 2560, 3072, 3584, 4096, 5120, 6144, 7168, 8192]
+    decode_max_output_length_list: [128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096]
+    dtype: float16
+  - name: qwen3_32b
+    model_name: Qwen3-32B
+    model_path: /data/Models/Qwen/Qwen3-32B
+    phases: [decode]
+    batch_size_list: [1, 2, 3]
+    sequence_length_list: [1024, 1536, 2048, 2560, 3072, 3584, 4096, 5120, 6144, 7168, 8192]
+    decode_max_output_length_list: [128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096]
+    dtype: float16

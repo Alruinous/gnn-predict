@@ -14,7 +14,7 @@ targets:
     gpu_id: "2"
     output_csv: csv/a100/vit_monitor.csv
 
-  vgg11: #TODO
+  vgg11:
     enabled: true
     result_json: res/vgg11/results/vgg11_variants_a100_1780456835_results.json
     node_name: inspur-gpu-04
@@ -192,16 +192,16 @@ targets:
   
   qwen3:
     enabled: true
-    result_json: res/qwen3/results/qwen3_a100_1782759445_results.json
+    result_json: res/qwen3/results/qwen3_a100_1783340639_results.json
     node_name: inspur-gpu-04
-    pod_name: sg-wangjh-260630-47117-default0-0
-    gpu_id: "2"
+    pod_name: sg-wangjh-260706-b6e1b-default0-0
+    gpu_id: "1"
     output_csv: "csv/a100_llm/qwen3_monitor.csv"
 
   gemma4:
     enabled: true
-    result_json: res/gemma4/results/gemma4_a100_1782758837_results.json
+    result_json: res/gemma4/results/gemma4_a100_1783340639_results.json
     node_name: inspur-gpu-04
-    pod_name: sg-wangjh-260630-0eb07-default0-0
-    gpu_id: "1"
+    pod_name: sg-wangjh-260706-9ce8d-default0-0
+    gpu_id: "2"
     output_csv: "csv/a100_llm/gemma4_monitor.csv"

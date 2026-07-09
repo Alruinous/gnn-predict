@@ -129,7 +129,6 @@ class NodeWorker:
                 WorkerQueueItem(
                     data=WorkflowDataItem(
                         session_id=item.session_id,
-                        item_id=item.item_id,
                         source_node=self.node_name,
                         target_node=target_name,
                         message=out_message,
@@ -146,7 +145,8 @@ class NodeWorker:
         for attempt in range(1, self.retry_config.max_attempts + 1):
             try:
                 state = AgentState(messages=[HumanMessage(content=prompt)])
-                return message_text(self.agent.invoke(state))
+                out = self.agent.invoke(state)
+                return message_text(out)
             except Exception as error:  # 第三方 agent 调用边界 耗尽后按策略上报
                 last_error = error
                 max_attempts = self.retry_config.max_attempts
@@ -181,6 +181,9 @@ class NodeWorker:
             else:
                 queue_item: WorkerQueueItem = self.input_queue.get()
                 if queue_item.worker_state == WorkerState.STOPPED:
+                    # 逐步停止所有 worker
+                    for queue in self.output_queues.values():
+                        queue.put(WorkerQueueItem(worker_state=WorkerState.STOPPED))
                     self.stop()
                     break
                 if queue_item.data is None:
@@ -204,6 +207,12 @@ class NodeWorker:
 
     def get_result(self, session_id: str) -> AgentState:
         return self.terminal_results[session_id]
+    
+    def clear_result(self, session_id: str | None = None) -> None:
+        if session_id is None:
+            self.terminal_results.clear()
+        else:
+            self.terminal_results.pop(session_id, None)
 
     def stop(self) -> None:
         self.status = WorkerState.STOPPED

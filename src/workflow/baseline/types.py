@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from common.validate import NonEmptyStr, PositiveInt
 
-NodeType = Literal["input", "tool", "evaluator", "output"]
+NodeType = Literal["input", "agent", "tool", "evaluator", "output"]
 
 
 class BaselineModelConfig(BaseModel):
@@ -61,11 +61,15 @@ class BaselineNodeConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_tool_fields(self) -> Self:
-        if self.type == "tool":
+        if self.type in ("agent", "tool"):
             if self.prompt_template is None:
-                raise ValueError(f"tool node {self.name} requires prompt_template")
+                raise ValueError(
+                    f"{self.type} node {self.name} requires prompt_template"
+                )
             if self.execution is None:
-                raise ValueError(f"tool node {self.name} requires execution config")
+                raise ValueError(
+                    f"{self.type} node {self.name} requires execution config"
+                )
         return self
 
 

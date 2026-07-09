@@ -38,15 +38,20 @@ def build_baseline_graph(
 ) -> CompiledStateGraph[Any, Any, Any, Any]:
     dependencies = workflow.dependencies()
     adjacency = workflow.adjacency()
+    entry_nodes = [name for name in workflow.node_names() if not dependencies[name]]
+    terminal_nodes = [name for name in workflow.node_names() if not adjacency[name]]
+
     graph = StateGraph(cast(Any, BaselineState))
     for node in workflow.nodes:
         graph.add_node(
             node.name,
-            _build_node_action(node, dependencies[node.name], runner),
+            _build_node_action(
+                node,
+                dependencies[node.name],
+                runner,
+                node.name in terminal_nodes,
+            ),
         )
-
-    entry_nodes = [name for name in workflow.node_names() if not dependencies[name]]
-    terminal_nodes = [name for name in workflow.node_names() if not adjacency[name]]
     assert entry_nodes, workflow.node_names()
     assert terminal_nodes, workflow.node_names()
 
@@ -87,6 +92,7 @@ def _build_node_action(
     node: BaselineNodeConfig,
     dependencies: list[str],
     runner: BaselineRunner,
+    is_terminal: bool,
 ) -> Any:
     def action(state: BaselineState) -> dict[str, Any]:
         started_at = time.perf_counter()
@@ -104,7 +110,7 @@ def _build_node_action(
             "node_outputs": {node.name: output},
             "trace": [event.model_dump()],
         }
-        if node.type == "output":
+        if node.type == "output" or is_terminal:
             update["final_output"] = output
         return update
 
@@ -125,7 +131,7 @@ def _run_node(
     if node.type in ("evaluator", "output"):
         return _dependency_output(dependencies, state)
 
-    assert node.type == "tool", node.type
+    assert node.type in ("agent", "tool"), node.type
     assert node.prompt_template is not None
     prompt = node.prompt_template.format(**_prompt_context(dependencies, state))
     return runner.run_node(node, prompt)

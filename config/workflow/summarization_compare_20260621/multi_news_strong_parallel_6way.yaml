@@ -1,0 +1,235 @@
+nodes:
+  - name: input
+    type: input
+  - name: chunk_0
+    type: tool
+    task: text_generation
+    description: Summarize Multi-News chunk 0 with Qwen3-4B.
+    prompt_template: |-
+      Summarize this subset of related news documents.
+      Keep the important facts, named entities, dates, and causal relations.
+      Avoid unsupported details. Return only the partial summary.
+
+      Documents:
+      {chunk_0_text}
+    model: &qwen4_model
+      name: qwen3
+      parameters:
+        vocab_size: 151936
+        hidden_size: 2560
+        intermediate_size: 9728
+        num_hidden_layers: 36
+        num_attention_heads: 32
+        num_key_value_heads: 8
+        head_dim: 128
+        max_position_embeddings: 40960
+        tie_word_embeddings: true
+    runtime: &strong_chunk_runtime
+      batch_size: 1
+      sequence_length: 8192
+      decode_max_output_length: 384
+      phase: decode
+    execution: &strong_chunk_cuda0
+      model_path: /data/Models/Qwen/Qwen3-4B
+      devices:
+        - cuda:0
+      dtype: float16
+      max_new_tokens: 384
+      do_sample: false
+      use_chat_template: true
+      enable_thinking: false
+  - name: chunk_1
+    type: tool
+    task: text_generation
+    description: Summarize Multi-News chunk 1 with Qwen3-4B.
+    prompt_template: |-
+      Summarize this subset of related news documents.
+      Keep the important facts, named entities, dates, and causal relations.
+      Avoid unsupported details. Return only the partial summary.
+
+      Documents:
+      {chunk_1_text}
+    model: *qwen4_model
+    runtime: *strong_chunk_runtime
+    execution: &strong_chunk_cuda1
+      model_path: /data/Models/Qwen/Qwen3-4B
+      devices:
+        - cuda:1
+      dtype: float16
+      max_new_tokens: 384
+      do_sample: false
+      use_chat_template: true
+      enable_thinking: false
+  - name: chunk_2
+    type: tool
+    task: text_generation
+    description: Summarize Multi-News chunk 2 with Qwen3-4B.
+    prompt_template: |-
+      Summarize this subset of related news documents.
+      Keep the important facts, named entities, dates, and causal relations.
+      Avoid unsupported details. Return only the partial summary.
+
+      Documents:
+      {chunk_2_text}
+    model: *qwen4_model
+    runtime: *strong_chunk_runtime
+    execution: &strong_chunk_cuda2
+      model_path: /data/Models/Qwen/Qwen3-4B
+      devices:
+        - cuda:2
+      dtype: float16
+      max_new_tokens: 384
+      do_sample: false
+      use_chat_template: true
+      enable_thinking: false
+  - name: chunk_3
+    type: tool
+    task: text_generation
+    description: Summarize Multi-News chunk 3 with Qwen3-4B.
+    prompt_template: |-
+      Summarize this subset of related news documents.
+      Keep the important facts, named entities, dates, and causal relations.
+      Avoid unsupported details. Return only the partial summary.
+
+      Documents:
+      {chunk_3_text}
+    model: *qwen4_model
+    runtime: *strong_chunk_runtime
+    execution: *strong_chunk_cuda0
+  - name: chunk_4
+    type: tool
+    task: text_generation
+    description: Summarize Multi-News chunk 4 with Qwen3-4B.
+    prompt_template: |-
+      Summarize this subset of related news documents.
+      Keep the important facts, named entities, dates, and causal relations.
+      Avoid unsupported details. Return only the partial summary.
+
+      Documents:
+      {chunk_4_text}
+    model: *qwen4_model
+    runtime: *strong_chunk_runtime
+    execution: *strong_chunk_cuda1
+  - name: chunk_5
+    type: tool
+    task: text_generation
+    description: Summarize Multi-News chunk 5 with Qwen3-4B.
+    prompt_template: |-
+      Summarize this subset of related news documents.
+      Keep the important facts, named entities, dates, and causal relations.
+      Avoid unsupported details. Return only the partial summary.
+
+      Documents:
+      {chunk_5_text}
+    model: *qwen4_model
+    runtime: *strong_chunk_runtime
+    execution: *strong_chunk_cuda2
+  - name: merge
+    type: tool
+    task: text_generation
+    description: Merge strong partial Multi-News summaries with Qwen3-8B.
+    prompt_template: |-
+      Merge the partial summaries into one final multi-document summary draft.
+      Remove duplication, preserve important distinct facts, and avoid unsupported
+      details. Return only the draft summary.
+
+      Partial summaries:
+      {node_outputs_json}
+    model:
+      name: qwen3
+      parameters:
+        vocab_size: 151936
+        hidden_size: 4096
+        intermediate_size: 12288
+        num_hidden_layers: 36
+        num_attention_heads: 32
+        num_key_value_heads: 8
+        head_dim: 128
+        max_position_embeddings: 40960
+        tie_word_embeddings: false
+    runtime:
+      batch_size: 1
+      sequence_length: 4096
+      decode_max_output_length: 512
+      phase: decode
+    execution:
+      model_path: /data/Models/Qwen/Qwen3-8B
+      devices:
+        - cuda:0
+      dtype: float16
+      max_new_tokens: 512
+      do_sample: false
+      use_chat_template: true
+      enable_thinking: false
+  - name: refine
+    type: tool
+    task: text_generation
+    description: Refine the merged Multi-News summary with Qwen3-4B.
+    prompt_template: |-
+      Improve the merged summary for factual coverage, coherence, and concision.
+      Do not add facts that are absent from the draft or partial summaries.
+      Return only the final summary.
+
+      Merged draft:
+      {previous_output}
+
+      Partial summaries:
+      {node_outputs_json}
+    model: *qwen4_model
+    runtime:
+      batch_size: 1
+      sequence_length: 4096
+      decode_max_output_length: 512
+      phase: decode
+    execution: *strong_chunk_cuda2
+  - name: judge
+    type: evaluator
+    task: summary_llm_judge
+  - name: output
+    type: output
+edges:
+  - source: input
+    target: chunk_0
+    attributes: {}
+  - source: input
+    target: chunk_1
+    attributes: {}
+  - source: input
+    target: chunk_2
+    attributes: {}
+  - source: input
+    target: chunk_3
+    attributes: {}
+  - source: input
+    target: chunk_4
+    attributes: {}
+  - source: input
+    target: chunk_5
+    attributes: {}
+  - source: chunk_0
+    target: merge
+    attributes: {}
+  - source: chunk_1
+    target: merge
+    attributes: {}
+  - source: chunk_2
+    target: merge
+    attributes: {}
+  - source: chunk_3
+    target: merge
+    attributes: {}
+  - source: chunk_4
+    target: merge
+    attributes: {}
+  - source: chunk_5
+    target: merge
+    attributes: {}
+  - source: merge
+    target: refine
+    attributes: {}
+  - source: refine
+    target: judge
+    attributes: {}
+  - source: judge
+    target: output
+    attributes: {}

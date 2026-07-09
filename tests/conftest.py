@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import os
 import sys
 import time
 from pathlib import Path
 
 import pytest
+
+# ray 2.55 的 uv run 集成会把整个项目（含 .venv）上传为 working_dir，
+# 复制后的 .venv 内编译扩展（onnx/protobuf）损坏；必须在 import ray 前关闭
+os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"

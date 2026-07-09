@@ -1,0 +1,300 @@
+nodes:
+  - name: chunk_0
+    type: agent
+    task: text_generation
+    description: Summarize QMSum chunk 0 with Qwen3-0.6B.
+    prompt_template: |-
+      Summarize transcript details relevant to the query.
+      Return only the partial answer summary.
+
+      Query:
+      {query}
+
+      Transcript chunk:
+      {chunk_0_text}
+    model:
+      name: qwen3
+      parameters:
+        vocab_size: 151936
+        hidden_size: 1024
+        intermediate_size: 3072
+        num_hidden_layers: 28
+        num_attention_heads: 16
+        num_key_value_heads: 8
+        head_dim: 128
+        max_position_embeddings: 40960
+        tie_word_embeddings: true
+    runtime:
+      batch_size: 1
+      sequence_length: 8192
+      decode_max_output_length: 256
+      phase: decode
+    execution:
+      model_path: /data/Models/Qwen/Qwen3-0.6B
+      devices:
+        - cuda:0
+      dtype: float16
+      max_new_tokens: 256
+      do_sample: false
+      use_chat_template: true
+      enable_thinking: false
+      model_name: Qwen3-0.6B
+  - name: chunk_1
+    type: agent
+    task: text_generation
+    description: Summarize QMSum chunk 1 with Qwen3-0.6B.
+    prompt_template: |-
+      Summarize transcript details relevant to the query.
+      Return only the partial answer summary.
+
+      Query:
+      {query}
+
+      Transcript chunk:
+      {chunk_1_text}
+    model:
+      name: qwen3
+      parameters:
+        vocab_size: 151936
+        hidden_size: 1024
+        intermediate_size: 3072
+        num_hidden_layers: 28
+        num_attention_heads: 16
+        num_key_value_heads: 8
+        head_dim: 128
+        max_position_embeddings: 40960
+        tie_word_embeddings: true
+    runtime:
+      batch_size: 1
+      sequence_length: 8192
+      decode_max_output_length: 256
+      phase: decode
+    execution:
+      model_path: /data/Models/Qwen/Qwen3-0.6B
+      devices:
+        - cuda:1
+      dtype: float16
+      max_new_tokens: 256
+      do_sample: false
+      use_chat_template: true
+      enable_thinking: false
+      model_name: Qwen3-0.6B
+  - name: chunk_2
+    type: agent
+    task: text_generation
+    description: Summarize QMSum chunk 2 with Qwen3-0.6B.
+    prompt_template: |-
+      Summarize transcript details relevant to the query.
+      Return only the partial answer summary.
+
+      Query:
+      {query}
+
+      Transcript chunk:
+      {chunk_2_text}
+    model:
+      name: qwen3
+      parameters:
+        vocab_size: 151936
+        hidden_size: 1024
+        intermediate_size: 3072
+        num_hidden_layers: 28
+        num_attention_heads: 16
+        num_key_value_heads: 8
+        head_dim: 128
+        max_position_embeddings: 40960
+        tie_word_embeddings: true
+    runtime:
+      batch_size: 1
+      sequence_length: 8192
+      decode_max_output_length: 256
+      phase: decode
+    execution:
+      model_path: /data/Models/Qwen/Qwen3-0.6B
+      devices:
+        - cuda:2
+      dtype: float16
+      max_new_tokens: 256
+      do_sample: false
+      use_chat_template: true
+      enable_thinking: false
+      model_name: Qwen3-0.6B
+  - name: chunk_3
+    type: agent
+    task: text_generation
+    description: Summarize QMSum chunk 3 with Qwen3-0.6B.
+    prompt_template: |-
+      Summarize transcript details relevant to the query.
+      Return only the partial answer summary.
+
+      Query:
+      {query}
+
+      Transcript chunk:
+      {chunk_3_text}
+    model:
+      name: qwen3
+      parameters:
+        vocab_size: 151936
+        hidden_size: 1024
+        intermediate_size: 3072
+        num_hidden_layers: 28
+        num_attention_heads: 16
+        num_key_value_heads: 8
+        head_dim: 128
+        max_position_embeddings: 40960
+        tie_word_embeddings: true
+    runtime:
+      batch_size: 1
+      sequence_length: 8192
+      decode_max_output_length: 256
+      phase: decode
+    execution:
+      model_path: /data/Models/Qwen/Qwen3-0.6B
+      devices:
+        - cuda:0
+      dtype: float16
+      max_new_tokens: 256
+      do_sample: false
+      use_chat_template: true
+      enable_thinking: false
+      model_name: Qwen3-0.6B
+  - name: chunk_4
+    type: agent
+    task: text_generation
+    description: Summarize QMSum chunk 4 with Qwen3-0.6B.
+    prompt_template: |-
+      Summarize transcript details relevant to the query.
+      Return only the partial answer summary.
+
+      Query:
+      {query}
+
+      Transcript chunk:
+      {chunk_4_text}
+    model:
+      name: qwen3
+      parameters:
+        vocab_size: 151936
+        hidden_size: 1024
+        intermediate_size: 3072
+        num_hidden_layers: 28
+        num_attention_heads: 16
+        num_key_value_heads: 8
+        head_dim: 128
+        max_position_embeddings: 40960
+        tie_word_embeddings: true
+    runtime:
+      batch_size: 1
+      sequence_length: 8192
+      decode_max_output_length: 256
+      phase: decode
+    execution:
+      model_path: /data/Models/Qwen/Qwen3-0.6B
+      devices:
+        - cuda:1
+      dtype: float16
+      max_new_tokens: 256
+      do_sample: false
+      use_chat_template: true
+      enable_thinking: false
+      model_name: Qwen3-0.6B
+  - name: chunk_5
+    type: agent
+    task: text_generation
+    description: Summarize QMSum chunk 5 with Qwen3-0.6B.
+    prompt_template: |-
+      Summarize transcript details relevant to the query.
+      Return only the partial answer summary.
+
+      Query:
+      {query}
+
+      Transcript chunk:
+      {chunk_5_text}
+    model:
+      name: qwen3
+      parameters:
+        vocab_size: 151936
+        hidden_size: 1024
+        intermediate_size: 3072
+        num_hidden_layers: 28
+        num_attention_heads: 16
+        num_key_value_heads: 8
+        head_dim: 128
+        max_position_embeddings: 40960
+        tie_word_embeddings: true
+    runtime:
+      batch_size: 1
+      sequence_length: 8192
+      decode_max_output_length: 256
+      phase: decode
+    execution:
+      model_path: /data/Models/Qwen/Qwen3-0.6B
+      devices:
+        - cuda:2
+      dtype: float16
+      max_new_tokens: 256
+      do_sample: false
+      use_chat_template: true
+      enable_thinking: false
+      model_name: Qwen3-0.6B
+  - name: merge
+    type: agent
+    task: text_generation
+    description: Merge weak partial QMSum summaries with Qwen3-1.7B.
+    prompt_template: |-
+      Merge the partial answers into one final answer to the query.
+      Remove duplication, keep the answer grounded, and return only the final answer.
+
+      Query:
+      {query}
+
+      Partial answers:
+      {node_outputs_json}
+    model:
+      name: qwen3
+      parameters:
+        vocab_size: 151936
+        hidden_size: 2048
+        intermediate_size: 6144
+        num_hidden_layers: 28
+        num_attention_heads: 16
+        num_key_value_heads: 8
+        head_dim: 128
+        max_position_embeddings: 40960
+        tie_word_embeddings: true
+    runtime:
+      batch_size: 1
+      sequence_length: 4096
+      decode_max_output_length: 512
+      phase: decode
+    execution:
+      model_path: /data/Models/Qwen/Qwen3-1.7B
+      devices:
+        - cuda:0
+      dtype: float16
+      max_new_tokens: 512
+      do_sample: false
+      use_chat_template: true
+      enable_thinking: false
+      model_name: Qwen3-1.7B
+edges:
+  - source: chunk_0
+    target: merge
+    attributes: {}
+  - source: chunk_1
+    target: merge
+    attributes: {}
+  - source: chunk_2
+    target: merge
+    attributes: {}
+  - source: chunk_3
+    target: merge
+    attributes: {}
+  - source: chunk_4
+    target: merge
+    attributes: {}
+  - source: chunk_5
+    target: merge
+    attributes: {}
