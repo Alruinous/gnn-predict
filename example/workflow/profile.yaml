@@ -1,0 +1,24 @@
+version: 1
+environment:
+  storage_kind: shared_model_dir
+  model_root: /data/Models
+  profile_scope: gpu_kind
+
+entries:
+  - model_name: Qwen3-4B
+    model_path: /data/Models/Qwen/Qwen3-4B
+    dtype: float16
+    gpu_kind: v100
+    samples: 3
+    load_sec_median: 18.4
+    load_sec_p95: 19.7
+    idle_vram_mb_median: 9820
+
+  - model_name: Qwen3-8B
+    model_path: /data/Models/Qwen/Qwen3-8B
+    dtype: float16
+    gpu_kind: a100
+    samples: 3
+    load_sec_median: 12.1
+    load_sec_p95: 12.9
+    idle_vram_mb_median: 16600
