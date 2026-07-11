@@ -4,13 +4,13 @@
 
 **Goal:** Implement the `dev.md` workflow runtime as a general Ray actor + Ray Queue system for agent workflow execution, model lifecycle management, prediction-aware scheduling, token-budget control, and traceable evaluation.
 
-**Architecture:** Workflow graph execution is owned by this repository's runtime, not by LangGraph. LangChain/LangGraph are used only inside an agent node. The controller and scheduler own DAG state, queues, resource accounting, model-replica lifecycle, prediction, prefetch, eviction, and trace recording.
+**Architecture:** Workflow graph execution is owned by this repository's runtime, not by LangGraph. Phase 1 agent nodes perform one scheduler-granted model inference and return a LangChain-compatible `AgentState`; future multi-turn LangChain/LangGraph logic remains local to an agent node. The controller and scheduler own DAG state, queues, resource accounting, model-replica lifecycle, prediction, prefetch, eviction, and trace recording.
 
 **Tech Stack:** Python 3.12, `uv`, Ray actors, Ray Queue, Pydantic, LangChain/LangGraph inside agent nodes, Hugging Face Transformers, PyTorch, offline PyG graph features, existing workflow ONNX/cache pipeline, offline GNN prediction cache, pytest, Ruff, ty.
 
 ## Confirmed Scope
 
-- Current workflow runtime supports `agent` nodes and registered `function` nodes. Agent nodes execute model-backed LangGraph/LangChain logic. Function nodes execute application-provided Python callables without model-resource acquisition.
+- Current workflow runtime supports `agent` nodes and registered `function` nodes. Agent nodes execute one model-backed `AgentState` transition. Function nodes execute application-provided Python callables without model-resource acquisition.
 - Do not model `input` and `output` as runtime nodes in the current implementation. External submission and result collection are controller/runtime boundary operations, not extra Ray Queue hops.
 - Do not add `tool` nodes in this stage. Future tool use should be implemented inside LangGraph/LangChain agent logic and exposed to this runtime as part of an agent node.
 - Remove `evaluator` as a workflow node concept. Evaluation belongs to experiment or benchmark code as an evaluation function over workflow outputs and dataset references.
@@ -644,4 +644,3 @@ preview_head_chars
 `run_summary.json` is a convenience artifact generated after drain finishes. It is derived from trace and terminal results, not a replacement for `workflow_trace.jsonl`. It should include run-level counts and timing summaries such as submitted/completed/failed sessions, per-node task counts, token budget action counts, OOM counts, model load/reuse/evict counts, and active/resident GPU-second summaries.
 
 Trace writing is required by default. If an asynchronous append acknowledgement or final flush fails, the scheduler marks the workflow run failed because an untraceable experiment is not useful for this project. A future config may allow `trace_required: false`, but the default implementation treats trace failure as a run-level failure and performs normal session and model-resource cleanup.
-

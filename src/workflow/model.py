@@ -141,9 +141,7 @@ def export_phase_cached_onnx(
         past_kv_pairs = collect_causal_lm_kv_pairs(past_cache)
         layer_count = len(past_kv_pairs)
         past_kv_flat = tuple(
-            tensor.contiguous()
-            for pair in past_kv_pairs
-            for tensor in pair
+            tensor.contiguous() for pair in past_kv_pairs for tensor in pair
         )
         decode_input_ids = torch.zeros((batch_size, 1), dtype=torch.long)
         decode_attention_mask = torch.ones(
@@ -178,15 +176,7 @@ def export_phase_cached_onnx(
     raise ValueError(f"unsupported causal LM phase: {phase}")
 
 
-
 def resolve_layer_count(model: torch.nn.Module) -> int:
     from gnn_archs.variant_runner import resolve_causal_lm_layer_count
 
     return resolve_causal_lm_layer_count(model)
-
-
-__all__ = [
-    "build_model_graph_feature",
-    "build_model_input",
-    "export_phase_cached_onnx",
-]

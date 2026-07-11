@@ -1,0 +1,21 @@
+nodes:
+  - name: prepare
+    type: function
+    function: prepare_input
+    routing: broadcast
+  - name: summarize
+    type: agent
+    model:
+      name: Qwen3-4B
+    execution:
+      model_path: /data/Models/Qwen/Qwen3-4B
+      dtype: float16
+      do_sample: false
+    token_budget:
+      min_max_new_tokens: 128
+      default_max_new_tokens: 512
+      max_max_new_tokens: 1024
+    prompt_template: "Summarize the prepared content: {content}"
+edges:
+  - source: prepare
+    target: summarize

@@ -1,70 +1,26 @@
 from __future__ import annotations
 
 import hashlib
-from enum import Enum
-from typing import Any, Literal, Self
+from collections.abc import Mapping
+from enum import StrEnum
+from typing import Any, Literal
 from uuid import uuid4
 
-from langchain.agents import AgentState
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt
 
-from common.validate import NonEmptyStr, NonNegativeInt, PositiveInt
-
-DEFAULT_QUEUE_CAPACITY = 16
-
-
-class NodeType(Enum):
-    INPUT = "input"
-    OUTPUT = "output"
-    AGENT = "agent"
-    TOOL = "tool"
-    EVALUATOR = "evaluator"
-
-
-class RuntimeConfig(BaseModel):
-    batch_size: NonNegativeInt
-    input_shape: list[PositiveInt] | None = None
-    sequence_length: PositiveInt | None = None
-    decode_max_output_length: PositiveInt | None = None
-
-
-class WorkflowModelConfig(BaseModel):
-    name: NonEmptyStr
-    parameters: dict[str, Any]
-
-
-class ExecutionConfig(BaseModel):
-    model_name: NonEmptyStr
-    model_path: NonEmptyStr
-    devices: list[NonEmptyStr]
-    dtype: NonEmptyStr = "float16"
-    max_new_tokens: PositiveInt | None = None
-    do_sample: bool = False
-    temperature: float | None = None
-    use_chat_template: bool = True
-    enable_thinking: bool = False
-    truncation_side: Literal["left", "right"] | None = None
-
-    @field_validator("devices")
-    @classmethod
-    def validate_devices(cls, value: list[str]) -> list[str]:
-        if not value:
-            raise ValueError("execution devices must not be empty")
-        for device in value:
-            if not device.startswith("cuda:"):
-                raise ValueError("execution devices must use cuda:N syntax")
-            index_text = device.split(":", maxsplit=1)[1]
-            if not index_text.isdigit():
-                raise ValueError("execution devices must use cuda:N syntax")
-        if len(value) != len(set(value)):
-            raise ValueError("execution devices must be unique")
-        return value
-
-
-class RetryConfig(BaseModel):
-    max_attempts: PositiveInt = 1
-    retry_delay_sec: NonNegativeInt = 0
-    on_exhausted: Literal["fail_workflow", "skip_item"] = "fail_workflow"
+from common.validate import NonEmptyStr
+from workflow.schema import (
+    AgentNodeConfig,
+    EdgeConfig,
+    ExecutionConfig,
+    FunctionNodeConfig,
+    NodeConfig,
+    RetryConfig,
+    TokenBudgetConfig,
+    Workflow,
+    WorkflowGraph,
+    WorkflowModelConfig,
+)
 
 
 class FailureRecord(BaseModel):
@@ -76,103 +32,84 @@ class FailureRecord(BaseModel):
     error_message: str
 
 
-class NodeConfig(BaseModel):
-    name: NonEmptyStr
-    type: NodeType
-    model: WorkflowModelConfig
-    runtime: RuntimeConfig
-    execution: ExecutionConfig
-    task: NonEmptyStr | None = None
-    description: NonEmptyStr | None = None
-    prompt_template: NonEmptyStr | None = None
-    system_prompt: NonEmptyStr | None = None
-    queue_capacity: PositiveInt = DEFAULT_QUEUE_CAPACITY
-    retry: RetryConfig = Field(default_factory=RetryConfig)
+class WorkflowDataItem(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    @model_validator(mode="after")
-    def validate_execution_presence(self) -> Self:
-        if self.type in (NodeType.AGENT, NodeType.TOOL) and self.execution is None:
-            raise ValueError(
-                f"node {self.name} of type {self.type.value} requires execution config"
-            )
-        return self
-
-
-class EdgeConfig(BaseModel):
-    source: NonEmptyStr
-    target: NonEmptyStr
-    attributes: dict[str, Any] = Field(default_factory=dict)
-
-
-class Workflow(BaseModel):
-    """尽可能减少 validate 有问题优先检查 YAML 文件 而不是让代码适配配置文件。"""
-
-    nodes: list[NodeConfig]
-    edges: list[EdgeConfig]
-
-    def node_map(self) -> dict[str, NodeConfig]:
-        return {node.name: node for node in self.nodes}
-
-    def node_names(self) -> list[str]:
-        return [node.name for node in self.nodes]
-
-    @field_validator("nodes")
-    @classmethod
-    def validate_unique_node_names(cls, value: list[NodeConfig]) -> list[NodeConfig]:
-        names = [node.name for node in value]
-        if len(names) != len(set(names)):
-            raise ValueError("node names must be unique")
-        return value
-
-    @model_validator(mode="after")
-    def validate_edges(self) -> Self:
-        names = set(self.node_names())
-        pairs = [(edge.source, edge.target) for edge in self.edges]
-        for source, target in pairs:
-            if source not in names or target not in names:
-                raise ValueError(f"edge {source} -> {target} references unknown node")
-        if len(pairs) != len(set(pairs)):
-            raise ValueError("edges must be unique per (source, target) pair")
-        return self
-
-
-class WorkflowDataItem:
     session_id: NonEmptyStr
-    item_id: NonEmptyStr
-    source_node: NonEmptyStr
+    item_id: NonEmptyStr = Field(default_factory=lambda: str(uuid4()))
+    source_node: NonEmptyStr | None
     target_node: NonEmptyStr
-    message: AgentState
-
-    def __init__(
-        self,
-        session_id: str,
-        source_node: str,
-        target_node: str,
-        message: AgentState,
-    ):
-        self.session_id = session_id
-        self.item_id = str(uuid4())  # 唯一标识
-        self.source_node = source_node
-        self.target_node = target_node
-        self.message = message
+    message: Mapping[str, Any]
+    session_input_ref: Any
 
 
-class WorkerState(Enum):
+class SessionState(StrEnum):
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class NodeTaskState(StrEnum):
+    PENDING = "pending"
+    ACQUIRING = "acquiring"
+    RUNNING = "running"
+    EMITTING = "emitting"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class NodeWorkerState(StrEnum):
     IDLE = "idle"
     RUNNING = "running"
     STOPPED = "stopped"
 
 
+class ModelReplicaState(StrEnum):
+    LOADING = "loading"
+    IDLE = "idle"
+    BUSY = "busy"
+    EVICTING = "evicting"
+    SUSPECT = "suspect"
+
+
+class TokenBudgetAction(StrEnum):
+    FIXED = "fixed"
+    UPSCALED = "upscaled"
+    DOWNSCALED = "downscaled"
+    INFEASIBLE = "infeasible"
+
+
 class WorkerQueueItem(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    worker_state: WorkerState | None = None
+    worker_state: NodeWorkerState | None = None
     data: WorkflowDataItem | None = None
 
 
 class WorkflowStatus(BaseModel):
-    node_states: dict[str, WorkerState]
+    node_states: dict[str, NodeWorkerState]
     queue_sizes: dict[str, int]
     failures: list[FailureRecord]
+
+
+class TraceEvent(BaseModel):
+    run_id: str
+    event_id: str = Field(default_factory=lambda: str(uuid4()))
+    event_seq: NonNegativeInt
+    event_type: str
+    ts: float
+    session_id: str | None = None
+    item_id: str | None = None
+    task_id: str | None = None
+    node_id: str | None = None
+    source_node: str | None = None
+    target_node: str | None = None
+    model_key: str | None = None
+    replica_id: str | None = None
+    accelerator_id: str | None = None
+    gpu_kind: str | None = None
+    acquire_id: str | None = None
+    payload: dict[str, object] = Field(default_factory=dict)
 
 
 class WorkflowModelFeatureKey(BaseModel):

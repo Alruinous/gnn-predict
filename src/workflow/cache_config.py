@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Literal, cast
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, PositiveInt, field_validator
 from torch_geometric.data import Data
 
-from common.validate import NonEmptyStr, PositiveInt
+from common.validate import NonEmptyStr
 from workflow.types import WorkflowModelFeatureKey
 
 WorkflowPhase = Literal["prefill", "decode"]
@@ -162,10 +162,7 @@ class GraphFeatureCacheError(RuntimeError):
 
 
 def load_graph_feature_cache(cache_dir: Path) -> dict[WorkflowModelFeatureKey, Data]:
-    """
-    減少 isinstance 、類型檢查等方法，使用強制轉換、默認存在等約定，美觀代碼
-    """
-    with open(cache_dir / "manifest.yaml", "r") as f:
+    with open(cache_dir / "manifest.yaml") as f:
         manifest: dict = yaml.safe_load(f)
 
     features: dict[WorkflowModelFeatureKey, Data] = {}
@@ -186,7 +183,8 @@ def load_graph_feature_cache(cache_dir: Path) -> dict[WorkflowModelFeatureKey, D
             )
         if key.stable_digest != entry_key.stable_digest:
             raise GraphFeatureCacheError(
-                f"cached graph feature for {key} at {cached_path} has mismatched stable_digest"
+                f"cached graph feature for {key} at {cached_path} "
+                "has mismatched stable_digest"
             )
         if not isinstance(data, Data):
             raise GraphFeatureCacheError(

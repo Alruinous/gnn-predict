@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _thread import LockType
+from threading import Lock
 from typing import Protocol, cast
 
 from langchain.agents import AgentState, create_agent
@@ -42,17 +44,22 @@ class StaticHuggingFaceRunner:
     def __init__(self, tools: list[BaseTool] | None = None) -> None:
         self.tools = tools or []
         self.agents: dict[str, CompiledStateGraph] = {}
+        self._node_locks: dict[str, LockType] = {}
 
     def load_workflow(self, workflow: BaselineWorkflow) -> None:
+        agents: dict[str, CompiledStateGraph] = {}
         for node in workflow.nodes:
             if node.execution is None:
                 continue
-            self.agents[node.name] = self._load_agent(node)
+            agents[node.name] = self._load_agent(node)
+        self.agents = agents
+        self._node_locks = {name: Lock() for name in agents}
 
     def run_node(self, node: BaselineNodeConfig, prompt: str) -> str:
         agent = self.agents[node.name]
-        state = AgentState(messages=[HumanMessage(content=prompt)])
-        invoked = cast(AgentState, agent.invoke(state))
+        with self._node_locks[node.name]:
+            state = AgentState(messages=[HumanMessage(content=prompt)])
+            invoked = cast(AgentState, agent.invoke(state))
         return message_text(invoked)
 
     def _load_agent(self, node: BaselineNodeConfig) -> CompiledStateGraph:

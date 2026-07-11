@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from collections import deque
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, PositiveInt, field_validator, model_validator
 
-from common.validate import NonEmptyStr, PositiveInt
+from common.validate import NonEmptyStr
 
 NodeType = Literal["input", "agent", "tool", "evaluator", "output"]
 
@@ -101,11 +102,41 @@ class BaselineWorkflow(BaseModel):
             adjacency[edge.source].append(edge.target)
         return adjacency
 
+    def entry_names(self) -> list[str]:
+        dependencies = self.dependencies()
+        return [name for name in self.node_names() if not dependencies[name]]
+
+    def terminal_name(self) -> str:
+        adjacency = self.adjacency()
+        terminal_names = [name for name in self.node_names() if not adjacency[name]]
+        assert len(terminal_names) == 1, terminal_names
+        return terminal_names[0]
+
+    def topological_order(self) -> list[str]:
+        node_names = self.node_names()
+        adjacency = self.adjacency()
+        dependencies = self.dependencies()
+        indegree = {name: len(dependencies[name]) for name in node_names}
+        ready = deque(name for name in node_names if indegree[name] == 0)
+        order: list[str] = []
+        while ready:
+            source = ready.popleft()
+            order.append(source)
+            for target in adjacency[source]:
+                indegree[target] -= 1
+                if indegree[target] == 0:
+                    ready.append(target)
+        if len(order) != len(node_names):
+            raise ValueError("workflow graph must be acyclic")
+        return order
+
     @field_validator("nodes")
     @classmethod
     def validate_unique_node_names(
         cls, value: list[BaselineNodeConfig]
     ) -> list[BaselineNodeConfig]:
+        if not value:
+            raise ValueError("workflow graph must be non-empty")
         names = [node.name for node in value]
         if len(names) != len(set(names)):
             raise ValueError("node names must be unique")
@@ -118,12 +149,26 @@ class BaselineWorkflow(BaseModel):
         for source, target in pairs:
             if source not in names or target not in names:
                 raise ValueError(f"edge {source} -> {target} references unknown node")
+            if source == target:
+                raise ValueError(f"self-edge is not allowed: {source}")
         if len(pairs) != len(set(pairs)):
             raise ValueError("edges must be unique per (source, target) pair")
+        self.topological_order()
+        terminal_names = [
+            name for name, targets in self.adjacency().items() if not targets
+        ]
+        if len(terminal_names) != 1:
+            raise ValueError("workflow graph must have exactly one terminal node")
         return self
 
 
+class BaselineSessionRequest(BaseModel):
+    session_id: NonEmptyStr
+    inputs: dict[str, str]
+
+
 class BaselineTraceEvent(BaseModel):
+    session_id: NonEmptyStr
     node_name: NonEmptyStr
     node_type: NodeType
     started_at: float
