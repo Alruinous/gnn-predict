@@ -32,7 +32,15 @@ def agent_node(
             "name": "agent-a",
             "type": "agent",
             "model": {"name": "test-model"},
-            "execution": {"model_path": "/models/test-model", "dtype": "float16"},
+            "execution": {
+                "model_path": "/models/test-model",
+                "dtype": "float16",
+                "serving": {
+                    "max_model_len": 4096,
+                    "max_num_seqs": 1,
+                    "max_num_batched_tokens": 4096,
+                },
+            },
             "token_budget": {
                 "min_max_new_tokens": min_tokens,
                 "default_max_new_tokens": default_tokens,
@@ -74,6 +82,7 @@ def entry(
             sequence_length=sequence_length,
             decode_output_length=output_length,
         ),
+        predicted_load_sec=5.0,
         predicted_run_sec=run_sec,
         predicted_peak_vram_mb=peak_vram_mb,
     )
@@ -105,6 +114,7 @@ def test_token_policy_chooses_largest_feasible_cached_budget() -> None:
 
     assert decision.gpu_kind == "v100"
     assert decision.sequence_length == 2048
+    assert decision.predicted_load_sec == 5.0
     assert decision.granted_max_new_tokens == 512
     assert decision.action == TokenBudgetAction.FIXED
 

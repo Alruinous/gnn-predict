@@ -20,7 +20,7 @@ from gnn_archs.variant_runner import (
 from gnn_archs.yolo_builder import (
     _adapt_module_replacement_args,
     _apply_yaml_mutations,
-    export_detection_onnx,
+    export_detection_graph,
     run_detection_inference,
     train_detection_model,
 )
@@ -43,7 +43,6 @@ def _build_yolo_variant(
         "target_input_channels": 3,
         "target_output_classes": 10,
         "example_input_shape": [1, 3, 64, 64],
-        "onnx_export_mode": "architecture_only",
     }
     if variant_config_overrides is not None:
         variant_config.update(variant_config_overrides)
@@ -75,8 +74,7 @@ class _FixedTrainDetectionModel(torch.nn.Module):
     def forward(self, inputs: torch.Tensor) -> dict[str, object]:
         batch_size = inputs.shape[0]
         return {
-            "boxes": self.weight
-            * torch.ones((batch_size, 2, 3), device=inputs.device),
+            "boxes": self.weight * torch.ones((batch_size, 2, 3), device=inputs.device),
             "scores": self.weight
             * torch.ones((batch_size, 4, 3), device=inputs.device),
             "feats": [],
@@ -118,9 +116,7 @@ def test_c3k2_replacement_args_keep_expansion_out_of_groups() -> None:
 
 
 def test_repncspelan4_replacement_uses_target_module_defaults() -> None:
-    c2f_args = _adapt_module_replacement_args(
-        "RepNCSPELAN4", "C2f", [64, 64, 32, 3]
-    )
+    c2f_args = _adapt_module_replacement_args("RepNCSPELAN4", "C2f", [64, 64, 32, 3])
 
     assert c2f_args == [64, False, 1, 0.5]
 
@@ -221,7 +217,7 @@ def test_module_replace_rejects_unknown_layer_index() -> None:
         _apply_yaml_mutations(yolo_dict, [mutation])
 
 
-def test_export_detection_onnx_restores_export_flags(tmp_path: Path) -> None:
+def test_export_detection_graph_restores_export_flags(tmp_path: Path) -> None:
     variant = _build_yolo_variant([], variant_name="yolo_export_restore")
     model = build_variant_model(variant)
     export_flags_before = [
@@ -233,10 +229,10 @@ def test_export_detection_onnx_restores_export_flags(tmp_path: Path) -> None:
         output_layout=output_layout,
         device=torch.device("cpu"),
         gpu_node="cpu-test",
-        logger=logging.getLogger("test_export_detection_onnx"),
+        logger=logging.getLogger("test_export_detection_graph"),
     )
 
-    result = export_detection_onnx(variant, model, context)
+    result = export_detection_graph(variant, model, context)
 
     export_flags_after = [
         module.export for module in model.modules() if hasattr(module, "export")

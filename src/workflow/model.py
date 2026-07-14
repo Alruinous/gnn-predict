@@ -1,26 +1,25 @@
 from __future__ import annotations
 
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Any, Literal
 
 import torch
+from torch.export import ExportedProgram
 from torch_geometric.data import Data
 
 from common import get_logger
-from common.onnx_initializer import ONNX_OPSET_VERSION
+from common.graph_artifact import capture_inference_graph, save_graph_artifact
 from gnn_archs.causal_lm_builder import (
-    CausalLMDecodeOnnxExport,
-    CausalLMPrefillOnnxExport,
+    CausalLMDecodeGraph,
+    CausalLMPrefillGraph,
     build_causal_lm_kv_input_names,
-    build_causal_lm_present_output_names,
     collect_causal_lm_kv_pairs,
     run_causal_lm_dry_prefill,
+    temporary_causal_lm_graph_mode,
 )
-from gnn_archs.variant_runner import (
-    temporary_causal_lm_export_mode,
-)
-from gnn_model.data.onnx_graph import build_graph_data_from_onnx
+from gnn_model.data.fx_graph import build_graph_data_from_exported_program
+
+WorkflowPhase = Literal["prefill", "decode"]
 
 
 def build_model_input(
@@ -29,9 +28,6 @@ def build_model_input(
     vocab_size: int,
     generator: torch.Generator,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    LLM 模型需要的输入是 input_ids 和 attention_mask
-    """
     input_ids = torch.randint(
         0,
         vocab_size,
@@ -47,136 +43,133 @@ def build_model_graph_feature(
     model: torch.nn.Module,
     input_map: dict[str, Any],
     input_names: list[str],
-    output_names: list[str],
-    phase: Literal["prefill", "decode"] = "decode",
-    # INFO: src/archs decode 生成数据集覆盖完整 prefill+decode (一次完整 generate).
-    # 传入 decode 即考虑 LLM 完整推理过程. 分阶段修复暂不考虑.
+    phase: WorkflowPhase = "decode",
     gpu_name: Literal["v100", "a100"] = "v100",
     batch_size: int = 1,
     decode_output_length: int = 0,
 ) -> Data:
-    """
-    LLM 推理分 prefill/decode 两阶段. phase-aware cached ONNX 导出:
-    prefill 写预填充图, decode 用末步 KV shape (S+O-1) 单步 cached forward 图.
-    """
-    logger = get_logger("build_model_graph_feature")
-    model = model.eval()
-    sequence_length = input_map["input_ids"].shape[-1]
-    export_mode = "architecture_only"
-    with temporary_causal_lm_export_mode(model), TemporaryDirectory() as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        tmp_path.mkdir(parents=True, exist_ok=True)
-        onnx_path = tmp_path / f"{model_name}_{phase}.onnx"
-        runtime_input_names, _output_name_list = export_phase_cached_onnx(
-            model=model,
-            onnx_path=onnx_path,
-            input_map=input_map,
-            input_names=input_names,
-            output_names=output_names,
-            phase=phase,
-            sequence_length=sequence_length,
-            decode_output_length=decode_output_length,
-            export_mode=export_mode,
+    input_ids = require_tensor(input_map, "input_ids")
+    if input_ids.shape[0] != batch_size:
+        raise ValueError(
+            f"batch_size does not match input_ids: {batch_size} != {input_ids.shape[0]}"
         )
-        feature = build_graph_data_from_onnx(
-            onnx_path,
-            batch_size=batch_size,
-            runtime_input_names=runtime_input_names,
-            phase=phase,
-            gpu_name=gpu_name,
-            decode_output_length=decode_output_length,
-        )
-
-    logger.info(f"{feature}")
+    sequence_length = input_ids.shape[-1]
+    exported_program, runtime_input_names = capture_phase_graph(
+        model=model,
+        input_map=input_map,
+        input_names=input_names,
+        phase=phase,
+        sequence_length=sequence_length,
+        decode_output_length=decode_output_length,
+    )
+    feature = build_graph_data_from_exported_program(
+        exported_program,
+        runtime_input_names=runtime_input_names,
+        batch_size=batch_size,
+        phase=phase,
+        gpu_name=gpu_name,
+        decode_output_length=decode_output_length,
+    )
+    get_logger("build_model_graph_feature").info(f"{model_name}: {feature}")
     return feature
 
 
-def export_phase_cached_onnx(
+def export_phase_cached_graph(
     *,
     model: torch.nn.Module,
-    onnx_path: Path,
+    graph_path: Path,
     input_map: dict[str, Any],
     input_names: list[str],
-    output_names: list[str],
-    phase: Literal["prefill", "decode"],
+    phase: WorkflowPhase,
     sequence_length: int,
     decode_output_length: int,
-    export_mode: str,
-) -> tuple[list[str], list[str]]:
+) -> list[str]:
+    exported_program, runtime_input_names = capture_phase_graph(
+        model=model,
+        input_map=input_map,
+        input_names=input_names,
+        phase=phase,
+        sequence_length=sequence_length,
+        decode_output_length=decode_output_length,
+    )
+    save_graph_artifact(
+        exported_program,
+        graph_path,
+        runtime_input_names=runtime_input_names,
+    )
+    return runtime_input_names
+
+
+def capture_phase_graph(
+    *,
+    model: torch.nn.Module,
+    input_map: dict[str, Any],
+    input_names: list[str],
+    phase: WorkflowPhase,
+    sequence_length: int,
+    decode_output_length: int,
+) -> tuple[ExportedProgram, list[str]]:
+    model.eval()
+    device = next(model.parameters()).device
     if phase == "prefill":
-        prefill_input_names = input_names or ["input_ids", "attention_mask"]
-        prefill_args = tuple(input_map[name] for name in prefill_input_names)
-        layer_count = resolve_layer_count(model)
-        prefill_output_names = build_causal_lm_present_output_names(layer_count)
-        export_wrapper = CausalLMPrefillOnnxExport(model).eval()
-        torch.onnx.export(
-            export_wrapper,
-            prefill_args,
-            onnx_path,
-            input_names=prefill_input_names,
-            output_names=prefill_output_names,
-            opset_version=ONNX_OPSET_VERSION,
-            dynamo=False,
-            export_params=export_mode == "full",
+        runtime_input_names = input_names or ["input_ids", "attention_mask"]
+        args = tuple(
+            require_tensor(input_map, name).to(device) for name in runtime_input_names
         )
-        return prefill_input_names, prefill_output_names
+        wrapper = CausalLMPrefillGraph(model).to(device)
+        with temporary_causal_lm_graph_mode(model):
+            return capture_inference_graph(wrapper, args), runtime_input_names
+    if phase != "decode":
+        raise ValueError(f"unsupported causal LM phase: {phase}")
+    if decode_output_length <= 0:
+        raise ValueError("decode_output_length must be positive for decode graphs")
 
-    if phase == "decode":
-        batch_size = input_map["input_ids"].shape[0]
-        past_len = sequence_length + decode_output_length - 1
-        generator = torch.Generator().manual_seed(42)
-        from gnn_archs.variant_runner import build_text_input_ids
+    input_ids = require_tensor(input_map, "input_ids")
+    batch_size = input_ids.shape[0]
+    past_length = sequence_length + decode_output_length - 1
+    generator = torch.Generator().manual_seed(42)
+    from gnn_archs.variant_runner import build_text_input_ids
 
-        dry_input_ids = build_text_input_ids(
-            model,
-            batch_size,
-            past_len,
-            generator,
+    dry_input_ids = build_text_input_ids(
+        model,
+        batch_size,
+        past_length,
+        generator,
+    ).to(device)
+    dry_attention_mask = torch.ones(
+        (batch_size, past_length),
+        dtype=torch.long,
+        device=device,
+    )
+    past_cache = run_causal_lm_dry_prefill(model, dry_input_ids, dry_attention_mask)
+    past_kv_pairs = collect_causal_lm_kv_pairs(past_cache)
+    if not past_kv_pairs:
+        raise ValueError("causal LM dry prefill produced no KV cache layers")
+    past_kv_flat = tuple(
+        tensor.contiguous() for pair in past_kv_pairs for tensor in pair
+    )
+    decode_input_ids = torch.zeros((batch_size, 1), dtype=torch.long, device=device)
+    decode_attention_mask = torch.ones(
+        (batch_size, sequence_length + decode_output_length),
+        dtype=torch.long,
+        device=device,
+    )
+    runtime_input_names = [
+        "input_ids",
+        "attention_mask",
+        *build_causal_lm_kv_input_names(len(past_kv_pairs)),
+    ]
+    wrapper = CausalLMDecodeGraph(model).to(device)
+    with temporary_causal_lm_graph_mode(model):
+        exported_program = capture_inference_graph(
+            wrapper,
+            (decode_input_ids, decode_attention_mask, *past_kv_flat),
         )
-        dry_attention_mask = torch.ones(
-            (batch_size, past_len),
-            dtype=torch.long,
-        )
-        past_cache = run_causal_lm_dry_prefill(model, dry_input_ids, dry_attention_mask)
-        past_kv_pairs = collect_causal_lm_kv_pairs(past_cache)
-        layer_count = len(past_kv_pairs)
-        past_kv_flat = tuple(
-            tensor.contiguous() for pair in past_kv_pairs for tensor in pair
-        )
-        decode_input_ids = torch.zeros((batch_size, 1), dtype=torch.long)
-        decode_attention_mask = torch.ones(
-            (batch_size, sequence_length + decode_output_length),
-            dtype=torch.long,
-        )
-        runtime_input_names = (
-            input_names or ["input_ids", "attention_mask"]
-        ) + build_causal_lm_kv_input_names(layer_count)
-        runtime_args = (
-            decode_input_ids,
-            decode_attention_mask,
-            *past_kv_flat,
-        )
-        if output_names:
-            decode_output_names = output_names
-        else:
-            decode_output_names = build_causal_lm_present_output_names(layer_count)
-        export_wrapper = CausalLMDecodeOnnxExport(model).eval()
-        torch.onnx.export(
-            export_wrapper,
-            runtime_args,
-            onnx_path,
-            input_names=runtime_input_names,
-            output_names=decode_output_names,
-            opset_version=ONNX_OPSET_VERSION,
-            dynamo=False,
-            export_params=export_mode == "full",
-        )
-        return runtime_input_names, decode_output_names
-
-    raise ValueError(f"unsupported causal LM phase: {phase}")
+    return exported_program, runtime_input_names
 
 
-def resolve_layer_count(model: torch.nn.Module) -> int:
-    from gnn_archs.variant_runner import resolve_causal_lm_layer_count
-
-    return resolve_causal_lm_layer_count(model)
+def require_tensor(input_map: dict[str, Any], name: str) -> torch.Tensor:
+    value = input_map[name]
+    if not isinstance(value, torch.Tensor):
+        raise TypeError(f"model input must be a tensor: {name}")
+    return value

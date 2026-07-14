@@ -7,13 +7,10 @@ from pydantic import ValidationError
 
 from workflow.artifacts import (
     AcceleratorConfig,
-    DeploymentProfile,
-    DeploymentProfileEntry,
     GpuKind,
     PredictionCache,
     PredictionEntry,
     SchedulerConfig,
-    load_deployment_profile,
     load_prediction_cache,
 )
 from workflow.types import WorkflowModelFeatureKey
@@ -23,6 +20,7 @@ def prediction_key(
     *,
     model_name: str = "test-model",
     gpu_name: GpuKind = "v100",
+    batch_size: int = 1,
     sequence_length: int = 2048,
     decode_output_length: int = 512,
 ) -> WorkflowModelFeatureKey:
@@ -30,7 +28,7 @@ def prediction_key(
         model_name=model_name,
         phase="decode",
         gpu_name=gpu_name,
-        batch_size=1,
+        batch_size=batch_size,
         sequence_length=sequence_length,
         decode_output_length=decode_output_length,
     )
@@ -41,6 +39,7 @@ def prediction_entry(
 ) -> PredictionEntry:
     return PredictionEntry(
         key=key or prediction_key(),
+        predicted_load_sec=5.0,
         predicted_run_sec=3.5,
         predicted_peak_vram_mb=12_000,
     )
@@ -49,8 +48,13 @@ def prediction_entry(
 def test_prediction_cache_indexes_the_existing_feature_key() -> None:
     key = prediction_key()
     entry = prediction_entry(key)
-    cache = PredictionCache(version=1, entries=(entry,))
+    cache = PredictionCache(
+        version=1,
+        environment={"source": "gnn"},
+        entries=(entry,),
+    )
 
+    assert cache.environment == {"source": "gnn"}
     assert isinstance(cache.entries[0].key, WorkflowModelFeatureKey)
     assert cache.lookup(key) == entry
     assert (
@@ -71,6 +75,24 @@ def test_prediction_cache_rejects_duplicate_keys() -> None:
         PredictionCache(version=1, entries=(entry, entry))
 
 
+def test_prediction_cache_reports_missing_contiguous_batch_keys() -> None:
+    batch_one = prediction_entry(prediction_key(batch_size=1))
+    batch_three = prediction_entry(prediction_key(batch_size=3))
+    cache = PredictionCache(version=1, entries=(batch_one, batch_three))
+
+    assert cache.lookup_decode(
+        model_name="test-model",
+        gpu_kind="v100",
+        batch_size=3,
+        sequence_length=2048,
+        decode_output_length=512,
+    ) == batch_three
+    missing = cache.missing_decode_batch_keys("test-model", "v100", 3)
+
+    assert len(missing) == 1
+    assert missing[0].batch_size == 2
+
+
 def test_prediction_loader_is_strict(tmp_path: Path) -> None:
     path = tmp_path / "predictions.yaml"
     path.write_text(
@@ -85,6 +107,7 @@ entries:
       batch_size: 1
       sequence_length: 2048
       decode_output_length: 512
+    predicted_load_sec: 5.0
     predicted_run_sec: 3.5
     predicted_peak_vram_mb: 12000
 """.strip(),
@@ -128,6 +151,7 @@ entries:
       sequence_length: 2048
       decode_output_length: 512
       unknown: rejected
+    predicted_load_sec: 5.0
     predicted_run_sec: 3.5
     predicted_peak_vram_mb: 12000
 """.strip(),
@@ -138,72 +162,12 @@ entries:
         load_prediction_cache(path)
 
 
-def test_deployment_profile_uses_p95_then_median_then_default() -> None:
-    profile = DeploymentProfile(
-        version=1,
-        entries=(
-            DeploymentProfileEntry(
-                model_name="model-a",
-                model_path="/models/a",
-                dtype="float16",
-                gpu_kind="v100",
-                load_sec_median=10,
-                load_sec_p95=12,
-            ),
-            DeploymentProfileEntry(
-                model_name="model-b",
-                model_path="/models/b",
-                dtype="bfloat16",
-                gpu_kind="a100",
-                load_sec_median=7,
-            ),
-        ),
-    )
+def test_prediction_entry_requires_load_prediction() -> None:
+    payload = prediction_entry().model_dump(mode="python")
+    del payload["predicted_load_sec"]
 
-    assert profile.load_cost_sec("model-a", "/models/a", "float16", "v100", 30) == 12
-    assert profile.load_cost_sec("model-b", "/models/b", "bfloat16", "a100", 30) == 7
-    assert (
-        profile.load_cost_sec("missing", "/models/missing", "float16", "v100", 30) == 30
-    )
-
-
-def test_deployment_profile_rejects_duplicate_keys() -> None:
-    entry = DeploymentProfileEntry(
-        model_name="model-a",
-        model_path="/models/a",
-        dtype="float16",
-        gpu_kind="v100",
-        load_sec_median=10,
-    )
-
-    with pytest.raises(ValidationError, match="duplicate deployment profile key"):
-        DeploymentProfile(version=1, entries=(entry, entry))
-
-
-def test_deployment_profile_loader_accepts_the_manifest_shape(tmp_path: Path) -> None:
-    path = tmp_path / "profile.yaml"
-    path.write_text(
-        """
-version: 1
-environment:
-  storage_kind: shared_model_dir
-  profile_scope: gpu_kind
-entries:
-  - model_name: model-a
-    model_path: /models/a
-    dtype: float16
-    gpu_kind: v100
-    samples: 3
-    load_sec_median: 10
-    load_sec_p95: 12
-    idle_vram_mb_median: 8000
-""".strip(),
-        encoding="utf-8",
-    )
-
-    profile = load_deployment_profile(path)
-
-    assert profile.load_cost_sec("model-a", "/models/a", "float16", "v100", 30) == 12
+    with pytest.raises(ValidationError, match="predicted_load_sec"):
+        PredictionEntry.model_validate(payload)
 
 
 def test_accelerator_identity_and_scheduler_defaults_are_deterministic() -> None:
@@ -223,6 +187,20 @@ def test_accelerator_identity_and_scheduler_defaults_are_deterministic() -> None
 
 def test_scheduler_config_allows_no_accelerators() -> None:
     assert SchedulerConfig().accelerators == ()
+
+
+def test_scheduler_config_preserves_virtualenv_python_symlink(tmp_path: Path) -> None:
+    interpreter = tmp_path / "python3.12"
+    interpreter.touch()
+    virtualenv_python = tmp_path / "python"
+    virtualenv_python.symlink_to(interpreter)
+
+    config = SchedulerConfig(vllm_python_executable=str(virtualenv_python))
+    assert config.vllm_python_executable is not None
+    result = Path(config.vllm_python_executable)
+
+    assert result == virtualenv_python.absolute()
+    assert result.is_symlink()
 
 
 def test_scheduler_config_rejects_conflicting_host_local_indexes() -> None:
@@ -252,7 +230,6 @@ def test_scheduler_config_rejects_conflicting_host_local_indexes() -> None:
         ("acquire_timeout_sec", 0),
         ("grant_poll_interval_sec", 0),
         ("eviction_timeout_sec", 0),
-        ("default_load_sec", 0),
         ("history_ema_alpha", 0),
         ("history_ema_alpha", 1.1),
         ("hit_limit_rate_threshold", -0.1),

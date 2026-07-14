@@ -32,7 +32,11 @@ from workflow.types import (
 )
 
 
-def agent_workflow(*, max_attempts: int = 1) -> Workflow:
+def agent_workflow(
+    *,
+    max_attempts: int = 1,
+    max_num_seqs: int = 1,
+) -> Workflow:
     return Workflow.model_validate(
         {
             "nodes": [
@@ -43,6 +47,11 @@ def agent_workflow(*, max_attempts: int = 1) -> Workflow:
                     "execution": {
                         "model_path": "/models/test-model",
                         "dtype": "float16",
+                        "serving": {
+                            "max_model_len": 4096,
+                            "max_num_seqs": max_num_seqs,
+                            "max_num_batched_tokens": 4096,
+                        },
                     },
                     "token_budget": {
                         "min_max_new_tokens": 128,
@@ -62,7 +71,15 @@ def branched_agent_workflow() -> Workflow:
     agent = {
         "type": "agent",
         "model": {"name": "test-model"},
-        "execution": {"model_path": "/models/test-model", "dtype": "float16"},
+        "execution": {
+            "model_path": "/models/test-model",
+            "dtype": "float16",
+            "serving": {
+                "max_model_len": 4096,
+                "max_num_seqs": 1,
+                "max_num_batched_tokens": 4096,
+            },
+        },
         "token_budget": {
             "min_max_new_tokens": 128,
             "default_max_new_tokens": 512,
@@ -90,6 +107,8 @@ def branched_agent_workflow() -> Workflow:
 
 def prediction_entry(
     gpu_kind: Literal["v100", "a100"],
+    batch_size: int,
+    sequence_length: int,
     output_tokens: int,
     peak_vram_mb: float,
     run_sec: float,
@@ -99,10 +118,11 @@ def prediction_entry(
             model_name="test-model",
             phase="decode",
             gpu_name=gpu_kind,
-            batch_size=1,
-            sequence_length=2048,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
             decode_output_length=output_tokens,
         ),
+        predicted_load_sec=5.0,
         predicted_run_sec=run_sec,
         predicted_peak_vram_mb=peak_vram_mb,
     )
@@ -113,6 +133,7 @@ def resource_core(
     max_attempts: int = 1,
     workflow: Workflow | None = None,
     accelerators: tuple[AcceleratorConfig, ...] | None = None,
+    max_num_seqs: int = 1,
 ) -> SchedulerCore:
     configured_accelerators = (
         accelerators
@@ -132,19 +153,38 @@ def resource_core(
             ),
         )
     )
-    predictions = PredictionCache(
-        version=1,
-        entries=(
-            prediction_entry("v100", 128, 11_000, 3.0),
-            prediction_entry("v100", 512, 15_000, 4.0),
-            prediction_entry("v100", 1024, 17_000, 5.0),
-            prediction_entry("a100", 128, 11_000, 2.5),
-            prediction_entry("a100", 512, 15_000, 3.0),
-            prediction_entry("a100", 1024, 25_000, 3.5),
-        ),
-    )
+    entries: list[PredictionEntry] = []
+    for batch_size in range(1, max_num_seqs + 1):
+        for sequence_length in (1024, 2048):
+            entries.extend(
+                (
+                    prediction_entry(
+                        "v100", batch_size, sequence_length, 128, 11_000, 3.0
+                    ),
+                    prediction_entry(
+                        "v100", batch_size, sequence_length, 512, 15_000, 4.0
+                    ),
+                    prediction_entry(
+                        "v100", batch_size, sequence_length, 1024, 17_000, 5.0
+                    ),
+                    prediction_entry(
+                        "a100", batch_size, sequence_length, 128, 11_000, 2.5
+                    ),
+                    prediction_entry(
+                        "a100", batch_size, sequence_length, 512, 15_000, 3.0
+                    ),
+                    prediction_entry(
+                        "a100", batch_size, sequence_length, 1024, 25_000, 3.5
+                    ),
+                )
+            )
+    predictions = PredictionCache(version=1, entries=tuple(entries))
     return SchedulerCore(
-        workflow or agent_workflow(max_attempts=max_attempts),
+        workflow
+        or agent_workflow(
+            max_attempts=max_attempts,
+            max_num_seqs=max_num_seqs,
+        ),
         scheduler_config=SchedulerConfig(accelerators=configured_accelerators),
         predictions=predictions,
     )
@@ -177,11 +217,18 @@ def finish_start(core: SchedulerCore, session_id: str) -> None:
 
 
 def request_agent(
-    core: SchedulerCore, session_id: str, now: float = 1.0
+    core: SchedulerCore,
+    session_id: str,
+    now: float = 1.0,
+    input_tokens: int = 1100,
 ) -> tuple[str, str]:
     core.register_session(session_id)
     task_id = core.begin_node(session_id, "agent", [f"input-{session_id}"])
-    acquire_id = core.request_acquire(task_id, input_tokens=1100, created_at=now)
+    acquire_id = core.request_acquire(
+        task_id,
+        input_tokens=input_tokens,
+        created_at=now,
+    )
     return task_id, acquire_id
 
 
@@ -231,6 +278,7 @@ def agent_report(
         granted_max_new_tokens=grant.granted_max_new_tokens,
         output_tokens=256 if status == "success" else 0,
         hit_token_limit=False,
+        replica_inflight_at_start=grant.admitted_batch_size,
         started_at=4.0,
         finished_at=5.0,
         duration_sec=1.0,
@@ -321,6 +369,148 @@ def test_same_model_kind_has_one_replica_and_waits_while_busy() -> None:
     second_grant = core.poll_grant(second_acquire)
     assert second_grant is not None
     assert second_grant.replica_id == action.replica_id
+
+
+def test_busy_replica_grants_batch_envelopes_up_to_capacity() -> None:
+    core = resource_core(max_num_seqs=3)
+    requests = [
+        request_agent(
+            core,
+            f"s{index}",
+            now=float(index),
+            input_tokens=500 if index == 1 else 1100,
+        )
+        for index in range(1, 4)
+    ]
+
+    action = core.tick_once(now=4.0)[0]
+    assert isinstance(action, LoadReplicaAction)
+    core.complete_load(
+        action.replica_id,
+        ReplicaLoadResult(physical_gpu_id=0, duration_sec=1.0, idle_vram_mb=8_000),
+        backend_handle="backend",
+        now=5.0,
+    )
+    assert core.tick_once(now=5.0) == []
+
+    grants = [core.poll_grant(acquire_id) for _, acquire_id in requests]
+    assert all(grant is not None for grant in grants)
+    typed_grants = [grant for grant in grants if grant is not None]
+    assert [grant.admitted_batch_size for grant in typed_grants] == [1, 2, 3]
+    assert [grant.prediction_key.batch_size for grant in typed_grants] == [1, 2, 3]
+    assert typed_grants[0].prediction_key.sequence_length == 1024
+    assert typed_grants[1].prediction_key.sequence_length == 2048
+    assert len({grant.replica_id for grant in typed_grants}) == 1
+    replica = core.replicas[action.replica_id]
+    assert replica.state == ModelReplicaState.BUSY
+    assert replica.active_acquire_ids == {
+        acquire_id for _, acquire_id in requests
+    }
+
+    _, fourth_acquire = request_agent(core, "s4", now=6.0)
+    assert core.tick_once(now=6.0) == []
+    assert core.poll_grant(fourth_acquire) is None
+
+
+def test_busy_replica_releases_out_of_order_and_refills_capacity() -> None:
+    core = resource_core(max_num_seqs=3)
+    requests = [request_agent(core, f"s{index}") for index in range(1, 4)]
+    action = core.tick_once(now=2.0)[0]
+    assert isinstance(action, LoadReplicaAction)
+    core.complete_load(
+        action.replica_id,
+        ReplicaLoadResult(physical_gpu_id=0, duration_sec=1.0, idle_vram_mb=8_000),
+        backend_handle="backend",
+        now=3.0,
+    )
+    core.tick_once(now=3.0)
+    grants = [core.poll_grant(acquire_id) for _, acquire_id in requests]
+    assert all(grant is not None for grant in grants)
+    first, second, third = [grant for grant in grants if grant is not None]
+
+    core.complete(
+        second.task_id,
+        agent_report(core, second),
+        acquire_id=second.acquire_id,
+    )
+    replica = core.replicas[action.replica_id]
+    assert replica.state == ModelReplicaState.BUSY
+    assert replica.active_acquire_ids == {first.acquire_id, third.acquire_id}
+
+    _, fourth_acquire = request_agent(core, "s4", now=4.0)
+    core.tick_once(now=4.0)
+    fourth = core.poll_grant(fourth_acquire)
+    assert fourth is not None
+    assert fourth.replica_id == action.replica_id
+    assert fourth.admitted_batch_size == 3
+
+
+def test_joint_batch_infeasibility_waits_until_replica_is_idle() -> None:
+    core = resource_core(max_num_seqs=2)
+    assert core.predictions is not None
+    core.predictions = PredictionCache(
+        version=core.predictions.version,
+        entries=tuple(
+            entry.model_copy(update={"predicted_peak_vram_mb": 20_000.0})
+            if entry.key.gpu_name == "v100" and entry.key.batch_size == 2
+            else entry
+            for entry in core.predictions.entries
+        ),
+    )
+    _, first_acquire = request_agent(core, "s1")
+    first, action = load_and_grant(core, first_acquire)
+    _, second_acquire = request_agent(core, "s2", now=4.0)
+
+    assert core.tick_once(now=5.0) == []
+    assert core.poll_grant(second_acquire) is None
+    core.complete(
+        first.task_id,
+        agent_report(core, first),
+        acquire_id=first.acquire_id,
+    )
+    assert core.tick_once(now=6.0) == []
+    second = core.poll_grant(second_acquire)
+    assert second is not None
+    assert second.replica_id == action.replica_id
+    assert second.admitted_batch_size == 1
+
+
+def test_suspect_replica_drains_remaining_leases_before_eviction() -> None:
+    core = resource_core(max_num_seqs=2, max_attempts=2)
+    requests = [request_agent(core, session_id) for session_id in ("s1", "s2")]
+    action = core.tick_once(now=2.0)[0]
+    assert isinstance(action, LoadReplicaAction)
+    core.complete_load(
+        action.replica_id,
+        ReplicaLoadResult(physical_gpu_id=0, duration_sec=1.0, idle_vram_mb=8_000),
+        backend_handle="backend",
+        now=3.0,
+    )
+    core.tick_once(now=3.0)
+    first = core.poll_grant(requests[0][1])
+    second = core.poll_grant(requests[1][1])
+    assert first is not None and second is not None
+
+    decision = core.complete(
+        first.task_id,
+        agent_report(core, first, status="oom"),
+        acquire_id=first.acquire_id,
+    )
+    assert decision.retry_acquire is True
+    replica = core.replicas[action.replica_id]
+    assert replica.state == ModelReplicaState.SUSPECT
+    assert replica.active_acquire_ids == {second.acquire_id}
+    assert core.tick_once(now=4.0) == []
+
+    core.complete(
+        second.task_id,
+        agent_report(core, second),
+        acquire_id=second.acquire_id,
+    )
+    eviction = core.tick_once(now=5.0)
+    assert len(eviction) == 1
+    assert isinstance(eviction[0], EvictReplicaAction)
+    assert eviction[0].reason == "suspect_cleanup"
 
 
 def test_agent_completion_releases_replica_before_output_emission() -> None:

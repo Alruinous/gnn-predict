@@ -8,7 +8,6 @@ import yaml
 from gnn_archs.config import ArchConfig
 from gnn_archs.util.config_migration import migrate_arch_config_dict
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -25,13 +24,15 @@ def test_migrated_resnet_config_matches_new_schema() -> None:
     assert template.pre_inference_cooldown_seconds == 5.0
     assert template.inference_measurement_min_seconds == 40.0
     assert template.training_measurement_min_seconds == 40.0
-    assert template.export_onnx is False
-    assert template.onnx_export_mode == "architecture_only"
+    assert template.export_graph is False
     assert template.target_input_channels is None
     assert template.target_output_classes is None
-    assert group.combinatorial_variant_grid.mutation_sets[1].mutations[0].params[
-        "layer_name"
-    ] == "conv1"
+    assert (
+        group.combinatorial_variant_grid.mutation_sets[1]
+        .mutations[0]
+        .params["layer_name"]
+        == "conv1"
+    )
 
 
 def test_legacy_mutation_keys_are_moved_into_params() -> None:
@@ -47,7 +48,7 @@ def test_legacy_mutation_keys_are_moved_into_params() -> None:
                             "target_output_classes": 10,
                             "example_input_shape": [1, 3, 224, 224],
                             "run_workload": True,
-                            "export_onnx": True,
+                            "export_graph": True,
                         },
                         "mutations": [
                             {
@@ -63,9 +64,9 @@ def test_legacy_mutation_keys_are_moved_into_params() -> None:
     }
 
     migrated = migrate_arch_config_dict(legacy_config)
-    mutation = migrated["base_model_groups"][0]["single_variant_define"][0]["mutations"][
-        0
-    ]
+    mutation = migrated["base_model_groups"][0]["single_variant_define"][0][
+        "mutations"
+    ][0]
     variant_config = migrated["base_model_groups"][0]["single_variant_define"][0][
         "variant_config"
     ]
@@ -76,7 +77,6 @@ def test_legacy_mutation_keys_are_moved_into_params() -> None:
     }
     assert "run_workload" not in variant_config
     assert variant_config["run_inference"] is True
-    assert variant_config["onnx_export_mode"] == "full"
 
 
 def test_legacy_grid_phase_isolation_settings_are_migrated_into_template() -> None:

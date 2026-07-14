@@ -155,6 +155,7 @@ entries:
       batch_size: 1
       sequence_length: 128
       decode_output_length: 32
+    predicted_load_sec: 5.0
     predicted_run_sec: 1.0
     predicted_peak_vram_mb: 1024.0
 """.lstrip(),
@@ -167,7 +168,14 @@ entries:
                     "name": "agent",
                     "type": "agent",
                     "model": {"name": "test-model"},
-                    "execution": {"model_path": str(model_path)},
+                    "execution": {
+                        "model_path": str(model_path),
+                        "serving": {
+                            "max_model_len": 128,
+                            "max_num_seqs": 1,
+                            "max_num_batched_tokens": 128,
+                        },
+                    },
                     "token_budget": {
                         "min_max_new_tokens": 8,
                         "default_max_new_tokens": 16,
@@ -197,6 +205,147 @@ entries:
             prediction_path=prediction_path,
             output_dir=tmp_path / "output",
             run_id="invalid-predictions",
+        )
+
+
+def test_agent_requires_contiguous_prediction_batch_coverage(
+    tmp_path: Path,
+) -> None:
+    model_path = tmp_path / "model"
+    model_path.mkdir()
+    prediction_path = tmp_path / "predictions.yaml"
+    prediction_path.write_text(
+        """
+version: 1
+entries:
+  - key:
+      model_name: test-model
+      phase: decode
+      gpu_name: v100
+      batch_size: 1
+      sequence_length: 128
+      decode_output_length: 32
+    predicted_load_sec: 5.0
+    predicted_run_sec: 1.0
+    predicted_peak_vram_mb: 1024.0
+""".lstrip(),
+        encoding="utf-8",
+    )
+    workflow = Workflow.model_validate(
+        {
+            "nodes": [
+                {
+                    "name": "agent",
+                    "type": "agent",
+                    "model": {"name": "test-model"},
+                    "execution": {
+                        "model_path": str(model_path),
+                        "serving": {
+                            "max_model_len": 256,
+                            "max_num_seqs": 2,
+                            "max_num_batched_tokens": 256,
+                        },
+                    },
+                    "token_budget": {
+                        "min_max_new_tokens": 32,
+                        "default_max_new_tokens": 32,
+                        "max_max_new_tokens": 32,
+                    },
+                    "prompt_template": "{content}",
+                }
+            ],
+            "edges": [],
+        }
+    )
+
+    with pytest.raises(KeyError, match="batch coverage.*batch=2"):
+        WorkflowController(
+            workflow,
+            functions={},
+            scheduler_config=SchedulerConfig(
+                accelerators=(
+                    AcceleratorConfig(
+                        hostname="gpu-node",
+                        gpu_kind="v100",
+                        local_index=0,
+                        total_mem_mb=16_000,
+                    ),
+                )
+            ),
+            prediction_path=prediction_path,
+            output_dir=tmp_path / "output",
+            run_id="missing-batch",
+        )
+
+
+def test_replica_factory_does_not_bypass_vllm_executable_validation(
+    tmp_path: Path,
+) -> None:
+    model_path = tmp_path / "model"
+    model_path.mkdir()
+    prediction_path = tmp_path / "predictions.yaml"
+    prediction_path.write_text(
+        """
+version: 1
+entries:
+  - key:
+      model_name: test-model
+      phase: decode
+      gpu_name: v100
+      batch_size: 1
+      sequence_length: 64
+      decode_output_length: 16
+    predicted_load_sec: 5.0
+    predicted_run_sec: 1.0
+    predicted_peak_vram_mb: 1024.0
+""".lstrip(),
+        encoding="utf-8",
+    )
+    workflow = Workflow.model_validate(
+        {
+            "nodes": [
+                {
+                    "name": "agent",
+                    "type": "agent",
+                    "model": {"name": "test-model"},
+                    "execution": {
+                        "model_path": str(model_path),
+                        "serving": {
+                            "max_model_len": 128,
+                            "max_num_seqs": 1,
+                            "max_num_batched_tokens": 128,
+                        },
+                    },
+                    "token_budget": {
+                        "min_max_new_tokens": 16,
+                        "default_max_new_tokens": 16,
+                        "max_max_new_tokens": 16,
+                    },
+                    "prompt_template": "{content}",
+                }
+            ],
+            "edges": [],
+        }
+    )
+
+    with pytest.raises(ValueError, match="vllm_python_executable is required"):
+        WorkflowController(
+            workflow,
+            functions={},
+            scheduler_config=SchedulerConfig(
+                accelerators=(
+                    AcceleratorConfig(
+                        hostname="gpu-node",
+                        gpu_kind="v100",
+                        local_index=0,
+                        total_mem_mb=16_000,
+                    ),
+                )
+            ),
+            prediction_path=prediction_path,
+            output_dir=tmp_path / "output",
+            run_id="missing-vllm-executable",
+            replica_actor_factory=lambda action: object(),
         )
 
 

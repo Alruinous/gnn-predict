@@ -25,7 +25,7 @@ def test_main_processes_single_config_file(tmp_path: Path) -> None:
                                     "example_input_shape": [1, 3, 32, 32],
                                     "run_training": False,
                                     "run_inference": False,
-                                    "export_onnx": False,
+                                    "export_graph": False,
                                 },
                                 "mutations": [],
                             }
@@ -60,7 +60,7 @@ def test_main_processes_single_config_file(tmp_path: Path) -> None:
     payload = json.loads(result_files[0].read_text(encoding="utf-8"))
     log_text = log_files[0].read_text(encoding="utf-8")
 
-    assert payload["schema_version"] == "2.0.0"
+    assert payload["schema_version"] == "3.0.0"
     assert payload["summary"]["variant_count"] == 1
     assert payload["variants"][0]["name"] == "main_smoke_variant"
     assert "processing variant 1/1: main_smoke_variant" in log_text

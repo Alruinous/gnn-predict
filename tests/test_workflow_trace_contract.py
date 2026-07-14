@@ -27,7 +27,7 @@ from workflow.scheduler import (
     LoadReplicaAction,
     ModelReplicaRecord,
 )
-from workflow.schema import Workflow
+from workflow.schema import ServingConfig, Workflow
 from workflow.types import ModelReplicaState, TraceEvent, WorkflowModelFeatureKey
 from workflow.worker import message_text
 
@@ -111,7 +111,6 @@ def trace_actor(
         workflow=workflow,
         scheduler_config=scheduler_config(),
         predictions=predictions,
-        profile=None,
         trace_writer=MemoryTraceWriter(),
         replica_factory=replica_factory,
         run_id="trace-contract",
@@ -131,6 +130,9 @@ class ImmediateReplica:
             idle_vram_mb=900,
         )
 
+    def shutdown(self) -> None:
+        return None
+
 
 def immediate_replica_factory(action: LoadReplicaAction) -> ImmediateReplica:
     return ImmediateReplica()
@@ -148,7 +150,6 @@ def scheduler_config() -> SchedulerConfig:
         ),
         eps_mem_mb=100,
         eps_time_sec=0.5,
-        default_load_sec=5.0,
     )
 
 
@@ -163,6 +164,11 @@ def agent_workflow() -> Workflow:
                     "execution": {
                         "model_path": "/models/test-model",
                         "dtype": "float16",
+                        "serving": {
+                            "max_model_len": 1024,
+                            "max_num_seqs": 1,
+                            "max_num_batched_tokens": 1024,
+                        },
                     },
                     "token_budget": {
                         "min_max_new_tokens": 8,
@@ -193,6 +199,11 @@ def prefetch_workflow() -> Workflow:
                     "execution": {
                         "model_path": "/models/test-model",
                         "dtype": "float16",
+                        "serving": {
+                            "max_model_len": 1024,
+                            "max_num_seqs": 1,
+                            "max_num_batched_tokens": 1024,
+                        },
                     },
                     "token_budget": {
                         "min_max_new_tokens": 8,
@@ -220,6 +231,7 @@ def predictions() -> PredictionCache:
                     sequence_length=128,
                     decode_output_length=8,
                 ),
+                predicted_load_sec=5.0,
                 predicted_run_sec=2.5,
                 predicted_peak_vram_mb=1_024,
                 predicted_power_watts=80,
@@ -413,8 +425,11 @@ def test_agent_trace_uses_runtime_timestamp_and_prediction_payload() -> None:
         "min_max_new_tokens": 8,
         "default_max_new_tokens": 8,
         "max_max_new_tokens": 8,
+        "admitted_batch_size": 1,
+        "replica_inflight_at_grant": 1,
         "prediction_cache_version": 7,
         "prediction_key": prediction.key.model_dump(mode="json"),
+        "predicted_load_sec": 5.0,
         "predicted_run_sec": 2.5,
         "predicted_peak_vram_mb": 1_024.0,
         "predicted_power_watts": 80.0,
@@ -448,9 +463,16 @@ def test_agent_trace_uses_runtime_timestamp_and_prediction_payload() -> None:
         "duration_sec": 5.0,
         "input_tokens": 64,
         "granted_max_new_tokens": 8,
-        "output_tokens": 6,
-        "hit_token_limit": False,
-        "prediction_key": prediction.key.model_dump(mode="json"),
+            "output_tokens": 6,
+            "hit_token_limit": False,
+            "finish_reason": None,
+            "queue_time_sec": None,
+            "time_to_first_token_sec": None,
+            "replica_inflight_at_start": 1,
+            "admitted_batch_size": 1,
+            "engine_failed": False,
+            "prediction_key": prediction.key.model_dump(mode="json"),
+        "predicted_load_sec": 5.0,
         "predicted_run_sec": 2.5,
         "predicted_peak_vram_mb": 1_024.0,
         "predicted_power_watts": 80.0,
@@ -560,6 +582,11 @@ def test_prefetch_trace_records_capacity_skip(
         model_name="blocking-model",
         model_path="/models/blocking-model",
         dtype="float16",
+        serving=ServingConfig(
+            max_model_len=1024,
+            max_num_seqs=1,
+            max_num_batched_tokens=1024,
+        ),
     )
     accelerator = next(iter(actor.core.accelerators.values()))
     replica = ModelReplicaRecord(
@@ -568,9 +595,10 @@ def test_prefetch_trace_records_capacity_skip(
         model_key=deployment.model_key,
         gpu_kind="v100",
         accelerator_ids=(accelerator.config.accelerator_id,),
-        state=ModelReplicaState.BUSY,
+        state=ModelReplicaState.LOADING,
         backend_handle=object(),
         created_at=1.0,
+        expected_load_sec=5.0,
     )
     accelerator.replica_id = replica.replica_id
     actor.core.replicas[replica.replica_id] = replica

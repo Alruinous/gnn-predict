@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 from gnn_archs.config import (
     ResolvedVariantSpec,
     VariantConfig,
-    is_recommender_model_name,
     is_text_model_name,
 )
 
@@ -229,10 +228,6 @@ def resolve_variant_config(
 def build_example_input_shape(
     model_name: str, template: VariantConfig, input_channels: int
 ) -> list[int]:
-    if is_recommender_model_name(model_name):
-        batch_size = template.example_input_shape[0]
-        return [batch_size]
-
     if is_text_model_name(model_name):
         batch_size, sequence_length = template.example_input_shape
         return [batch_size, sequence_length]

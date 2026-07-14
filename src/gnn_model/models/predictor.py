@@ -11,7 +11,7 @@ from torch_geometric.nn import global_add_pool, global_max_pool, global_mean_poo
 
 from .fusion import GraphFusionLayer, RegressionHead
 
-NODE_ONNX_TOOL_METRIC_COUNT = 3
+NODE_STATIC_METRIC_COUNT = 3
 STRUCTURAL_TOPOLOGY_FEATURE_COUNT = 8
 ReadoutMode = Literal["mean", "mean_sum_max"]
 StructuralContextMode = Literal["none", "basic"]
@@ -200,7 +200,7 @@ class IntelliGraphLargeModelPredictor(nn.Module):
 def structural_context_dim(op_type_count: int) -> int:
     return (
         op_type_count * 2
-        + op_type_count * NODE_ONNX_TOOL_METRIC_COUNT
+        + op_type_count * NODE_STATIC_METRIC_COUNT
         + op_type_count * op_type_count
         + STRUCTURAL_TOPOLOGY_FEATURE_COUNT
     )
@@ -231,10 +231,10 @@ def build_structural_context(
     op_counts.index_add_(0, batch, op_one_hot)
     op_count_features = op_counts.log1p()
     op_ratios = op_counts / node_count.clamp_min(1.0)
-    metrics = data_x[:, :NODE_ONNX_TOOL_METRIC_COUNT]
+    metrics = data_x[:, :NODE_STATIC_METRIC_COUNT]
     op_metrics = torch.zeros(
         graph_count_int * op_type_count,
-        NODE_ONNX_TOOL_METRIC_COUNT,
+        NODE_STATIC_METRIC_COUNT,
         dtype=dtype,
         device=device,
     )

@@ -11,6 +11,11 @@ nodes:
       model_path: /data/Models/Qwen/Qwen3-4B
       dtype: float16
       do_sample: false
+      serving:
+        max_model_len: 3072
+        max_num_seqs: 3
+        max_num_batched_tokens: 6144
+        gpu_memory_utilization: 0.98
     token_budget:
       min_max_new_tokens: 128
       default_max_new_tokens: 512

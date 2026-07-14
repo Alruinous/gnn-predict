@@ -215,7 +215,9 @@ def process_csv(csv_file: str | Path) -> CsvProcessResult:
         pl.struct(["result_json", "variant_name", "phase"])
         .map_elements(
             lambda row: str(
-                resolve_onnx_path(row["result_json"], row["variant_name"], row["phase"])
+                resolve_graph_path(
+                    row["result_json"], row["variant_name"], row["phase"]
+                )
             ),
             return_dtype=pl.String,
         )
@@ -226,8 +228,6 @@ def process_csv(csv_file: str | Path) -> CsvProcessResult:
             [
                 pl.col("variant_name").str.len_chars() > 0,
                 ~pl.col("variant_name").str.to_lowercase().str.contains("_elu_"),
-                # Qwen3.5 ONNX graphs remain too large for the current extraction batch.
-                ~pl.col("base_model_name").str.starts_with("Qwen3.5"),
                 pl.col("variant_path").map_elements(
                     lambda path: Path(path).is_file(),
                     return_dtype=pl.Boolean,
@@ -275,7 +275,7 @@ def normalize_monitor_columns(df: pl.DataFrame, csv_path: Path) -> pl.DataFrame:
     if "phase" in df.columns and df.filter(pl.col("phase") == "decode").height > 0:
         raise ValueError(
             f"decode_output_length is required for decode rows: {csv_path}"
-    )
+        )
     return df.with_columns(pl.lit(0, dtype=pl.Int64).alias("decode_output_length"))
 
 
@@ -319,7 +319,7 @@ def build_model_record_info(
     )
 
 
-def resolve_onnx_path(
+def resolve_graph_path(
     result_json: object,
     variant_name: object,
     phase: str = "",
@@ -327,7 +327,7 @@ def resolve_onnx_path(
     result_path = Path(str(result_json).strip())
     variant = str(variant_name).strip()
     suffix = f"_{phase.strip()}" if phase.strip() in {"prefill", "decode"} else ""
-    return result_path.parent.parent / "onnx_models" / f"{variant}{suffix}.onnx"
+    return result_path.parent.parent / "fx_graphs" / f"{variant}{suffix}.pt2"
 
 
 def parse_int_value(value: object) -> int:
@@ -356,10 +356,10 @@ def parse_float_value(value: object) -> float:
 
 
 def extract_feature_target(info: ModelRecordInfo) -> Data:
-    from gnn_model.data.onnx_graph import build_graph_data_from_onnx
+    from gnn_model.data.fx_graph import build_graph_data_from_fx
 
     assert info.model_path.exists()
-    data = build_graph_data_from_onnx(
+    data = build_graph_data_from_fx(
         info.model_path,
         batch_size=info.batch_size,
         gpu_name=info.gpu_name,
@@ -416,11 +416,11 @@ def build_manifest(
     seed: int,
 ) -> dict[str, Any]:
     return {
-        "schema_version": "4.1.0",
+        "schema_version": "5.0.0",
         "feature_source": (
-            "onnx_tool_static_metrics_shape_topology_features_op_reclass_identity"
+            "pytorch_export_inference_ir_static_metrics_shape_topology_v1"
         ),
-        "csv_dirs": ','.join([str(Path(csv_dir).resolve()) for csv_dir in csv_dirs]),
+        "csv_dirs": ",".join([str(Path(csv_dir).resolve()) for csv_dir in csv_dirs]),
         "id_fields": list(ID_FIELDS),
         "target_names": list(TARGET_FIELDS),
         "node_feature_names": list(NODE_FEATURE_NAMES),

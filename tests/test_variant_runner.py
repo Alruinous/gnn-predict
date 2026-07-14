@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import json
 import logging
+import weakref
 from pathlib import Path
 
 import numpy as np
-import onnx
-import onnxruntime as ort
 import pytest
 import torch
 import torch.nn as nn
+from torch.export import ExportedProgram
+from torch.export.graph_signature import InputKind
 from transformers import (
     Gemma4ForCausalLM,
     Gemma4TextConfig,
@@ -21,9 +22,12 @@ from transformers import (
 )
 
 import gnn_archs.causal_lm_builder as causal_lm_builder_module
+import gnn_archs.graph_export as graph_export_module
 import gnn_archs.variant_runner as variant_runner_module
+from common.graph_artifact import load_graph_artifact
 from gnn_archs.config import ArchConfig, ResolvedVariantSpec
 from gnn_archs.gpt2_builder import Gpt2ForGnnArchsSequenceClassification
+from gnn_archs.graph_export import export_causal_lm_decode_graph, export_model_graph
 from gnn_archs.mutations import SqueezeExcitationBlock
 from gnn_archs.result import (
     InferenceResult,
@@ -32,9 +36,7 @@ from gnn_archs.result import (
     TrainingResult,
     write_result_document,
 )
-from gnn_archs.util.onnx_initializer import write_randomized_onnx_model
 from gnn_archs.util.variant_expander import expand_arch_config
-from gnn_model.data.onnx_graph import build_graph_data_from_onnx
 from gnn_archs.variant_runner import (
     RunContext,
     build_example_batch,
@@ -42,15 +44,14 @@ from gnn_archs.variant_runner import (
     build_variant_model,
     count_parameters,
     derive_config_output_name,
-    export_causal_lm_decode_onnx,
-    export_onnx_model,
     prepare_output_layout,
     run_decode,
-    run_prefill,
     run_inference,
+    run_prefill,
     run_variant,
     train_model,
 )
+from gnn_model.data.fx_graph import build_graph_data_from_fx
 
 
 def build_image_variant(
@@ -77,7 +78,7 @@ def build_image_variant(
                                 "example_input_shape": resolved_input_shape,
                                 "run_training": False,
                                 "run_inference": False,
-                                "export_onnx": False,
+                                "export_graph": False,
                             },
                             "mutations": mutations,
                         }
@@ -113,7 +114,7 @@ def build_text_variant(
                                 "example_input_shape": resolved_input_shape,
                                 "run_training": False,
                                 "run_inference": False,
-                                "export_onnx": False,
+                                "export_graph": False,
                                 "use_fake_text_dataset": True,
                             },
                             "mutations": mutations,
@@ -154,7 +155,7 @@ def build_gpt2_variant(
         "example_input_shape": [2, 8],
         "run_training": False,
         "run_inference": False,
-        "export_onnx": False,
+        "export_graph": False,
         "batch_size": 2,
         "training_measurement_min_seconds": 1e-9,
         "use_fake_text_dataset": True,
@@ -212,7 +213,7 @@ def build_t5_variant(
         "example_input_shape": [2, 6],
         "run_training": False,
         "run_inference": False,
-        "export_onnx": False,
+        "export_graph": False,
         "batch_size": 2,
         "training_measurement_min_seconds": 1e-9,
         "use_fake_text_dataset": True,
@@ -251,7 +252,7 @@ def build_qwen_variant(
         "run_training": False,
         "run_inference": False,
         "run_prefill": False,
-        "export_onnx": False,
+        "export_graph": False,
         "batch_size": 2,
         "training_measurement_min_seconds": 1e-9,
         "prefill_measurement_min_seconds": 1e-9,
@@ -319,7 +320,7 @@ def build_gemma4_variant(
         "run_training": False,
         "run_inference": False,
         "run_prefill": False,
-        "export_onnx": False,
+        "export_graph": False,
         "batch_size": 2,
         "training_measurement_min_seconds": 1e-9,
         "prefill_measurement_min_seconds": 1e-9,
@@ -361,7 +362,7 @@ def build_llama_variant(
         "run_training": False,
         "run_inference": False,
         "run_prefill": False,
-        "export_onnx": False,
+        "export_graph": False,
         "batch_size": 2,
         "training_measurement_min_seconds": 1e-9,
         "prefill_measurement_min_seconds": 1e-9,
@@ -446,97 +447,32 @@ def build_tiny_llama_model() -> LlamaForCausalLM:
     return LlamaForCausalLM(config)
 
 
-def build_recommender_common_config_override(**overrides: object) -> dict[str, object]:
-    config: dict[str, object] = {
-        "sparse_features": [
-            {"name": "user_id", "vocab_size": 32, "embed_dim": 4},
-            {"name": "item_id", "vocab_size": 64, "embed_dim": 4},
-            {"name": "device_type", "vocab_size": 8, "embed_dim": 4},
-        ],
-        "dense_features": [
-            {"name": "user_age_score"},
-            {"name": "item_price_score"},
-        ],
-        "mlp_dims": [16, 8],
-        "activation": "relu",
-        "dropout": 0.0,
-    }
-    config.update(overrides)
-    return config
+def exported_output_shapes(exported_program: ExportedProgram) -> list[tuple[int, ...]]:
+    nodes = {node.name: node for node in exported_program.graph.nodes}
+    shapes: list[tuple[int, ...]] = []
+    for output_spec in exported_program.graph_signature.output_specs:
+        name = getattr(output_spec.arg, "name", None)
+        assert isinstance(name, str)
+        value = nodes[name].meta["val"]
+        assert isinstance(value, torch.Tensor)
+        shapes.append(tuple(value.shape))
+    return shapes
 
 
-def build_recommender_variant(
-    *,
-    base_model_name: str = "deepfm",
-    variant_name: str = "recommender_runtime_smoke",
-    variant_config_overrides: dict[str, object] | None = None,
-    model_config_overrides: dict[str, object] | None = None,
-    mutations: list[dict[str, object]] | None = None,
-) -> ResolvedVariantSpec:
-    model_specific_config: dict[str, object]
-    if base_model_name == "deepfm":
-        model_config_field = "deepfm_config"
-        model_specific_config = {"fm_feature_names": ["user_id", "item_id"]}
-    elif base_model_name == "dcn":
-        model_config_field = "dcn_config"
-        model_specific_config = {"n_cross_layers": 2}
-    elif base_model_name == "dcnv2":
-        model_config_field = "dcnv2_config"
-        model_specific_config = {
-            "n_cross_layers": 2,
-            "low_rank": 4,
-            "num_experts": 2,
-            "model_structure": "parallel",
-            "use_low_rank_mixture": True,
-        }
-    elif base_model_name == "edcn":
-        model_config_field = "edcn_config"
-        model_specific_config = {
-            "n_cross_layers": 2,
-            "bridge_type": "hadamard_product",
-            "use_regulation_module": True,
-            "temperature": 1.0,
-        }
-    else:
-        raise ValueError(f"unsupported recommender model: {base_model_name}")
-    if model_config_overrides is not None:
-        model_specific_config = {**model_specific_config, **model_config_overrides}
-    common_config = build_recommender_common_config_override(**model_specific_config)
-    if base_model_name == "edcn":
-        common_config.pop("mlp_dims")
-
-    variant_config: dict[str, object] = {
-        "target_output_classes": 1,
-        "example_input_shape": [2],
-        "run_training": False,
-        "run_inference": False,
-        "export_onnx": False,
-        "batch_size": 2,
-        "training_measurement_min_seconds": 1e-9,
-        "inference_measurement_min_seconds": 1e-9,
-        "use_fake_recommender_dataset": True,
-        model_config_field: common_config,
-    }
-    if variant_config_overrides is not None:
-        variant_config.update(variant_config_overrides)
-
-    config = ArchConfig.model_validate(
-        {
-            "base_model_groups": [
-                {
-                    "base_model": {"name": base_model_name, "pretrained": False},
-                    "single_variant_define": [
-                        {
-                            "name": variant_name,
-                            "variant_config": variant_config,
-                            "mutations": mutations or [],
-                        }
-                    ],
-                }
-            ]
-        }
-    )
-    return expand_arch_config(config)[0]
+def exported_user_input_shapes(
+    exported_program: ExportedProgram,
+) -> list[tuple[int, ...]]:
+    nodes = {node.name: node for node in exported_program.graph.nodes}
+    shapes: list[tuple[int, ...]] = []
+    for input_spec in exported_program.graph_signature.input_specs:
+        if input_spec.kind != InputKind.USER_INPUT:
+            continue
+        name = getattr(input_spec.arg, "name", None)
+        assert isinstance(name, str)
+        value = nodes[name].meta["val"]
+        assert isinstance(value, torch.Tensor)
+        shapes.append(tuple(value.shape))
+    return shapes
 
 
 def require_t5_test_eos_token_id(model: T5ForSequenceClassification) -> int:
@@ -724,7 +660,7 @@ def test_build_variant_model_supports_new_timm_model_configs(
     assert tuple(logits.shape) == (1, 4)
 
 
-def test_image_variant_runner_executes_training_inference_and_onnx(
+def test_image_variant_runner_executes_training_inference_and_graph_export(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "resnet18_variants.yaml"
@@ -742,7 +678,7 @@ def test_image_variant_runner_executes_training_inference_and_onnx(
                                 "example_input_shape": [1, 3, 32, 32],
                                 "run_training": True,
                                 "run_inference": True,
-                                "export_onnx": True,
+                                "export_graph": True,
                                 "batch_size": 2,
                                 "training_measurement_min_seconds": 1e-9,
                                 "use_fake_imagenet": True,
@@ -784,16 +720,20 @@ def test_image_variant_runner_executes_training_inference_and_onnx(
 
     assert result.training is not None
     assert result.inference is not None
-    assert result.onnx_export is not None
-    assert Path(result.onnx_export.path).exists()
-    assert Path(result.onnx_export.path).parent == output_layout.onnx_models_dir
-    exported_model = onnx.load(result.onnx_export.path)
-    assert len(exported_model.graph.initializer) > 0
-    assert [value.name for value in exported_model.graph.input] == ["inputs"]
+    assert result.graph_export is not None
+    assert Path(result.graph_export.path).exists()
+    assert Path(result.graph_export.path).parent == output_layout.fx_graphs_dir
+    exported_program, metadata = load_graph_artifact(result.graph_export.path)
+    assert metadata.runtime_input_names == ["inputs"]
+    assert exported_program.state_dict
+    assert all(
+        value.untyped_storage().nbytes() <= value.element_size()
+        for value in exported_program.state_dict.values()
+    )
     assert result.training.metrics["total_steps"] == 1
     assert result.metadata["model_kind"] == "image"
-    assert result.onnx_export.graph_info["runtime_input_names"] == ["inputs"]
-    assert result.onnx_export.graph_info["parameter_input_names"] == []
+    assert result.graph_export.graph_info["runtime_input_names"] == ["inputs"]
+    assert result.graph_export.graph_info["parameter_input_names"]
 
 
 def test_train_model_records_elapsed_steps(
@@ -831,7 +771,7 @@ def test_train_model_records_elapsed_steps(
     assert result.timings.ended_at_ts == 106.0
 
 
-def test_image_variant_runner_can_export_architecture_only_onnx(
+def test_image_variant_runner_exports_weightless_static_graph(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "resnet18_variants.yaml"
@@ -849,8 +789,7 @@ def test_image_variant_runner_can_export_architecture_only_onnx(
                                 "example_input_shape": [1, 3, 32, 32],
                                 "run_training": False,
                                 "run_inference": False,
-                                "export_onnx": True,
-                                "onnx_export_mode": "architecture_only",
+                                "export_graph": True,
                             },
                             "mutations": [],
                         }
@@ -871,21 +810,23 @@ def test_image_variant_runner_can_export_architecture_only_onnx(
 
     result = run_variant(variant, context)
 
-    assert result.onnx_export is not None
-    exported_model = onnx.load(result.onnx_export.path)
-    exported_input_names = [value.name for value in exported_model.graph.input]
+    assert result.graph_export is not None
+    exported_program, metadata = load_graph_artifact(result.graph_export.path)
 
-    assert len(exported_model.graph.initializer) == 0
-    assert exported_input_names[0] == "inputs"
-    assert len(exported_input_names) > 1
-    assert result.onnx_export.graph_info["runtime_input_names"] == ["inputs"]
-    parameter_input_names = result.onnx_export.graph_info["parameter_input_names"]
+    assert metadata.weights == "zero_stride_proxy"
+    assert Path(result.graph_export.path).suffix == ".pt2"
+    assert result.graph_export.graph_info["runtime_input_names"] == ["inputs"]
+    parameter_input_names = result.graph_export.graph_info["parameter_input_names"]
     assert isinstance(parameter_input_names, list)
     assert parameter_input_names
-    assert all(name in exported_input_names for name in parameter_input_names)
+    buffer_input_names = result.graph_export.graph_info["buffer_input_names"]
+    assert isinstance(buffer_input_names, list)
+    assert len(exported_program.state_dict) == len(parameter_input_names) + len(
+        buffer_input_names
+    )
 
 
-def test_randomized_architecture_only_onnx_runs_with_runtime_inputs_only(
+def test_exported_image_graph_builds_pyg_features(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "resnet18_variants.yaml"
@@ -903,8 +844,7 @@ def test_randomized_architecture_only_onnx_runs_with_runtime_inputs_only(
                                 "example_input_shape": [1, 3, 32, 32],
                                 "run_training": False,
                                 "run_inference": False,
-                                "export_onnx": True,
-                                "onnx_export_mode": "architecture_only",
+                                "export_graph": True,
                             },
                             "mutations": [],
                         }
@@ -920,30 +860,17 @@ def test_randomized_architecture_only_onnx_runs_with_runtime_inputs_only(
         output_layout=output_layout,
         device=torch.device("cpu"),
         gpu_node="cpu-test",
-        logger=logging.getLogger("test_randomized_architecture_only_onnx"),
+        logger=logging.getLogger("test_exported_image_graph_builds_pyg_features"),
     )
 
     result = run_variant(variant, context)
-    assert result.onnx_export is not None
+    assert result.graph_export is not None
 
-    randomized_path = output_layout.onnx_models_dir / "resnet18_randomized.onnx"
-    write_randomized_onnx_model(
-        Path(result.onnx_export.path),
-        randomized_path,
-        seed=0,
-    )
+    data = build_graph_data_from_fx(result.graph_export.path)
 
-    randomized_model = onnx.load(randomized_path)
-    assert len(randomized_model.graph.initializer) > 0
-    assert [value.name for value in randomized_model.graph.input] == ["inputs"]
-
-    session = ort.InferenceSession(
-        str(randomized_path),
-        providers=["CPUExecutionProvider"],
-    )
-    assert [value.name for value in session.get_inputs()] == ["inputs"]
-    outputs = session.run(None, {"inputs": torch.randn(1, 3, 32, 32).numpy()})
-    assert outputs[0].shape == (1, 4)
+    assert data.x.shape[1] == 22
+    assert data.edge_attr.shape[1] == 15
+    assert data.graph_features.shape == (1, 30)
 
 
 def test_build_variant_model_builds_gpt2_model() -> None:
@@ -1028,15 +955,14 @@ def test_gpt2_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
     assert result.metadata["validation_num_outputs"] == 3
 
 
-def test_gpt2_architecture_only_onnx_randomizes_to_runtime_inputs(
+def test_gpt2_exports_static_graph_with_runtime_inputs(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "gpt2_variants.yaml"
     variant = build_gpt2_variant(
         variant_name="gpt2_architecture_only",
         variant_config_overrides={
-            "export_onnx": True,
-            "onnx_export_mode": "architecture_only",
+            "export_graph": True,
         },
     )
     output_layout = prepare_output_layout(tmp_path / "output", config_path)
@@ -1049,46 +975,27 @@ def test_gpt2_architecture_only_onnx_randomizes_to_runtime_inputs(
     )
 
     result = run_variant(variant, context)
-    assert result.onnx_export is not None
-    assert result.onnx_export.graph_info["runtime_input_names"] == [
+    assert result.graph_export is not None
+    assert result.graph_export.graph_info["runtime_input_names"] == [
         "input_ids",
         "attention_mask",
     ]
-    assert result.onnx_export.graph_info["initializer_names"] == []
-    assert result.onnx_export.graph_info["parameter_input_names"]
-
-    randomized_path = output_layout.onnx_models_dir / "gpt2_randomized.onnx"
-    write_randomized_onnx_model(
-        Path(result.onnx_export.path),
-        randomized_path,
-        seed=0,
+    assert result.graph_export.graph_info["parameter_input_names"]
+    data = build_graph_data_from_fx(
+        result.graph_export.path,
+        batch_size=2,
+        phase="inference",
     )
-
-    session = ort.InferenceSession(
-        str(randomized_path),
-        providers=["CPUExecutionProvider"],
-    )
-    assert [value.name for value in session.get_inputs()] == [
-        "input_ids",
-        "attention_mask",
-    ]
-    outputs = session.run(
-        None,
-        {
-            "input_ids": torch.randint(0, 32, (2, 8), dtype=torch.long).numpy(),
-            "attention_mask": torch.ones((2, 8), dtype=torch.long).numpy(),
-        },
-    )
-    assert outputs[0].shape == (2, 3)
+    assert data.x.shape[0] > 0
+    assert data.graph_features.shape == (1, 30)
 
 
-def test_qwen_architecture_only_onnx_keeps_full_logits(tmp_path: Path) -> None:
+def test_qwen_graph_keeps_full_logits_and_cache_outputs(tmp_path: Path) -> None:
     config_path = tmp_path / "qwen3_variants.yaml"
     variant = build_qwen_variant(
         variant_name="qwen_architecture_only",
         variant_config_overrides={
-            "export_onnx": True,
-            "onnx_export_mode": "architecture_only",
+            "export_graph": True,
         },
     )
     model = build_tiny_qwen_model()
@@ -1103,33 +1010,29 @@ def test_qwen_architecture_only_onnx_keeps_full_logits(tmp_path: Path) -> None:
 
     assert model.config.use_cache is True
     assert model.generation_config.use_cache is True
-    result = export_onnx_model(variant, model, context, True)
+    result = export_model_graph(variant, model, context, is_text_model=True)
 
     assert result.graph_info["runtime_input_names"] == [
         "input_ids",
         "attention_mask",
     ]
-    assert result.graph_info["output_names"] == [
-        "logits",
-        "present_0_key",
-        "present_0_value",
+    exported_program, _ = load_graph_artifact(result.path)
+    assert exported_output_shapes(exported_program) == [
+        (2, 8, 32),
+        (2, 2, 8, 8),
+        (2, 2, 8, 8),
     ]
-    assert result.graph_info["initializer_names"] == []
-    exported_model = onnx.load(result.path)
-    output_shape = exported_model.graph.output[0].type.tensor_type.shape.dim
-    assert [dimension.dim_value for dimension in output_shape] == [2, 8, 32]
-    assert Path(result.path).name == "qwen_architecture_only_prefill.onnx"
+    assert Path(result.path).name == "qwen_architecture_only_prefill.pt2"
     assert model.config.use_cache is True
     assert model.generation_config.use_cache is True
 
 
-def test_gemma4_architecture_only_onnx_keeps_full_logits(tmp_path: Path) -> None:
+def test_gemma4_graph_keeps_full_logits_and_cache_outputs(tmp_path: Path) -> None:
     config_path = tmp_path / "gemma4_variants.yaml"
     variant = build_gemma4_variant(
         variant_name="gemma4_architecture_only",
         variant_config_overrides={
-            "export_onnx": True,
-            "onnx_export_mode": "architecture_only",
+            "export_graph": True,
         },
     )
     model = build_tiny_gemma4_model()
@@ -1144,24 +1047,18 @@ def test_gemma4_architecture_only_onnx_keeps_full_logits(tmp_path: Path) -> None
 
     assert model.config.use_cache is True
     assert model.generation_config.use_cache is True
-    result = export_onnx_model(variant, model, context, True)
+    result = export_model_graph(variant, model, context, is_text_model=True)
 
     assert result.graph_info["runtime_input_names"] == [
         "input_ids",
         "attention_mask",
     ]
-    assert result.graph_info["output_names"] == [
-        "logits",
-        "present_0_key",
-        "present_0_value",
-        "present_1_key",
-        "present_1_value",
-    ]
-    assert result.graph_info["initializer_names"] == []
-    exported_model = onnx.load(result.path)
-    output_shape = exported_model.graph.output[0].type.tensor_type.shape.dim
-    assert [dimension.dim_value for dimension in output_shape] == [2, 8, 32]
-    assert Path(result.path).name == "gemma4_architecture_only_prefill.onnx"
+    exported_program, _ = load_graph_artifact(result.path)
+    output_shapes = exported_output_shapes(exported_program)
+    assert output_shapes[0] == (2, 8, 32)
+    assert len(output_shapes) == 5
+    assert all(shape[:3] == (2, 2, 8) for shape in output_shapes[1:])
+    assert Path(result.path).name == "gemma4_architecture_only_prefill.pt2"
     assert model.config.use_cache is True
     assert model.generation_config.use_cache is True
 
@@ -1300,15 +1197,14 @@ def test_causal_lm_variant_runner_records_family_metadata(
     assert result.metadata["validation_num_outputs"] == 32
 
 
-def test_causal_lm_architecture_only_onnx_keeps_full_logits(
+def test_causal_lm_graph_keeps_full_logits(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "llama_variants.yaml"
     variant = build_llama_variant(
         variant_name="llama_architecture_only",
         variant_config_overrides={
-            "export_onnx": True,
-            "onnx_export_mode": "architecture_only",
+            "export_graph": True,
         },
     )
     model = build_tiny_llama_model()
@@ -1324,34 +1220,26 @@ def test_causal_lm_architecture_only_onnx_keeps_full_logits(
 
     assert model.config.use_cache is True
     assert model.generation_config.use_cache is True
-    result = export_onnx_model(variant, model, context, True)
+    result = export_model_graph(variant, model, context, is_text_model=True)
 
     assert result.graph_info["runtime_input_names"] == [
         "input_ids",
         "attention_mask",
     ]
-    assert result.graph_info["output_names"] == [
-        "logits",
-        "present_0_key",
-        "present_0_value",
-    ]
-    assert result.graph_info["initializer_names"] == []
     assert model.config._attn_implementation == "sdpa"
     assert model.config.use_cache is True
     assert model.generation_config.use_cache is True
-    exported_model = onnx.load(result.path)
-    output_shape = exported_model.graph.output[0].type.tensor_type.shape.dim
-    assert [dimension.dim_value for dimension in output_shape] == [2, 8, 32]
-    assert Path(result.path).name == "llama_architecture_only_prefill.onnx"
+    exported_program, _ = load_graph_artifact(result.path)
+    assert exported_output_shapes(exported_program)[0] == (2, 8, 32)
+    assert Path(result.path).name == "llama_architecture_only_prefill.pt2"
 
 
-def test_causal_lm_decode_onnx_exports_past_kv_inputs(tmp_path: Path) -> None:
+def test_causal_lm_decode_graph_exports_past_kv_inputs(tmp_path: Path) -> None:
     config_path = tmp_path / "qwen3_variants.yaml"
     variant = build_qwen_variant(
         variant_name="qwen_decode_cached",
         variant_config_overrides={
-            "export_onnx": True,
-            "onnx_export_mode": "architecture_only",
+            "export_graph": True,
             "run_decode": True,
             "decode_max_output_length": 3,
         },
@@ -1366,14 +1254,9 @@ def test_causal_lm_decode_onnx_exports_past_kv_inputs(tmp_path: Path) -> None:
         logger=logging.getLogger("test_qwen_decode_cached"),
     )
 
-    result = export_causal_lm_decode_onnx(variant, model, context)
+    result = export_causal_lm_decode_graph(variant, model, context)
 
-    assert Path(result.path).name == "qwen_decode_cached_decode.onnx"
-    assert result.graph_info["output_names"] == [
-        "logits",
-        "present_0_key",
-        "present_0_value",
-    ]
+    assert Path(result.path).name == "qwen_decode_cached_decode.pt2"
     runtime_input_names = result.graph_info["runtime_input_names"]
     assert runtime_input_names == [
         "input_ids",
@@ -1381,24 +1264,18 @@ def test_causal_lm_decode_onnx_exports_past_kv_inputs(tmp_path: Path) -> None:
         "past_0_key",
         "past_0_value",
     ]
-    onnx_model = onnx.load(result.path)
-    graph_input_names = {value.name for value in onnx_model.graph.input}
-    assert set(runtime_input_names) <= graph_input_names
-    logits_shape = onnx_model.graph.output[0].type.tensor_type.shape.dim
-    assert [dimension.dim_value for dimension in logits_shape] == [2, 1, 32]
-    past_key_input = next(
-        value for value in onnx_model.graph.input if value.name == "past_0_key"
-    )
-    past_key_shape = [
-        dimension.dim_value
-        for dimension in past_key_input.type.tensor_type.shape.dim
+    exported_program, _ = load_graph_artifact(result.path)
+    assert exported_user_input_shapes(exported_program) == [
+        (2, 1),
+        (2, 11),
+        (2, 2, 10, 8),
+        (2, 2, 10, 8),
     ]
-    assert past_key_shape == [2, 2, 10, 8]
+    assert exported_output_shapes(exported_program)[0] == (2, 1, 32)
 
-    data = build_graph_data_from_onnx(
+    data = build_graph_data_from_fx(
         result.path,
         batch_size=2,
-        runtime_input_names=list(runtime_input_names),
         phase="decode",
         gpu_name="v100",
         decode_output_length=3,
@@ -1493,15 +1370,14 @@ def test_t5_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
     assert result.metadata["validation_num_outputs"] == 3
 
 
-def test_t5_architecture_only_onnx_randomizes_to_runtime_inputs(
+def test_t5_exports_static_graph_with_runtime_inputs(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "t5_variants.yaml"
     variant = build_t5_variant(
         variant_name="t5_architecture_only",
         variant_config_overrides={
-            "export_onnx": True,
-            "onnx_export_mode": "architecture_only",
+            "export_graph": True,
         },
     )
     output_layout = prepare_output_layout(tmp_path / "output", config_path)
@@ -1514,318 +1390,21 @@ def test_t5_architecture_only_onnx_randomizes_to_runtime_inputs(
     )
 
     result = run_variant(variant, context)
-    assert result.onnx_export is not None
-    assert result.onnx_export.graph_info["runtime_input_names"] == [
+    assert result.graph_export is not None
+    assert result.graph_export.graph_info["runtime_input_names"] == [
         "input_ids",
         "attention_mask",
     ]
-    assert result.onnx_export.graph_info["initializer_names"] == []
-    assert result.onnx_export.graph_info["parameter_input_names"]
-
-    randomized_path = output_layout.onnx_models_dir / "t5_randomized.onnx"
-    write_randomized_onnx_model(
-        Path(result.onnx_export.path),
-        randomized_path,
-        seed=0,
+    assert result.graph_export.graph_info["parameter_input_names"]
+    exported_program, _ = load_graph_artifact(result.graph_export.path)
+    assert exported_output_shapes(exported_program) == [(2, 3)]
+    data = build_graph_data_from_fx(
+        result.graph_export.path,
+        batch_size=2,
+        phase="inference",
     )
-
-    session = ort.InferenceSession(
-        str(randomized_path),
-        providers=["CPUExecutionProvider"],
-    )
-    assert [value.name for value in session.get_inputs()] == [
-        "input_ids",
-        "attention_mask",
-    ]
-    input_ids = torch.randint(2, 32, (2, 6), dtype=torch.long)
-    input_ids[:, -1] = 1
-    outputs = session.run(
-        None,
-        {
-            "input_ids": input_ids.numpy(),
-            "attention_mask": torch.ones((2, 6), dtype=torch.long).numpy(),
-        },
-    )
-    output = outputs[0]
-    assert isinstance(output, np.ndarray)
-    assert output.shape == (2, 3)
-
-
-@pytest.mark.parametrize("base_model_name", ["deepfm", "dcn", "dcnv2", "edcn"])
-def test_build_variant_model_builds_recommender_model(base_model_name: str) -> None:
-    variant = build_recommender_variant(base_model_name=base_model_name)
-
-    model = build_variant_model(variant)
-    batch = build_example_batch(variant.variant_config, model, is_text_model=False)
-    outputs = model(batch)
-    metrics = variant_runner_module.validate_model(
-        variant,
-        model,
-        torch.device("cpu"),
-        is_text_model=False,
-        is_recommender_model=True,
-    )
-
-    assert outputs.shape == (2,)
-    assert metrics == {"batch_size": 2, "num_outputs": 1}
-
-
-@pytest.mark.parametrize("base_model_name", ["deepfm", "dcn", "dcnv2", "edcn"])
-def test_recommender_variant_runner_executes_pipeline(
-    tmp_path: Path,
-    base_model_name: str,
-) -> None:
-    config_path = tmp_path / f"{base_model_name}_variants.yaml"
-    variant = build_recommender_variant(
-        base_model_name=base_model_name,
-        variant_name=f"{base_model_name}_runtime_smoke",
-        variant_config_overrides={
-            "run_training": True,
-            "run_inference": True,
-            "pre_inference_cooldown_seconds": 0.0,
-        },
-    )
-    output_layout = prepare_output_layout(tmp_path / "output", config_path)
-    context = RunContext(
-        config_path=config_path,
-        output_layout=output_layout,
-        device=torch.device("cpu"),
-        gpu_node="cpu-test",
-        logger=logging.getLogger(f"test_{base_model_name}_variant_runner"),
-    )
-
-    result = run_variant(variant, context)
-
-    assert result.training is not None
-    assert result.inference is not None
-    assert result.metadata["model_kind"] == "recommender"
-    assert result.metadata["validation_num_outputs"] == 1
-
-
-@pytest.mark.parametrize("base_model_name", ["deepfm", "dcn", "dcnv2", "edcn"])
-def test_recommender_architecture_only_onnx_randomizes_to_runtime_inputs(
-    tmp_path: Path,
-    base_model_name: str,
-) -> None:
-    config_path = tmp_path / f"{base_model_name}_variants.yaml"
-    variant = build_recommender_variant(
-        base_model_name=base_model_name,
-        variant_name=f"{base_model_name}_architecture_only",
-        variant_config_overrides={
-            "export_onnx": True,
-            "onnx_export_mode": "architecture_only",
-        },
-    )
-    model = build_variant_model(variant)
-    feature_batch = build_example_batch(
-        variant.variant_config,
-        model,
-        is_text_model=False,
-    )
-    output_layout = prepare_output_layout(tmp_path / "output", config_path)
-    context = RunContext(
-        config_path=config_path,
-        output_layout=output_layout,
-        device=torch.device("cpu"),
-        gpu_node="cpu-test",
-        logger=logging.getLogger(f"test_{base_model_name}_architecture_only"),
-    )
-
-    result = run_variant(variant, context)
-    assert result.onnx_export is not None
-    runtime_input_names = result.onnx_export.graph_info["runtime_input_names"]
-    assert runtime_input_names == list(feature_batch)
-    assert result.onnx_export.graph_info["initializer_names"] == []
-    assert result.onnx_export.graph_info["parameter_input_names"]
-
-    randomized_path = output_layout.onnx_models_dir / f"{base_model_name}_randomized.onnx"
-    write_randomized_onnx_model(
-        Path(result.onnx_export.path),
-        randomized_path,
-        seed=0,
-    )
-
-    session = ort.InferenceSession(
-        str(randomized_path),
-        providers=["CPUExecutionProvider"],
-    )
-    assert [value.name for value in session.get_inputs()] == runtime_input_names
-    outputs = session.run(
-        None,
-        {name: tensor.numpy() for name, tensor in feature_batch.items()},
-    )
-    assert outputs[0].shape == (2, 1)
-
-
-@pytest.mark.parametrize("batch_size", [2, 4, 8])
-def test_recommender_fake_batches_use_feature_shapes(batch_size: int) -> None:
-    variant = build_recommender_variant(
-        variant_config_overrides={
-            "example_input_shape": [batch_size],
-            "batch_size": batch_size,
-        }
-    )
-    model = build_variant_model(variant)
-    example_batch = build_example_batch(
-        variant.variant_config,
-        model,
-        is_text_model=False,
-    )
-    training_features, labels = build_training_batch(
-        spec=variant,
-        model=model,
-        batch_size=batch_size,
-        generator=torch.Generator().manual_seed(42),
-    )
-
-    assert set(example_batch) == {
-        "user_id",
-        "item_id",
-        "device_type",
-        "user_age_score",
-        "item_price_score",
-    }
-    assert all(tensor.shape == (batch_size,) for tensor in example_batch.values())
-    assert example_batch["user_id"].dtype == torch.long
-    assert example_batch["user_age_score"].dtype == torch.float32
-    assert isinstance(training_features, dict)
-    assert labels.shape == (batch_size,)
-    assert labels.dtype == torch.float32
-
-
-def test_recommender_fake_batch_supports_vector_dense_features() -> None:
-    variant = build_recommender_variant(
-        model_config_overrides={
-            "dense_features": [
-                {"name": "user_age_score"},
-                {"name": "engagement_vector", "embed_dim": 4},
-            ]
-        }
-    )
-    model = build_variant_model(variant)
-
-    example_batch = build_example_batch(
-        variant.variant_config,
-        model,
-        is_text_model=False,
-    )
-
-    assert example_batch["user_age_score"].shape == (2,)
-    assert example_batch["engagement_vector"].shape == (2, 4)
-    assert example_batch["engagement_vector"].dtype == torch.float32
-
-
-@pytest.mark.parametrize(
-        ("base_model_name", "config_field", "match"),
-        [
-            ("deepfm", "deepfm_config", "variant_config.deepfm_config"),
-            ("dcn", "dcn_config", "variant_config.dcn_config"),
-            ("dcnv2", "dcnv2_config", "variant_config.dcnv2_config"),
-            ("edcn", "edcn_config", "variant_config.edcn_config"),
-        ],
-)
-def test_build_variant_model_rejects_recommender_missing_model_config(
-    base_model_name: str,
-    config_field: str,
-    match: str,
-) -> None:
-    variant = build_recommender_variant(base_model_name=base_model_name)
-    variant_config = variant.variant_config.model_copy(update={config_field: None})
-    invalid_variant = variant.model_copy(update={"variant_config": variant_config})
-
-    with pytest.raises(ValueError, match=match):
-        build_variant_model(invalid_variant)
-
-
-def test_build_variant_model_rejects_deepfm_unknown_fm_feature() -> None:
-    variant = build_recommender_variant(base_model_name="deepfm")
-    deepfm_config = variant.variant_config.deepfm_config
-    assert deepfm_config is not None
-    variant_config = variant.variant_config.model_copy(
-        update={
-            "deepfm_config": deepfm_config.model_copy(
-                update={"fm_feature_names": ["unknown_feature"]}
-            )
-        }
-    )
-    invalid_variant = variant.model_copy(update={"variant_config": variant_config})
-
-    with pytest.raises(ValueError, match="fm_feature_names"):
-        build_variant_model(invalid_variant)
-
-
-def test_build_variant_model_rejects_dcn_missing_cross_layers() -> None:
-    variant = build_recommender_variant(base_model_name="dcn")
-    dcn_config = variant.variant_config.dcn_config
-    assert dcn_config is not None
-    variant_config = variant.variant_config.model_copy(
-        update={
-            "dcn_config": dcn_config.model_copy(update={"n_cross_layers": None})
-        }
-    )
-    invalid_variant = variant.model_copy(update={"variant_config": variant_config})
-
-    with pytest.raises(ValueError, match="n_cross_layers"):
-        build_variant_model(invalid_variant)
-
-
-@pytest.mark.parametrize(
-    ("base_model_name", "model_config_overrides", "match"),
-    [
-        ("dcn", {"n_cross_layers": 0}, "n_cross_layers"),
-        ("dcnv2", {"n_cross_layers": 0}, "n_cross_layers"),
-        ("dcnv2", {"low_rank": 0}, "low_rank"),
-        ("dcnv2", {"num_experts": 0}, "num_experts"),
-        ("edcn", {"n_cross_layers": 0}, "n_cross_layers"),
-        ("edcn", {"temperature": 0.0}, "temperature"),
-    ],
-)
-def test_recommender_variant_rejects_non_positive_model_params(
-    base_model_name: str,
-    model_config_overrides: dict[str, object],
-    match: str,
-) -> None:
-    with pytest.raises(ValueError, match=match):
-        build_recommender_variant(
-            base_model_name=base_model_name,
-            model_config_overrides=model_config_overrides,
-        )
-
-
-def test_recommender_variant_rejects_multiple_model_configs() -> None:
-    common_config = build_recommender_common_config_override(
-        fm_feature_names=["user_id", "item_id"]
-    )
-    dcnv2_config = build_recommender_common_config_override(
-        n_cross_layers=2,
-        low_rank=4,
-        num_experts=2,
-        model_structure="parallel",
-        use_low_rank_mixture=True,
-    )
-
-    with pytest.raises(ValueError, match="only one recommender config"):
-        ArchConfig.model_validate(
-            {
-                "base_model_groups": [
-                    {
-                        "base_model": {"name": "dcnv2", "pretrained": False},
-                        "single_variant_define": [
-                            {
-                                "name": "invalid_multi_recommender",
-                                "variant_config": {
-                                    "target_output_classes": 1,
-                                    "example_input_shape": [2],
-                                    "deepfm_config": common_config,
-                                    "dcnv2_config": dcnv2_config,
-                                },
-                                "mutations": [],
-                            }
-                        ],
-                    }
-                ]
-            }
-        )
+    assert data.x.shape[0] > 0
+    assert data.graph_features.shape == (1, 30)
 
 
 def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
@@ -1844,7 +1423,7 @@ def test_text_variant_runner_executes_text_pipeline(tmp_path: Path) -> None:
                                 "example_input_shape": [2, 8],
                                 "run_training": True,
                                 "run_inference": True,
-                                "export_onnx": False,
+                                "export_graph": False,
                                 "batch_size": 2,
                                 "training_measurement_min_seconds": 1e-9,
                                 "use_fake_text_dataset": True,
@@ -2146,30 +1725,38 @@ def test_run_prefill_measures_llama_forward() -> None:
 def test_cleanup_workload_boundary_clears_cuda_cache_when_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gc_calls: list[str] = []
-    cuda_calls: list[tuple[str, str | None]] = []
+    calls: list[tuple[str, str | None]] = []
 
+    monkeypatch.setattr(
+        variant_runner_module,
+        "clear_graph_capture_caches",
+        lambda: calls.append(("graph_caches", None)),
+    )
     monkeypatch.setattr(
         variant_runner_module.gc,
         "collect",
-        lambda: gc_calls.append("gc"),
+        lambda: calls.append(("gc", None)),
     )
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(
         torch.cuda,
         "synchronize",
-        lambda device: cuda_calls.append(("sync", str(device))),
+        lambda device: calls.append(("sync", str(device))),
     )
     monkeypatch.setattr(
         torch.cuda,
         "empty_cache",
-        lambda: cuda_calls.append(("empty_cache", None)),
+        lambda: calls.append(("empty_cache", None)),
     )
 
     variant_runner_module.cleanup_workload_boundary(torch.device("cuda:0"))
 
-    assert gc_calls == ["gc"]
-    assert cuda_calls == [("sync", "cuda:0"), ("empty_cache", None)]
+    assert calls == [
+        ("graph_caches", None),
+        ("gc", None),
+        ("sync", "cuda:0"),
+        ("empty_cache", None),
+    ]
 
 
 def test_build_training_batch_keeps_fake_tensors_on_cpu() -> None:
@@ -2364,7 +1951,65 @@ def test_run_variant_cleans_workload_boundary_on_success_and_failure(
     assert cleanup_calls == ["cpu"]
 
 
-def test_build_variant_model_aligns_bert_hidden_size_pruning_to_attention_heads() -> None:
+def test_run_variant_releases_model_and_export_program(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    variant = build_image_variant([], example_input_shape=[1, 3, 8, 8])
+    variant = variant.model_copy(
+        update={
+            "variant_config": variant.variant_config.model_copy(
+                update={"export_graph": True}
+            )
+        }
+    )
+    context = RunContext(
+        config_path=tmp_path / "cleanup_variants.yaml",
+        output_layout=prepare_output_layout(
+            tmp_path / "output",
+            tmp_path / "cleanup_variants.yaml",
+        ),
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_export_cleanup"),
+    )
+    model_reference: weakref.ReferenceType[nn.Module] | None = None
+    export_reference: weakref.ReferenceType[ExportedProgram] | None = None
+    capture_inference_graph = graph_export_module.capture_inference_graph
+
+    def build_model(_: ResolvedVariantSpec) -> nn.Module:
+        nonlocal model_reference
+        model = nn.Sequential(nn.Flatten(), nn.Linear(3 * 8 * 8, 4))
+        model_reference = weakref.ref(model)
+        return model
+
+    def capture_graph(
+        model: nn.Module,
+        args: tuple[object, ...],
+    ) -> ExportedProgram:
+        nonlocal export_reference
+        exported_program = capture_inference_graph(model, args)
+        export_reference = weakref.ref(exported_program)
+        return exported_program
+
+    monkeypatch.setattr(variant_runner_module, "build_variant_model", build_model)
+    monkeypatch.setattr(
+        graph_export_module,
+        "capture_inference_graph",
+        capture_graph,
+    )
+
+    run_variant(variant, context)
+
+    assert model_reference is not None
+    assert export_reference is not None
+    assert model_reference() is None
+    assert export_reference() is None
+
+
+def test_build_variant_model_aligns_bert_hidden_size_pruning_to_attention_heads() -> (
+    None
+):
     pruned_variant = build_text_variant(
         [
             {
@@ -2379,7 +2024,9 @@ def test_build_variant_model_aligns_bert_hidden_size_pruning_to_attention_heads(
 
     assert pruned_model.config.hidden_size == 696
     assert pruned_model.config.num_attention_heads == 12
-    assert pruned_model.config.hidden_size % pruned_model.config.num_attention_heads == 0
+    assert (
+        pruned_model.config.hidden_size % pruned_model.config.num_attention_heads == 0
+    )
 
 
 def test_build_variant_model_keeps_invalid_text_attention_heads_failing_fast() -> None:
@@ -2415,7 +2062,7 @@ def test_result_document_serialization_writes_clean_json(tmp_path: Path) -> None
                                 "example_input_shape": [1, 3, 32, 32],
                                 "run_training": False,
                                 "run_inference": False,
-                                "export_onnx": False,
+                                "export_graph": False,
                             },
                             "mutations": [],
                         }
@@ -2446,7 +2093,7 @@ def test_result_document_serialization_writes_clean_json(tmp_path: Path) -> None
     write_result_document(output_path, document)
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "2.0.0"
+    assert payload["schema_version"] == "3.0.0"
     assert payload["variants"][0]["source"] == "single_variant_define"
     assert "gpu_ids" not in payload
 
@@ -2468,12 +2115,12 @@ def test_prepare_output_layout_uses_dataset_root_directories(
 
     dataset_root = tmp_path / "output" / "bert_large"
     assert output_layout.root == dataset_root
-    assert output_layout.onnx_models_dir == dataset_root / "onnx_models"
+    assert output_layout.fx_graphs_dir == dataset_root / "fx_graphs"
     assert output_layout.results_dir == dataset_root / "results"
     assert output_layout.logs_dir == dataset_root / "logs"
     for directory in (
         output_layout.root,
-        output_layout.onnx_models_dir,
+        output_layout.fx_graphs_dir,
         output_layout.results_dir,
         output_layout.logs_dir,
     ):
@@ -3105,8 +2752,7 @@ def _build_yolo_variant(
                                 "example_input_shape": [1, 3, 640, 640],
                                 "run_training": True,
                                 "run_inference": True,
-                                "export_onnx": True,
-                                "onnx_export_mode": "full",
+                                "export_graph": True,
                                 "batch_size": 2,
                                 "training_measurement_min_seconds": 1e-9,
                                 "use_fake_imagenet": True,
@@ -3122,10 +2768,9 @@ def _build_yolo_variant(
     return expand_arch_config(config)[0]
 
 
-def test_detection_variant_runner_executes_training_inference_and_onnx(
+def test_detection_variant_runner_executes_training_inference_and_graph_export(
     tmp_path: Path,
 ) -> None:
-    """YOLO 运行时全链路 smoke test：build → train → infer → export（含 m.export=True）。"""
     config_path = tmp_path / "yolo11n_variants.yaml"
     variant = _build_yolo_variant([], variant_name="yolo11n_runtime_smoke")
     output_layout = prepare_output_layout(tmp_path / "output", config_path)
@@ -3141,20 +2786,18 @@ def test_detection_variant_runner_executes_training_inference_and_onnx(
 
     assert result.training is not None
     assert result.inference is not None
-    assert result.onnx_export is not None
-    assert Path(result.onnx_export.path).exists()
-    assert Path(result.onnx_export.path).parent == output_layout.onnx_models_dir
-    exported_model = onnx.load(result.onnx_export.path)
-    assert len(exported_model.graph.node) > 0
+    assert result.graph_export is not None
+    assert Path(result.graph_export.path).exists()
+    assert Path(result.graph_export.path).parent == output_layout.fx_graphs_dir
+    assert result.graph_export.graph_info["node_count"] > 0
     assert result.metadata["model_kind"] == "detection"
-    assert result.onnx_export.graph_info["runtime_input_names"] == ["images"]
+    assert result.graph_export.graph_info["runtime_input_names"] == ["images"]
     assert result.training.metrics["total_steps"] == 1
 
 
 def test_detection_variant_runner_with_activation_mutation(
     tmp_path: Path,
 ) -> None:
-    """YOLO YAML 级 mutation 运行时验证：ActivationOverride 能正确构建和导出。"""
     config_path = tmp_path / "yolo11n_mutation.yaml"
     variant = _build_yolo_variant(
         [{"type": "ActivationOverride", "params": {"activation": "nn.ReLU()"}}],
@@ -3171,13 +2814,12 @@ def test_detection_variant_runner_with_activation_mutation(
 
     result = run_variant(variant, context)
 
-    assert result.onnx_export is not None
-    assert Path(result.onnx_export.path).exists()
+    assert result.graph_export is not None
+    assert Path(result.graph_export.path).exists()
     assert result.metadata["model_kind"] == "detection"
 
 
 def test_detection_variant_rejects_unknown_mutation_type() -> None:
-    """未知 YOLO mutation 类型应抛出 ValueError，而不是静默跳过。"""
     variant = _build_yolo_variant(
         [{"type": "NonExistentMutation", "params": {"foo": "bar"}}],
         variant_name="yolo_invalid_mutation",

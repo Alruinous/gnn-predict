@@ -20,6 +20,7 @@ from pydantic import (
 from common.validate import NonEmptyStr
 
 DEFAULT_QUEUE_CAPACITY = 16
+OpenUnitInterval = Annotated[float, Field(gt=0, le=1)]
 
 
 class SchemaModel(BaseModel):
@@ -31,14 +32,34 @@ class WorkflowModelConfig(SchemaModel):
     parameters: dict[str, JsonValue] = Field(default_factory=dict)
 
 
+class ServingConfig(SchemaModel):
+    max_model_len: PositiveInt
+    max_num_seqs: PositiveInt
+    max_num_batched_tokens: PositiveInt
+    gpu_memory_utilization: OpenUnitInterval = 0.98
+
+    @model_validator(mode="after")
+    def validate_token_capacity(self) -> Self:
+        if self.max_num_batched_tokens < self.max_model_len:
+            raise ValueError("max_num_batched_tokens must cover max_model_len")
+        return self
+
+
 class ExecutionConfig(SchemaModel):
     model_path: NonEmptyStr
-    dtype: NonEmptyStr = "float16"
+    dtype: Literal["float16"] = "float16"
     do_sample: bool = False
     temperature: float | None = None
     use_chat_template: bool = True
     enable_thinking: bool = False
     truncation_side: Literal["left", "right"] | None = None
+    serving: ServingConfig
+
+    @model_validator(mode="after")
+    def validate_sampling(self) -> Self:
+        if self.do_sample and self.temperature is not None and self.temperature <= 0:
+            raise ValueError("sampling temperature must be positive")
+        return self
 
 
 class TokenBudgetConfig(SchemaModel):

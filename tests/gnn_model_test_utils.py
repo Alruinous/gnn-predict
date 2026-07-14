@@ -5,18 +5,13 @@ import pickle
 from pathlib import Path
 
 import numpy as np
-import onnx
 import torch
 import torch.nn as nn
 import yaml
 from sklearn.preprocessing import RobustScaler
 from torch_geometric.data import Data
 
-from common.onnx_initializer import (
-    ONNX_EXPORT_MODE_METADATA_KEY,
-    RUNTIME_INPUT_NAMES_METADATA_KEY,
-    set_model_metadata_value,
-)
+from common.graph_artifact import capture_inference_graph, save_graph_artifact
 from gnn_model.data.constants import (
     EDGE_FEATURE_DIM,
     GRAPH_FEATURE_DIM,
@@ -58,36 +53,21 @@ def build_toy_model(sample_index: int) -> nn.Module:
     return TinyConvNet(width=width, output_dim=3)
 
 
-def export_architecture_only_onnx(
+def export_architecture_graph(
     model: nn.Module,
     output_path: Path,
     input_shape: tuple[int, ...],
 ) -> Path:
-    model.eval()
     example_inputs = torch.randn(*input_shape)
-    torch.onnx.export(
-        model,
+    exported_program = capture_inference_graph(
+        model.eval(),
         (example_inputs,),
+    )
+    save_graph_artifact(
+        exported_program,
         output_path,
-        input_names=["inputs"],
-        output_names=["outputs"],
-        opset_version=14,
-        dynamo=False,
-        export_params=False,
+        runtime_input_names=["inputs"],
     )
-    onnx_model = onnx.load(output_path)
-    set_model_metadata_value(
-        onnx_model,
-        RUNTIME_INPUT_NAMES_METADATA_KEY,
-        json.dumps(["inputs"]),
-    )
-    set_model_metadata_value(
-        onnx_model,
-        ONNX_EXPORT_MODE_METADATA_KEY,
-        "architecture_only",
-    )
-    onnx.save(onnx_model, output_path)
-    onnx.checker.check_model(onnx_model)
     return output_path
 
 
@@ -161,7 +141,7 @@ def write_result_json(
     result_path = res_root / target_name / "results" / f"{target_name}_results.json"
     result_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "schema_version": "2.0.0",
+        "schema_version": "3.0.0",
         "config_path": str(res_root / target_name / "config" / f"{target_name}.yaml"),
         "gpu_node": "v100",
         "timings": {},
@@ -172,16 +152,17 @@ def write_result_json(
                 "base_model_pretrained": False,
                 "source": "test",
                 "group_total_variants_defined": len(variant_names),
-                "variant_config": (
-                    variant_config_by_name or {}
-                ).get(variant_name, {"example_input_shape": [1, 3, 32, 32]}),
+                "variant_config": (variant_config_by_name or {}).get(
+                    variant_name, {"example_input_shape": [2, 3, 32, 32]}
+                ),
                 "mutations": [],
                 "timings": {},
                 "training": None,
                 "inference": None,
                 "prefill": None,
                 "decode": None,
-                "onnx_export": None,
+                "graph_export": None,
+                "decode_graph_export": None,
                 "metadata": {"model_kind": model_kind},
             }
             for variant_name in variant_names

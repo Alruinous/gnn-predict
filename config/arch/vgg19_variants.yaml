@@ -13,8 +13,7 @@ base_model_groups:
       - 224
       - 224
       run_training: true
-      export_onnx: false
-      onnx_export_mode: architecture_only
+      export_graph: false
       batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_imagenet: true
@@ -50,8 +49,7 @@ base_model_groups:
       - 224
       - 224
       run_training: true
-      export_onnx: false
-      onnx_export_mode: architecture_only
+      export_graph: false
       batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_imagenet: true
@@ -100,8 +98,7 @@ base_model_groups:
       - 3
       - 224
       - 224
-      export_onnx: false
-      onnx_export_mode: architecture_only
+      export_graph: false
       use_fake_imagenet: true
       run_training: true
       training_measurement_min_seconds: 40.0

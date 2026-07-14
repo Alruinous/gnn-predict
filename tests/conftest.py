@@ -3,12 +3,12 @@ from __future__ import annotations
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-# ray 2.55 的 uv run 集成会把整个项目（含 .venv）上传为 working_dir，
-# 复制后的 .venv 内编译扩展（onnx/protobuf）损坏；必须在 import ray 前关闭
+# ray 2.55 的 uv run 集成会把整个项目 (含 .venv) 上传为 working_dir.
 os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,7 +22,7 @@ if str(SRC) not in sys.path:
 def ray_session():
     import ray
 
-    # ray worker 进程不继承 driver 的 sys.path，src 和 tests 必须显式进 PYTHONPATH
+    # ray worker 进程不继承 driver 的 sys.path, src 和 tests 必须显式进 PYTHONPATH.
     pythonpath = ":".join([str(SRC), str(ROOT / "tests")])
     ray.init(
         num_cpus=4,
@@ -34,8 +34,12 @@ def ray_session():
 
 
 @pytest.fixture()
-def wait_until():
-    def _wait(predicate, timeout_sec: float = 60.0, interval_sec: float = 0.2) -> bool:
+def wait_until() -> Callable[..., bool]:
+    def _wait(
+        predicate: Callable[[], bool],
+        timeout_sec: float = 60.0,
+        interval_sec: float = 0.2,
+    ) -> bool:
         deadline = time.monotonic() + timeout_sec
         while time.monotonic() < deadline:
             if predicate():

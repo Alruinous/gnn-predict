@@ -1,33 +1,43 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any, cast
+import asyncio
+from typing import Any, Literal, cast
 
 import pytest
-import torch
 from pydantic import ValidationError
-from transformers.generation.utils import GenerateDecoderOnlyOutput
 
 from workflow.replica import (
     BackendGeneration,
+    GenerationEngineFailedError,
+    GenerationOutOfMemoryError,
     GenerationRequest,
     ModelDeploymentConfig,
     ModelReplica,
-    ModelReplicaActor,
-    PromptTokenizer,
-    TransformersBackend,
+    PromptEncoding,
 )
-from workflow.schema import AgentNodeConfig, ExecutionConfig
+from workflow.schema import AgentNodeConfig, ExecutionConfig, ServingConfig
+from workflow.tokenizer import PromptTokenizer
+
+
+def serving(**updates: object) -> ServingConfig:
+    values: dict[str, object] = {
+        "max_model_len": 1024,
+        "max_num_seqs": 3,
+        "max_num_batched_tokens": 1536,
+        "gpu_memory_utilization": 0.98,
+    }
+    values.update(updates)
+    return ServingConfig.model_validate(values)
 
 
 def agent_node(
     *,
     model_name: str = "test-model",
     model_path: str = "/models/test-model",
-    dtype: str = "float16",
     do_sample: bool = False,
     temperature: float | None = None,
     enable_thinking: bool = False,
+    serving_config: ServingConfig | None = None,
 ) -> AgentNodeConfig:
     return AgentNodeConfig.model_validate(
         {
@@ -36,10 +46,11 @@ def agent_node(
             "model": {"name": model_name},
             "execution": {
                 "model_path": model_path,
-                "dtype": dtype,
+                "dtype": "float16",
                 "do_sample": do_sample,
                 "temperature": temperature,
                 "enable_thinking": enable_thinking,
+                "serving": (serving_config or serving()).model_dump(),
             },
             "token_budget": {
                 "min_max_new_tokens": 8,
@@ -52,36 +63,68 @@ def agent_node(
     )
 
 
-DEPLOYMENT = ModelDeploymentConfig(
-    model_name="test-model",
-    model_path="/models/test-model",
-    dtype="float16",
-)
+DEPLOYMENT = ModelDeploymentConfig.from_node(agent_node())
 GENERATION = ExecutionConfig(
     model_path=DEPLOYMENT.model_path,
     dtype=DEPLOYMENT.dtype,
     do_sample=True,
     temperature=0.7,
+    serving=DEPLOYMENT.serving,
 )
 
 
 class FakeBackend:
+    idle_vram_mb: float = 123.0
+    vllm_version: str = "0.10.2"
+    engine_mode: Literal["V0"] = "V0"
+    attention_backend: Literal["XFORMERS"] = "XFORMERS"
+
     def __init__(
         self,
         generation: BackendGeneration | None = None,
         error: Exception | None = None,
     ) -> None:
         self.generation = generation or BackendGeneration(
-            output_text="answer",
-            output_tokens=4,
+            output_token_ids=(20, 21, 22, 23),
+            finish_reason="stop",
         )
         self.error = error
         self.requests: list[GenerationRequest] = []
+        self.aborted: list[str] = []
+        self.loaded = False
+        self.stopped = False
 
-    def generate(self, request: GenerationRequest) -> BackendGeneration:
+    def load(self) -> None:
+        self.loaded = True
+
+    async def generate(self, request: GenerationRequest) -> BackendGeneration:
         self.requests.append(request)
         if self.error is not None:
             raise self.error
+        return self.generation
+
+    async def abort(self, request_id: str) -> None:
+        self.aborted.append(request_id)
+
+    def shutdown(self) -> None:
+        self.stopped = True
+
+
+class ConcurrentBackend(FakeBackend):
+    def __init__(self) -> None:
+        super().__init__()
+        self.active = 0
+        self.peak = 0
+        self.release = asyncio.Event()
+
+    async def generate(self, request: GenerationRequest) -> BackendGeneration:
+        self.requests.append(request)
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        if self.peak == 2:
+            self.release.set()
+        await self.release.wait()
+        self.active -= 1
         return self.generation
 
 
@@ -90,6 +133,7 @@ class FakeTokenizer:
         self.truncation_side = "right"
         self.chat_calls: list[tuple[list[dict[str, str]], dict[str, object]]] = []
         self.encode_calls: list[tuple[str, dict[str, object]]] = []
+        self.decode_calls: list[tuple[list[int], dict[str, object]]] = []
 
     def apply_chat_template(
         self,
@@ -106,44 +150,11 @@ class FakeTokenizer:
         self.encode_calls.append((prompt, kwargs))
         return list(range(len(prompt.split())))
 
-
-class FakeEncodedInputs(dict[str, torch.Tensor]):
-    def __init__(self) -> None:
-        super().__init__(input_ids=torch.tensor([[10, 11]]))
-        self.device: str | None = None
-
-    def to(self, device: str) -> FakeEncodedInputs:
-        self.device = device
-        return self
-
-
-class FakeInferenceTokenizer:
-    def __init__(self) -> None:
-        self.encoded = FakeEncodedInputs()
-        self.decoded_ids: list[int] | None = None
-
-    def __call__(self, prompt: str, **kwargs: object) -> FakeEncodedInputs:
-        return self.encoded
-
     def decode(self, token_ids: object, **kwargs: object) -> str:
-        assert isinstance(token_ids, torch.Tensor)
-        self.decoded_ids = token_ids.tolist()
+        assert isinstance(token_ids, list)
+        assert all(isinstance(token_id, int) for token_id in token_ids)
+        self.decode_calls.append((cast(list[int], token_ids), kwargs))
         return "decoded answer"
-
-
-class FakeTransformersModel:
-    def __init__(self) -> None:
-        self.generation_kwargs: dict[str, object] = {}
-
-    def generate(
-        self,
-        **kwargs: object,
-    ) -> torch.Tensor | GenerateDecoderOnlyOutput:
-        self.generation_kwargs = kwargs
-        sequences = torch.tensor([[10, 11, 20, 21, 22]])
-        if kwargs.get("return_dict_in_generate") is False:
-            return sequences
-        return GenerateDecoderOnlyOutput(sequences=cast(torch.LongTensor, sequences))
 
 
 def loaded_replica(backend: FakeBackend) -> ModelReplica:
@@ -156,15 +167,31 @@ def loaded_replica(backend: FakeBackend) -> ModelReplica:
     return replica
 
 
-def test_deployment_config_uses_only_weight_compatibility_for_sharing() -> None:
-    default = ModelDeploymentConfig.from_node(agent_node())
-    request_variant = ModelDeploymentConfig.from_node(
-        agent_node(do_sample=True, temperature=0.9, enable_thinking=True)
+def invoke(
+    replica: ModelReplica,
+    *,
+    request_id: str = "request-1",
+    max_new_tokens: int = 96,
+) -> Any:
+    return replica.invoke(
+        request_id,
+        (1, 2, 3),
+        max_new_tokens=max_new_tokens,
+        generation=GENERATION,
     )
 
-    assert default == DEPLOYMENT
-    assert default.model_key == request_variant.model_key
-    assert default.model_key == ModelDeploymentConfig.from_node(agent_node()).model_key
+
+def test_deployment_key_includes_engine_capacity_but_not_sampling() -> None:
+    default = ModelDeploymentConfig.from_node(agent_node())
+    sampling_variant = ModelDeploymentConfig.from_node(
+        agent_node(do_sample=True, temperature=0.9, enable_thinking=True)
+    )
+    capacity_variant = ModelDeploymentConfig.from_node(
+        agent_node(serving_config=serving(max_num_batched_tokens=2048))
+    )
+
+    assert default.model_key == sampling_variant.model_key
+    assert default.model_key != capacity_variant.model_key
 
 
 @pytest.mark.parametrize(
@@ -172,10 +199,9 @@ def test_deployment_config_uses_only_weight_compatibility_for_sharing() -> None:
     [
         ("model_name", "other-model"),
         ("model_path", "/models/other-model"),
-        ("dtype", "bfloat16"),
     ],
 )
-def test_each_deployment_field_changes_model_key(field: str, value: str) -> None:
+def test_each_weight_field_changes_model_key(field: str, value: str) -> None:
     payload = DEPLOYMENT.model_dump()
     payload[field] = value
 
@@ -186,67 +212,52 @@ def test_deployment_config_is_frozen_strict_and_forbids_extra_fields() -> None:
     with pytest.raises(ValidationError):
         ModelDeploymentConfig.model_validate(
             {
+                **DEPLOYMENT.model_dump(),
                 "model_name": 1,
-                "model_path": "/models/test-model",
-                "dtype": "float16",
             }
         )
     with pytest.raises(ValidationError):
         ModelDeploymentConfig.model_validate(
             {
-                "model_name": "test-model",
-                "model_path": "/models/test-model",
-                "dtype": "float16",
+                **DEPLOYMENT.model_dump(),
                 "device": "cuda:7",
             }
         )
     with pytest.raises(ValidationError):
-        DEPLOYMENT.dtype = "bfloat16"
+        DEPLOYMENT.model_name = "other-model"
 
 
-def test_load_constructs_backend_and_reports_ray_physical_gpu_id() -> None:
+def test_load_reports_vllm_runtime_and_ray_gpu() -> None:
     backend = FakeBackend()
-    factory_deployments: list[ModelDeploymentConfig] = []
-
-    def backend_factory(deployment: ModelDeploymentConfig) -> FakeBackend:
-        factory_deployments.append(deployment)
-        return backend
-
     replica = ModelReplica(
         DEPLOYMENT,
-        backend_factory=backend_factory,
+        backend_factory=lambda _: backend,
         gpu_id_provider=lambda: ["7"],
     )
-
     result = replica.load()
 
-    assert factory_deployments == [DEPLOYMENT]
+    assert backend.loaded is True
     assert result.physical_gpu_id == "7"
-    assert result.duration_sec >= 0
-    assert result.idle_vram_mb == 0
+    assert result.idle_vram_mb == 123
+    assert result.vllm_version == "0.10.2"
+    assert result.engine_mode == "V0"
+    assert result.attention_backend == "XFORMERS"
+    assert result.max_num_seqs == 3
 
 
 @pytest.mark.parametrize("gpu_ids", [[], [0, 1]])
-def test_load_requires_exactly_one_ray_physical_gpu_id(
-    gpu_ids: list[int],
-) -> None:
-    factory_called = False
-
-    def backend_factory(_: ModelDeploymentConfig) -> FakeBackend:
-        nonlocal factory_called
-        factory_called = True
-        return FakeBackend()
-
+def test_load_requires_exactly_one_ray_gpu(gpu_ids: list[int]) -> None:
+    backend = FakeBackend()
     replica = ModelReplica(
         DEPLOYMENT,
-        backend_factory=backend_factory,
+        backend_factory=lambda _: backend,
         gpu_id_provider=lambda: gpu_ids,
     )
 
     with pytest.raises(RuntimeError, match="exactly one"):
         replica.load()
 
-    assert factory_called is False
+    assert backend.loaded is False
 
 
 def test_invoke_fails_fast_before_load() -> None:
@@ -257,241 +268,170 @@ def test_invoke_fails_fast_before_load() -> None:
     )
 
     with pytest.raises(RuntimeError, match="load"):
-        replica.invoke(
-            "prompt",
-            input_tokens=3,
-            max_new_tokens=96,
-            generation=GENERATION,
-        )
+        asyncio.run(invoke(replica))
 
 
-def test_replica_passes_granted_budget_and_all_generation_parameters() -> None:
+def test_replica_passes_exact_tokens_and_generation_parameters() -> None:
     backend = FakeBackend()
-    result = loaded_replica(backend).invoke(
-        "prompt",
-        input_tokens=3,
-        max_new_tokens=96,
-        generation=GENERATION,
+
+    async def scenario() -> None:
+        replica = loaded_replica(backend)
+        result = await invoke(replica)
+
+        assert backend.requests == [
+            GenerationRequest(
+                request_id="request-1",
+                prompt_token_ids=(1, 2, 3),
+                max_new_tokens=96,
+                do_sample=True,
+                temperature=0.7,
+            )
+        ]
+        assert result.output_token_ids == (20, 21, 22, 23)
+        assert result.output_tokens == 4
+        assert result.finish_reason == "stop"
+        assert result.hit_token_limit is False
+
+    asyncio.run(scenario())
+
+
+def test_finish_reason_length_sets_token_limit() -> None:
+    backend = FakeBackend(
+        BackendGeneration(
+            output_token_ids=(20, 21),
+            finish_reason="length",
+            queue_time_sec=0.2,
+            time_to_first_token_sec=0.4,
+        )
     )
 
-    assert backend.requests == [
-        GenerationRequest(
-            prompt="prompt",
-            input_tokens=3,
-            max_new_tokens=96,
-            do_sample=True,
-            temperature=0.7,
-        )
-    ]
-    assert result.output_tokens == 4
+    async def scenario() -> None:
+        result = await invoke(loaded_replica(backend), max_new_tokens=2)
+
+        assert result.status == "success"
+        assert result.hit_token_limit is True
+        assert result.queue_time_sec == 0.2
+        assert result.time_to_first_token_sec == 0.4
+        assert result.replica_inflight_at_start == 1
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize(
-    ("output_tokens", "max_new_tokens", "hit_token_limit"),
-    [(4, 5, False), (4, 4, True), (5, 4, True)],
+    ("error", "status", "engine_failed"),
+    [
+        (GenerationOutOfMemoryError("CUDA exhausted"), "oom", False),
+        (ValueError("invalid generation"), "failed", False),
+        (GenerationEngineFailedError("engine stopped"), "failed", True),
+    ],
 )
-def test_success_report_computes_token_limit_status(
-    output_tokens: int,
-    max_new_tokens: int,
-    hit_token_limit: bool,
+def test_backend_errors_are_normalized(
+    error: Exception,
+    status: str,
+    engine_failed: bool,
 ) -> None:
-    backend = FakeBackend(
-        generation=BackendGeneration(
-            output_text="answer",
-            output_tokens=output_tokens,
+    backend = FakeBackend(error=error)
+
+    async def scenario() -> None:
+        result = await invoke(loaded_replica(backend))
+
+        assert result.status == status
+        assert result.output_token_ids == ()
+        assert result.output_tokens == 0
+        assert result.engine_failed is engine_failed
+        assert result.error_type == type(error).__name__
+        assert result.error_message == str(error)
+
+    asyncio.run(scenario())
+
+
+def test_replica_accepts_overlapping_requests() -> None:
+    backend = ConcurrentBackend()
+
+    async def scenario() -> None:
+        replica = loaded_replica(backend)
+        first, second = await asyncio.gather(
+            invoke(replica, request_id="request-1"),
+            invoke(replica, request_id="request-2"),
         )
-    )
 
-    result = loaded_replica(backend).invoke(
-        "prompt",
-        input_tokens=3,
-        max_new_tokens=max_new_tokens,
-        generation=GENERATION,
-    )
+        assert first.status == second.status == "success"
+        assert backend.peak == 2
+        assert {first.replica_inflight_at_start, second.replica_inflight_at_start} == {
+            1,
+            2,
+        }
+        assert replica.get_stats().peak_active_requests == 2
 
-    assert result.status == "success"
-    assert result.output_text == "answer"
-    assert result.input_tokens == 3
-    assert result.output_tokens == output_tokens
-    assert result.hit_token_limit is hit_token_limit
-    assert result.started_at <= result.finished_at
-    assert result.duration_sec >= 0
-    assert result.error_type is None
-    assert result.error_message is None
+    asyncio.run(scenario())
 
 
-def test_cuda_oom_is_normalized_to_oom_report() -> None:
-    backend = FakeBackend(error=torch.cuda.OutOfMemoryError("CUDA exhausted"))
+def test_shutdown_aborts_active_requests_and_is_idempotent() -> None:
+    backend = ConcurrentBackend()
 
-    result = loaded_replica(backend).invoke(
-        "prompt",
-        input_tokens=3,
-        max_new_tokens=96,
-        generation=GENERATION,
-    )
+    async def scenario() -> None:
+        replica = loaded_replica(backend)
+        task = asyncio.create_task(invoke(replica))
+        while not backend.requests:
+            await asyncio.sleep(0)
+        await replica.shutdown()
+        backend.release.set()
+        await task
+        await replica.shutdown()
 
-    assert result.status == "oom"
-    assert result.output_text is None
-    assert result.input_tokens == 3
-    assert result.output_tokens == 0
-    assert result.hit_token_limit is False
-    assert result.error_type == "OutOfMemoryError"
-    assert result.error_message == "CUDA exhausted"
+        assert backend.aborted == ["request-1"]
+        assert backend.stopped is True
+        assert replica.get_stats().stopping is True
 
-
-def test_other_backend_exception_is_normalized_to_failed_report() -> None:
-    backend = FakeBackend(error=ValueError("invalid generation"))
-
-    result = loaded_replica(backend).invoke(
-        "prompt",
-        input_tokens=3,
-        max_new_tokens=96,
-        generation=GENERATION,
-    )
-
-    assert result.status == "failed"
-    assert result.output_text is None
-    assert result.input_tokens == 3
-    assert result.output_tokens == 0
-    assert result.hit_token_limit is False
-    assert result.error_type == "ValueError"
-    assert result.error_message == "invalid generation"
+    asyncio.run(scenario())
 
 
-def test_transformers_backend_forces_tensor_output_and_decodes_new_tokens() -> None:
-    tokenizer = FakeInferenceTokenizer()
-    model = FakeTransformersModel()
-    backend = object.__new__(TransformersBackend)
-    setattr(backend, "_tokenizer", tokenizer)
-    setattr(backend, "_model", model)
-
-    result = backend.generate(
-        GenerationRequest(
-            prompt="rendered prompt",
-            input_tokens=2,
-            max_new_tokens=3,
-            do_sample=True,
-            temperature=0.7,
-        )
-    )
-
-    assert model.generation_kwargs["return_dict_in_generate"] is False
-    assert tokenizer.encoded.device == "cuda:0"
-    assert tokenizer.decoded_ids == [20, 21, 22]
-    assert result == BackendGeneration(
-        output_text="decoded answer",
-        output_tokens=3,
-    )
-
-
-def test_prompt_tokenizer_applies_chat_template_and_counts_final_prompt() -> None:
+def test_prompt_tokenizer_returns_exact_ids_and_decodes_output() -> None:
     tokenizer = FakeTokenizer()
     execution = ExecutionConfig(
         model_path="/models/test-model",
         use_chat_template=True,
         enable_thinking=True,
         truncation_side="left",
+        serving=serving(),
     )
     prompt_tokenizer = PromptTokenizer(
         execution,
         tokenizer_factory=lambda _: tokenizer,
     )
 
-    prompt, input_tokens = prompt_tokenizer.build_prompt(
-        "question",
-        system_prompt="rules",
+    prompt = prompt_tokenizer.build_prompt("question", system_prompt="rules")
+    output = prompt_tokenizer.decode((20, 21))
+
+    assert prompt == PromptEncoding(
+        text="<system>rules<user>question<assistant>",
+        token_ids=(0,),
     )
-
-    assert prompt == "<system>rules<user>question<assistant>"
-    assert input_tokens == 1
     assert tokenizer.truncation_side == "left"
-    assert tokenizer.chat_calls == [
-        (
-            [
-                {"role": "system", "content": "rules"},
-                {"role": "user", "content": "question"},
-            ],
-            {
-                "tokenize": False,
-                "add_generation_prompt": True,
-                "enable_thinking": True,
-            },
-        )
+    assert tokenizer.encode_calls[0][1]["truncation"] is False
+    assert tokenizer.decode_calls == [
+        ([20, 21], {"skip_special_tokens": True})
     ]
-    assert tokenizer.encode_calls == [
-        (
-            prompt,
-            {"add_special_tokens": False, "truncation": False},
-        )
-    ]
+    assert output == "decoded answer"
 
 
-def test_prompt_tokenizer_explicitly_joins_system_and_user_without_template() -> None:
+def test_prompt_tokenizer_joins_system_without_chat_template() -> None:
     tokenizer = FakeTokenizer()
     execution = ExecutionConfig(
         model_path="/models/test-model",
         use_chat_template=False,
+        serving=serving(),
     )
     prompt_tokenizer = PromptTokenizer(
         execution,
         tokenizer_factory=lambda _: tokenizer,
     )
 
-    prompt, input_tokens = prompt_tokenizer.build_prompt(
+    prompt = prompt_tokenizer.build_prompt(
         "question with detail",
         system_prompt="rules",
     )
 
-    assert prompt == "rules\n\nquestion with detail"
-    assert input_tokens == 4
+    assert prompt.text == "rules\n\nquestion with detail"
+    assert prompt.input_tokens == 4
     assert tokenizer.chat_calls == []
-    assert tokenizer.encode_calls == [
-        (
-            prompt,
-            {"add_special_tokens": False, "truncation": False},
-        )
-    ]
-
-
-def test_prompt_tokenizer_does_not_silently_truncate() -> None:
-    tokenizer = FakeTokenizer()
-    execution = ExecutionConfig(
-        model_path="/models/test-model",
-        use_chat_template=False,
-        truncation_side="left",
-    )
-    prompt_tokenizer = PromptTokenizer(
-        execution,
-        tokenizer_factory=lambda _: tokenizer,
-    )
-
-    _, input_tokens = prompt_tokenizer.build_prompt("one two three four")
-
-    assert input_tokens == 4
-    assert tokenizer.encode_calls[0][1]["truncation"] is False
-
-
-def test_replica_actor_declares_one_gpu_without_starting_ray() -> None:
-    actor_options = getattr(ModelReplicaActor, "_default_options")
-
-    assert actor_options["num_gpus"] == 1
-
-
-def test_default_factories_are_deferred_until_objects_are_used(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
-
-    def fail(*args: Any, **kwargs: Any) -> Callable[..., object]:
-        calls.append(("unexpected", args, kwargs))
-        raise AssertionError("default loader was called")
-
-    monkeypatch.setattr("workflow.replica.TransformersBackend", fail)
-
-    ModelReplica(
-        DEPLOYMENT,
-        backend_factory=lambda _: FakeBackend(),
-        gpu_id_provider=lambda: [0],
-    )
-
-    assert calls == []

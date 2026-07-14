@@ -12,8 +12,7 @@ base_model_groups:
       pre_prefill_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
       prefill_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 1
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true

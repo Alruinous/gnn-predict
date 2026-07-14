@@ -8,7 +8,12 @@ import pytest
 from langchain.agents import AgentState
 from pydantic import ValidationError
 
-from workflow.schema import AgentNodeConfig, FunctionNodeConfig, Workflow
+from workflow.schema import (
+    AgentNodeConfig,
+    ExecutionConfig,
+    FunctionNodeConfig,
+    Workflow,
+)
 from workflow.types import (
     ModelReplicaState,
     NodeTaskState,
@@ -32,7 +37,14 @@ WORKFLOW_PAYLOAD: dict[str, Any] = {
             "name": "left",
             "type": "agent",
             "model": {"name": "test-model", "parameters": {}},
-            "execution": {"model_path": "/models/test-model"},
+            "execution": {
+                "model_path": "/models/test-model",
+                "serving": {
+                    "max_model_len": 1024,
+                    "max_num_seqs": 3,
+                    "max_num_batched_tokens": 1536,
+                },
+            },
             "token_budget": {
                 "min_max_new_tokens": 8,
                 "default_max_new_tokens": 16,
@@ -44,7 +56,14 @@ WORKFLOW_PAYLOAD: dict[str, Any] = {
             "name": "right",
             "type": "agent",
             "model": {"name": "test-model", "parameters": {}},
-            "execution": {"model_path": "/models/test-model"},
+            "execution": {
+                "model_path": "/models/test-model",
+                "serving": {
+                    "max_model_len": 1024,
+                    "max_num_seqs": 3,
+                    "max_num_batched_tokens": 1536,
+                },
+            },
             "token_budget": {
                 "min_max_new_tokens": 8,
                 "default_max_new_tokens": 16,
@@ -87,6 +106,37 @@ def test_workflow_computes_one_static_graph() -> None:
     }
     assert isinstance(workflow.nodes[0], FunctionNodeConfig)
     assert isinstance(workflow.nodes[1], AgentNodeConfig)
+
+
+def test_execution_requires_explicit_serving_capacity() -> None:
+    with pytest.raises(ValidationError, match="serving"):
+        ExecutionConfig.model_validate({"model_path": "/models/test-model"})
+
+
+def test_execution_rejects_incompatible_vllm_capacity_and_dtype() -> None:
+    with pytest.raises(ValidationError, match="cover max_model_len"):
+        ExecutionConfig.model_validate(
+            {
+                "model_path": "/models/test-model",
+                "serving": {
+                    "max_model_len": 2048,
+                    "max_num_seqs": 3,
+                    "max_num_batched_tokens": 1024,
+                },
+            }
+        )
+    with pytest.raises(ValidationError, match="float16"):
+        ExecutionConfig.model_validate(
+            {
+                "model_path": "/models/test-model",
+                "dtype": "bfloat16",
+                "serving": {
+                    "max_model_len": 1024,
+                    "max_num_seqs": 3,
+                    "max_num_batched_tokens": 1024,
+                },
+            }
+        )
 
 
 def test_workflow_graph_is_immutable() -> None:

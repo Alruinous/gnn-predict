@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 import time
 from collections import deque
 from collections.abc import Callable, Coroutine, Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from math import ceil, inf
+from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import uuid4
 
@@ -17,9 +20,9 @@ from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 from common.validate import NonEmptyStr
 from workflow.artifacts import (
     AcceleratorConfig,
-    DeploymentProfile,
     GpuKind,
     PredictionCache,
+    PredictionEntry,
     SchedulerConfig,
 )
 from workflow.policy import (
@@ -106,10 +109,15 @@ class AgentTaskRuntimeReport(StrictFrozenModel):
     granted_max_new_tokens: PositiveInt
     output_tokens: NonNegativeInt
     hit_token_limit: bool
+    finish_reason: Literal["stop", "length", "abort"] | None = None
+    queue_time_sec: float | None = Field(default=None, ge=0)
+    time_to_first_token_sec: float | None = Field(default=None, ge=0)
+    replica_inflight_at_start: PositiveInt = 1
     started_at: float
     finished_at: float
     duration_sec: float = Field(ge=0)
-    status: Literal["success", "failed", "oom"]
+    status: Literal["success", "failed", "oom", "cancelled"]
+    engine_failed: bool = False
     error_type: str | None = None
 
 
@@ -163,6 +171,7 @@ class GrantInfo(StrictFrozenModel):
     min_max_new_tokens: PositiveInt
     default_max_new_tokens: PositiveInt
     max_max_new_tokens: PositiveInt
+    admitted_batch_size: PositiveInt = 1
     prediction_key: WorkflowModelFeatureKey
     token_budget_action: TokenBudgetAction
 
@@ -242,6 +251,17 @@ class RuntimeHistoryRecord(MutableRecord):
         )
 
 
+class DurationHistoryRecord(MutableRecord):
+    duration_sec_ema: float = Field(ge=0)
+    samples: PositiveInt = 1
+
+    def add(self, duration_sec: float, ema_alpha: float) -> None:
+        self.duration_sec_ema = (
+            ema_alpha * duration_sec + (1 - ema_alpha) * self.duration_sec_ema
+        )
+        self.samples += 1
+
+
 class RunningTaskEstimate(StrictFrozenModel):
     session_id: NonEmptyStr
     node_id: NonEmptyStr
@@ -289,13 +309,17 @@ class ModelReplicaRecord(MutableRecord):
     gpu_kind: GpuKind
     accelerator_ids: tuple[NonEmptyStr, ...]
     state: ModelReplicaState
+    expected_load_sec: float = Field(gt=0)
     backend_handle: object | None = None
     physical_gpu_id: int | str | None = None
-    active_acquire_id: str | None = None
+    active_acquire_ids: set[str] = Field(default_factory=set)
     created_at: float
     idle_since: float | None = None
     load_duration_sec: float | None = Field(default=None, ge=0)
     idle_vram_mb: float | None = Field(default=None, ge=0)
+    vllm_version: str | None = None
+    engine_mode: str | None = None
+    attention_backend: str | None = None
     eviction_error_type: str | None = None
     eviction_error_message: str | None = None
 
@@ -307,12 +331,10 @@ class SchedulerCore:
         *,
         scheduler_config: SchedulerConfig | None = None,
         predictions: PredictionCache | None = None,
-        profile: DeploymentProfile | None = None,
     ) -> None:
         self.workflow = workflow
         self.scheduler_config = scheduler_config or SchedulerConfig()
         self.predictions = predictions
-        self.profile = profile
         self.sessions: dict[str, SessionRecord] = {}
         self.tasks: dict[str, NodeTaskRecord] = {}
         self.pending_acquires: dict[str, PendingAcquire] = {}
@@ -326,6 +348,10 @@ class SchedulerCore:
         self.replicas: dict[str, ModelReplicaRecord] = {}
         self.oom_penalties: dict[WorkflowModelFeatureKey, float] = {}
         self.history: dict[tuple[str, str, GpuKind], RuntimeHistoryRecord] = {}
+        self.duration_history: dict[
+            tuple[str, str, GpuKind, int], DurationHistoryRecord
+        ] = {}
+        self.load_history: dict[tuple[str, GpuKind], DurationHistoryRecord] = {}
         self.running_estimates: dict[tuple[str, str], RunningTaskEstimate] = {}
         self._nodes = workflow.node_map()
         self._replica_pairs: dict[tuple[str, GpuKind], str] = {}
@@ -476,6 +502,18 @@ class SchedulerCore:
         key = (report.node_id, report.model_key, gpu_kind)
         history = self.history.setdefault(key, RuntimeHistoryRecord())
         history.add(report, self.scheduler_config.history_ema_alpha)
+        if report.status == "success":
+            duration_key = (*key, report.replica_inflight_at_start)
+            duration = self.duration_history.get(duration_key)
+            if duration is None:
+                self.duration_history[duration_key] = DurationHistoryRecord(
+                    duration_sec_ema=report.duration_sec
+                )
+            else:
+                duration.add(
+                    report.duration_sec,
+                    self.scheduler_config.history_ema_alpha,
+                )
 
     def record_running_upstream(
         self,
@@ -518,8 +556,20 @@ class SchedulerCore:
             if pending is None:
                 continue
             replica = self._replica_for_decision(pending, decisions[acquire_id])
-            if replica is not None and replica.state == ModelReplicaState.IDLE:
-                self._grant(pending, decisions[acquire_id], replica, now)
+            if replica is None:
+                continue
+            prediction = self._admission_prediction(
+                decisions[acquire_id],
+                replica,
+            )
+            if prediction is not None:
+                self._grant(
+                    pending,
+                    decisions[acquire_id],
+                    prediction,
+                    replica,
+                    now,
+                )
                 granted_ready = True
 
         actions: list[LoadReplicaAction | EvictReplicaAction] = []
@@ -612,8 +662,22 @@ class SchedulerCore:
         replica.physical_gpu_id = physical_gpu_id
         replica.load_duration_sec = result.duration_sec
         replica.idle_vram_mb = result.idle_vram_mb
+        replica.vllm_version = result.vllm_version
+        replica.engine_mode = result.engine_mode
+        replica.attention_backend = result.attention_backend
         replica.idle_since = now
         replica.state = ModelReplicaState.IDLE
+        load_key = (replica.model_key, replica.gpu_kind)
+        load_history = self.load_history.get(load_key)
+        if load_history is None:
+            self.load_history[load_key] = DurationHistoryRecord(
+                duration_sec_ema=result.duration_sec
+            )
+        else:
+            load_history.add(
+                result.duration_sec,
+                self.scheduler_config.history_ema_alpha,
+            )
         self._validate_resource_ledger()
 
     def _bind_reported_accelerator(
@@ -981,8 +1045,11 @@ class SchedulerCore:
                 gpu_kind = decision.gpu_kind
                 if gpu_kind is None:
                     raise RuntimeError("feasible token decision has no GPU kind")
+                load_sec = decision.predicted_load_sec
+                if load_sec is None:
+                    raise RuntimeError("feasible token decision has no load prediction")
                 deployment = ModelDeploymentConfig.from_node(node)
-                load_sec = self._load_cost(deployment, gpu_kind)
+                load_sec = self._load_cost(deployment, gpu_kind, load_sec)
                 upstream_eta = max(estimates)
                 near.append(
                     NearReadyTask(
@@ -1024,22 +1091,6 @@ class SchedulerCore:
             )
         prompt_overhead = max(1, len(node.prompt_template.split()))
         return max(1, estimated_outputs + prompt_overhead)
-
-    def _load_cost(
-        self,
-        deployment: ModelDeploymentConfig,
-        gpu_kind: GpuKind,
-    ) -> float:
-        load_sec = self.scheduler_config.default_load_sec
-        if self.profile is None:
-            return load_sec
-        return self.profile.load_cost_sec(
-            deployment.model_name,
-            deployment.model_path,
-            deployment.dtype,
-            gpu_kind,
-            load_sec,
-        )
 
     def _replica_for_decision(
         self,
@@ -1101,6 +1152,14 @@ class SchedulerCore:
             raise RuntimeError(f"replica pair already exists: {pair}")
         if accelerator.replica_id is not None:
             raise RuntimeError("accelerator is already reserved")
+        expected_load_sec = decision.predicted_load_sec
+        if expected_load_sec is None:
+            raise RuntimeError("feasible token decision has no load prediction")
+        expected_load_sec = self._load_cost(
+            deployment,
+            gpu_kind,
+            expected_load_sec,
+        )
 
         replica_id = str(uuid4())
         replica = ModelReplicaRecord(
@@ -1110,12 +1169,12 @@ class SchedulerCore:
             gpu_kind=gpu_kind,
             accelerator_ids=(accelerator.config.accelerator_id,),
             state=ModelReplicaState.LOADING,
+            expected_load_sec=expected_load_sec,
             created_at=now,
         )
         accelerator.replica_id = replica_id
         self.replicas[replica_id] = replica
         self._replica_pairs[pair] = replica_id
-        expected_load_sec = self._load_cost(deployment, gpu_kind)
         self._validate_resource_ledger()
         return LoadReplicaAction(
             replica_id=replica_id,
@@ -1148,6 +1207,7 @@ class SchedulerCore:
             gpu_kind=gpu_kind,
             accelerator_ids=(accelerator.config.accelerator_id,),
             state=ModelReplicaState.LOADING,
+            expected_load_sec=near.load_sec,
             created_at=now,
         )
         accelerator.replica_id = replica_id
@@ -1199,6 +1259,8 @@ class SchedulerCore:
         for replica in sorted(self.replicas.values(), key=lambda item: item.replica_id):
             if replica.state != ModelReplicaState.SUSPECT:
                 continue
+            if replica.active_acquire_ids:
+                continue
             actions.append(
                 self._mark_evicting(
                     replica,
@@ -1237,6 +1299,8 @@ class SchedulerCore:
             if pair in protected_pairs:
                 continue
             if replica.state not in (ModelReplicaState.IDLE, ModelReplicaState.SUSPECT):
+                continue
+            if replica.active_acquire_ids:
                 continue
             candidates.append(
                 EvictionCandidate(
@@ -1282,6 +1346,8 @@ class SchedulerCore:
     ) -> EvictReplicaAction:
         if replica.state not in (ModelReplicaState.IDLE, ModelReplicaState.SUSPECT):
             raise ValueError(f"replica is not evictable: {replica.replica_id}")
+        if replica.active_acquire_ids:
+            raise ValueError(f"replica still has active requests: {replica.replica_id}")
         replica.state = ModelReplicaState.EVICTING
         replica.eviction_error_type = None
         replica.eviction_error_message = None
@@ -1335,24 +1401,42 @@ class SchedulerCore:
         return inf
 
     def _reload_cost(self, replica: ModelReplicaRecord) -> float:
-        return self._load_cost(replica.deployment, replica.gpu_kind)
+        return self._load_cost(
+            replica.deployment,
+            replica.gpu_kind,
+            replica.expected_load_sec,
+        )
+
+    def _load_cost(
+        self,
+        deployment: ModelDeploymentConfig,
+        gpu_kind: GpuKind,
+        predicted_load_sec: float,
+    ) -> float:
+        history = self.load_history.get((deployment.model_key, gpu_kind))
+        if history is None:
+            return predicted_load_sec
+        return max(predicted_load_sec, history.duration_sec_ema)
 
     def _grant(
         self,
         pending: PendingAcquire,
         decision: TokenBudgetDecision,
+        prediction: PredictionEntry,
         replica: ModelReplicaRecord,
         now: float,
     ) -> None:
-        if replica.state != ModelReplicaState.IDLE:
-            raise RuntimeError("only an idle replica can be granted")
+        if replica.state not in (ModelReplicaState.IDLE, ModelReplicaState.BUSY):
+            raise RuntimeError("replica is not accepting requests")
         if replica.backend_handle is None:
             raise RuntimeError("loaded replica has no backend handle")
-        prediction_key = decision.prediction_key
         granted_max_new_tokens = decision.granted_max_new_tokens
         gpu_kind = decision.gpu_kind
-        if prediction_key is None or granted_max_new_tokens is None or gpu_kind is None:
+        if granted_max_new_tokens is None or gpu_kind is None:
             raise RuntimeError("feasible token decision is incomplete")
+        admitted_batch_size = len(replica.active_acquire_ids) + 1
+        if prediction.key.batch_size != admitted_batch_size:
+            raise RuntimeError("batch prediction does not match replica occupancy")
         task = self.tasks[pending.task_id]
         node = self._nodes[task.node_id]
         if not isinstance(node, AgentNodeConfig):
@@ -1370,23 +1454,73 @@ class SchedulerCore:
             min_max_new_tokens=node.token_budget.min_max_new_tokens,
             default_max_new_tokens=node.token_budget.default_max_new_tokens,
             max_max_new_tokens=node.token_budget.max_max_new_tokens,
-            prediction_key=prediction_key,
+            admitted_batch_size=admitted_batch_size,
+            prediction_key=prediction.key,
             token_budget_action=decision.action,
         )
         replica.state = ModelReplicaState.BUSY
-        replica.active_acquire_id = pending.acquire_id
+        replica.active_acquire_ids.add(pending.acquire_id)
         task.state = NodeTaskState.RUNNING
         self._remove_pending(pending.acquire_id)
         self.grants[pending.acquire_id] = grant
-        if decision.predicted_run_sec is not None:
-            self.running_estimates[(task.session_id, task.node_id)] = (
-                RunningTaskEstimate(
-                    session_id=task.session_id,
-                    node_id=task.node_id,
-                    finish_at=now + decision.predicted_run_sec,
-                )
-            )
+        duration = prediction.predicted_run_sec
+        history = self.duration_history.get(
+            (task.node_id, replica.model_key, gpu_kind, admitted_batch_size)
+        )
+        if history is not None:
+            duration = max(duration, history.duration_sec_ema)
+        self.running_estimates[(task.session_id, task.node_id)] = RunningTaskEstimate(
+            session_id=task.session_id,
+            node_id=task.node_id,
+            finish_at=now + duration,
+        )
         self._validate_resource_ledger()
+
+    def _admission_prediction(
+        self,
+        decision: TokenBudgetDecision,
+        replica: ModelReplicaRecord,
+    ) -> PredictionEntry | None:
+        if replica.state not in (ModelReplicaState.IDLE, ModelReplicaState.BUSY):
+            return None
+        batch_size = len(replica.active_acquire_ids) + 1
+        if batch_size > replica.deployment.serving.max_num_seqs:
+            return None
+        decision_key = decision.prediction_key
+        gpu_kind = decision.gpu_kind
+        if decision_key is None or gpu_kind is None:
+            raise RuntimeError("feasible token decision is incomplete")
+        active_keys = [
+            self.grants[acquire_id].prediction_key
+            for acquire_id in replica.active_acquire_ids
+        ]
+        sequence_length = max(
+            [decision_key.sequence_length]
+            + [key.sequence_length for key in active_keys]
+        )
+        output_length = max(
+            [decision_key.decode_output_length]
+            + [key.decode_output_length for key in active_keys]
+        )
+        predictions = self.predictions
+        if predictions is None:
+            raise RuntimeError("agent scheduling requires a prediction cache")
+        prediction = predictions.lookup_decode(
+            model_name=replica.deployment.model_name,
+            gpu_kind=gpu_kind,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            decode_output_length=output_length,
+        )
+        accelerator = self.accelerators[replica.accelerator_ids[0]].config
+        effective_vram_mb = (
+            prediction.predicted_peak_vram_mb
+            + self.scheduler_config.eps_mem_mb
+            + self.oom_penalties.get(prediction.key, 0.0)
+        )
+        if effective_vram_mb > accelerator.total_mem_mb:
+            return None
+        return prediction
 
     def _complete_agent(
         self,
@@ -1482,18 +1616,25 @@ class SchedulerCore:
         report: AgentTaskRuntimeReport,
     ) -> None:
         replica = self._replica(grant.replica_id)
-        if (
-            replica.state != ModelReplicaState.BUSY
-            or replica.active_acquire_id != grant.acquire_id
-        ):
+        if replica.state not in (ModelReplicaState.BUSY, ModelReplicaState.SUSPECT):
+            raise RuntimeError("grant does not own an active replica")
+        if grant.acquire_id not in replica.active_acquire_ids:
             raise RuntimeError("grant does not own the busy replica")
-        replica.state = (
-            ModelReplicaState.SUSPECT
-            if report.status == "oom" or _is_severe_cuda_failure(report)
-            else ModelReplicaState.IDLE
-        )
-        replica.active_acquire_id = None
-        replica.idle_since = report.finished_at
+        replica.active_acquire_ids.remove(grant.acquire_id)
+        if (
+            report.status == "oom"
+            or report.engine_failed
+            or _is_severe_cuda_failure(report)
+        ):
+            replica.state = ModelReplicaState.SUSPECT
+        elif replica.state != ModelReplicaState.SUSPECT:
+            replica.state = (
+                ModelReplicaState.BUSY
+                if replica.active_acquire_ids
+                else ModelReplicaState.IDLE
+            )
+        if not replica.active_acquire_ids:
+            replica.idle_since = report.finished_at
         del self.grants[grant.acquire_id]
         self._validate_resource_ledger()
 
@@ -1520,6 +1661,7 @@ class SchedulerCore:
     def _validate_resource_ledger(self) -> None:
         seen_accelerators: set[str] = set()
         seen_pairs: set[tuple[str, GpuKind]] = set()
+        active_acquires: set[str] = set()
         for pair, replica_id in self._replica_pairs.items():
             replica = self.replicas.get(replica_id)
             if replica is None or (replica.model_key, replica.gpu_kind) != pair:
@@ -1532,6 +1674,19 @@ class SchedulerCore:
             ):
                 raise RuntimeError("model replica pairs must be unique")
             seen_pairs.add(pair)
+            if (
+                replica.state == ModelReplicaState.BUSY
+                and not replica.active_acquire_ids
+            ):
+                raise RuntimeError("busy replica must have active requests")
+            if (
+                replica.state not in (ModelReplicaState.BUSY, ModelReplicaState.SUSPECT)
+                and replica.active_acquire_ids
+            ):
+                raise RuntimeError("inactive replica cannot own active requests")
+            if active_acquires & replica.active_acquire_ids:
+                raise RuntimeError("active request ownership overlaps")
+            active_acquires.update(replica.active_acquire_ids)
             for accelerator_id in replica.accelerator_ids:
                 if accelerator_id in seen_accelerators:
                     raise RuntimeError("accelerator ownership overlaps")
@@ -1545,6 +1700,12 @@ class SchedulerCore:
             replica = self.replicas.get(accelerator.replica_id)
             if replica is None or accelerator_id not in replica.accelerator_ids:
                 raise RuntimeError("accelerator and replica ledgers disagree")
+        if active_acquires != set(self.grants):
+            raise RuntimeError("active requests and grant ledger disagree")
+        for acquire_id, grant in self.grants.items():
+            replica = self.replicas.get(grant.replica_id)
+            if replica is None or acquire_id not in replica.active_acquire_ids:
+                raise RuntimeError("grant and replica ledgers disagree")
 
     def _fail_session(self, session_id: str, failed_task_id: str) -> None:
         session = self.sessions[session_id]
@@ -1591,7 +1752,6 @@ class _SchedulerActor:
         workflow: Workflow,
         scheduler_config: SchedulerConfig,
         predictions: PredictionCache | None,
-        profile: DeploymentProfile | None,
         trace_writer: object,
         replica_factory: object | None = None,
         ray_node_ids: Mapping[str, str] | None = None,
@@ -1601,7 +1761,6 @@ class _SchedulerActor:
             workflow,
             scheduler_config=scheduler_config,
             predictions=predictions,
-            profile=profile,
         )
         self.run_id = run_id
         self._config = scheduler_config
@@ -2119,7 +2278,13 @@ class _SchedulerActor:
                 accelerator_id=replica.accelerator_ids[0],
                 gpu_kind=replica.gpu_kind,
                 model_key=replica.model_key,
-                payload={"duration_sec": result.duration_sec},
+                payload={
+                    "duration_sec": result.duration_sec,
+                    "vllm_version": result.vllm_version,
+                    "engine_mode": result.engine_mode,
+                    "attention_backend": result.attention_backend,
+                    "max_num_seqs": result.max_num_seqs,
+                },
             )
             if action is not None and action.reason == "near_ready_prefetch":
                 self._record_trace(
@@ -2305,7 +2470,14 @@ class _SchedulerActor:
                     "granted_max_new_tokens": report.granted_max_new_tokens,
                     "output_tokens": report.output_tokens,
                     "hit_token_limit": report.hit_token_limit,
+                    "finish_reason": report.finish_reason,
+                    "queue_time_sec": report.queue_time_sec,
+                    "time_to_first_token_sec": report.time_to_first_token_sec,
+                    "replica_inflight_at_start": (report.replica_inflight_at_start),
+                    "engine_failed": report.engine_failed,
+                    "admitted_batch_size": grant.admitted_batch_size,
                     "prediction_key": prediction.key.model_dump(mode="json"),
+                    "predicted_load_sec": prediction.predicted_load_sec,
                     "predicted_run_sec": prediction.predicted_run_sec,
                     "predicted_peak_vram_mb": prediction.predicted_peak_vram_mb,
                     "predicted_power_watts": prediction.predicted_power_watts,
@@ -2661,6 +2833,10 @@ class _SchedulerActor:
                 accelerator_id=grant.accelerator_ids[0],
                 gpu_kind=grant.gpu_kind,
                 model_key=grant.model_key,
+                payload={
+                    "admitted_batch_size": grant.admitted_batch_size,
+                    "replica_inflight_at_grant": grant.admitted_batch_size,
+                },
             )
             self._record_trace(
                 "token_budget_selected",
@@ -2675,8 +2851,11 @@ class _SchedulerActor:
                     "min_max_new_tokens": grant.min_max_new_tokens,
                     "default_max_new_tokens": grant.default_max_new_tokens,
                     "max_max_new_tokens": grant.max_max_new_tokens,
+                    "admitted_batch_size": grant.admitted_batch_size,
+                    "replica_inflight_at_grant": grant.admitted_batch_size,
                     "prediction_cache_version": predictions.version,
                     "prediction_key": prediction.key.model_dump(mode="json"),
+                    "predicted_load_sec": prediction.predicted_load_sec,
                     "predicted_run_sec": prediction.predicted_run_sec,
                     "predicted_peak_vram_mb": prediction.predicted_peak_vram_mb,
                     "predicted_power_watts": prediction.predicted_power_watts,
@@ -2748,7 +2927,17 @@ class _SchedulerActor:
             accelerator_id=action.accelerator.accelerator_id,
             gpu_kind=action.accelerator.gpu_kind,
             model_key=action.deployment.model_key,
-            payload={"reason": action.reason},
+            payload={
+                "reason": action.reason,
+                "max_model_len": action.deployment.serving.max_model_len,
+                "max_num_seqs": action.deployment.serving.max_num_seqs,
+                "max_num_batched_tokens": (
+                    action.deployment.serving.max_num_batched_tokens
+                ),
+                "gpu_memory_utilization": (
+                    action.deployment.serving.gpu_memory_utilization
+                ),
+            },
         )
         if action.reason == "near_ready_prefetch":
             self._record_trace(
@@ -2781,11 +2970,31 @@ class _SchedulerActor:
             raise KeyError(
                 f"Ray node id is missing for {action.accelerator.hostname}"
             ) from None
+        executable = self._config.vllm_python_executable
+        if executable is None:
+            raise ValueError("vllm_python_executable is required")
+        source_root = str(Path(__file__).resolve().parents[1])
+        current_pythonpath = os.environ.get("PYTHONPATH")
+        pythonpath = (
+            source_root
+            if not current_pythonpath
+            else os.pathsep.join((source_root, current_pythonpath))
+        )
         return ModelReplicaActor.options(
+            max_concurrency=action.deployment.serving.max_num_seqs + 2,
+            runtime_env={
+                "py_executable": executable,
+                "env_vars": {
+                    "PYTHONPATH": pythonpath,
+                    "VLLM_ATTENTION_BACKEND": "XFORMERS",
+                    "VLLM_NO_USAGE_STATS": "1",
+                    "VLLM_USE_V1": "0",
+                },
+            },
             scheduling_strategy=NodeAffinitySchedulingStrategy(
                 node_id=node_id,
                 soft=False,
-            )
+            ),
         ).remote(action.deployment)
 
     async def _watch_load(
@@ -2830,6 +3039,12 @@ class _SchedulerActor:
         self._start_watcher(self._watch_eviction(action.replica_id, handle))
 
     async def _watch_eviction(self, replica_id: str, handle: object) -> None:
+        shutdown_ref = _call_remote(handle, "shutdown")
+        with suppress(Exception):
+            await asyncio.wait_for(
+                _await_value(shutdown_ref),
+                timeout=self._config.eviction_timeout_sec,
+            )
         try:
             await asyncio.wait_for(
                 asyncio.to_thread(ray.kill, cast(Any, handle), no_restart=True),
@@ -2884,6 +3099,8 @@ class _SchedulerActor:
                 ModelReplicaState.IDLE,
                 ModelReplicaState.SUSPECT,
             ):
+                continue
+            if replica.active_acquire_ids:
                 continue
             self._manual_actions.append(self.core.request_eviction(replica.replica_id))
         if not self.core.replicas:
@@ -2995,13 +3212,7 @@ class _SchedulerActor:
         handles = tuple(self._replica_handles.items())
         if not handles:
             return
-        kills = [
-            asyncio.wait_for(
-                asyncio.to_thread(ray.kill, cast(Any, handle), no_restart=True),
-                timeout=self._config.eviction_timeout_sec,
-            )
-            for _, handle in handles
-        ]
+        kills = [self._shutdown_and_kill(handle) for _, handle in handles]
         results = await asyncio.gather(*kills, return_exceptions=True)
         for (replica_id, handle), result in zip(handles, results, strict=True):
             if (
@@ -3009,6 +3220,18 @@ class _SchedulerActor:
                 and self._replica_handles.get(replica_id) is handle
             ):
                 del self._replica_handles[replica_id]
+
+    async def _shutdown_and_kill(self, handle: object) -> None:
+        shutdown_ref = _call_remote(handle, "shutdown")
+        with suppress(Exception):
+            await asyncio.wait_for(
+                _await_value(shutdown_ref),
+                timeout=self._config.eviction_timeout_sec,
+            )
+        await asyncio.wait_for(
+            asyncio.to_thread(ray.kill, cast(Any, handle), no_restart=True),
+            timeout=self._config.eviction_timeout_sec,
+        )
 
 
 def _call_remote(

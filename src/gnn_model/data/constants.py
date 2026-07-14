@@ -2,7 +2,7 @@ from __future__ import annotations
 
 MAX_SHAPE_RANK = 6
 
-GRAPH_ONNX_TOOL_METRIC_FEATURE_NAMES = (
+GRAPH_STATIC_METRIC_FEATURE_NAMES = (
     "graph_macs",
     "graph_memory_bytes",
     "graph_params",
@@ -105,7 +105,7 @@ GRAPH_FEATURE_NAMES = (
     "parameter_input_count",
     "parameter_input_element_count",
     "parameter_input_bytes",
-    *GRAPH_ONNX_TOOL_METRIC_FEATURE_NAMES,
+    *GRAPH_STATIC_METRIC_FEATURE_NAMES,
     *GRAPH_SHAPE_FEATURE_NAMES,
 )
 

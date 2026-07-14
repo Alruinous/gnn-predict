@@ -165,6 +165,8 @@ def write_run_summary(output_dir: Path | str, run_id: str) -> None:
     model_load_count = 0
     model_reuse_count = 0
     model_evict_count = 0
+    batched_admission_count = 0
+    peak_replica_inflight = 0
     active_gpu_seconds = 0.0
     resident_gpu_seconds = 0.0
     residency_starts: dict[str, float] = {}
@@ -215,6 +217,19 @@ def write_run_summary(output_dir: Path | str, run_id: str) -> None:
                 raise ValueError(f"invalid token budget action {action!r}")
             assert isinstance(action, str)
             token_budget_action_counts[action] += 1
+            admitted_batch_size = event.payload.get("admitted_batch_size", 1)
+            if (
+                isinstance(admitted_batch_size, bool)
+                or not isinstance(admitted_batch_size, int)
+                or admitted_batch_size < 1
+            ):
+                raise TypeError("invalid admitted_batch_size")
+            peak_replica_inflight = max(
+                peak_replica_inflight,
+                admitted_batch_size,
+            )
+            if admitted_batch_size > 1:
+                batched_admission_count += 1
         elif event.event_type == "token_budget_infeasible":
             token_budget_action_counts[TokenBudgetAction.INFEASIBLE.value] += 1
         elif event.event_type == "model_load_started":
@@ -253,6 +268,8 @@ def write_run_summary(output_dir: Path | str, run_id: str) -> None:
         "model_load_count": model_load_count,
         "model_reuse_count": model_reuse_count,
         "model_evict_count": model_evict_count,
+        "batched_admission_count": batched_admission_count,
+        "peak_replica_inflight": peak_replica_inflight,
         "active_gpu_seconds": active_gpu_seconds,
         "resident_gpu_seconds": resident_gpu_seconds,
         "session_latency_sec": {

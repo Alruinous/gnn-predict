@@ -37,6 +37,7 @@ class TokenBudgetDecision(PolicyModel):
     sequence_length: PositiveInt | None = None
     granted_max_new_tokens: PositiveInt | None = None
     prediction_key: WorkflowModelFeatureKey | None = None
+    predicted_load_sec: PositiveFloat | None = None
     predicted_run_sec: PositiveFloat | None = None
     predicted_peak_vram_mb: PositiveFloat | None = None
     effective_vram_mb: PositiveFloat | None = None
@@ -76,6 +77,7 @@ def select_token_budget(
     oom_penalties: Mapping[WorkflowModelFeatureKey, float],
     eps_mem_mb: float,
     hit_limit_rate_threshold: float = 0.1,
+    batch_size: int = 1,
 ) -> TokenBudgetDecision:
     if input_tokens <= 0:
         raise ValueError("input_tokens must be positive")
@@ -91,6 +93,7 @@ def select_token_budget(
             node.model.name,
             accelerator.gpu_kind,
             input_tokens,
+            batch_size,
         )
         if sequence_length is None:
             continue
@@ -99,6 +102,7 @@ def select_token_budget(
             node.model.name,
             accelerator.gpu_kind,
             sequence_length,
+            batch_size,
         )
         candidates = [
             output_length
@@ -117,6 +121,7 @@ def select_token_budget(
             predictions,
             oom_penalties,
             eps_mem_mb,
+            batch_size,
         )
         if candidate is not None:
             feasible.append(candidate)
@@ -149,6 +154,7 @@ def select_token_budget(
         sequence_length=chosen.prediction.key.sequence_length,
         granted_max_new_tokens=granted,
         prediction_key=chosen.prediction.key,
+        predicted_load_sec=chosen.prediction.predicted_load_sec,
         predicted_run_sec=chosen.prediction.predicted_run_sec,
         predicted_peak_vram_mb=chosen.prediction.predicted_peak_vram_mb,
         effective_vram_mb=chosen.effective_vram_mb,
@@ -191,12 +197,13 @@ def _covering_sequence_length(
     model_name: str,
     gpu_kind: GpuKind,
     input_tokens: int,
+    batch_size: int,
 ) -> int | None:
     return next(
         (
             sequence_length
             for sequence_length in predictions.decode_sequence_lengths(
-                model_name, gpu_kind
+                model_name, gpu_kind, batch_size
             )
             if sequence_length >= input_tokens
         ),
@@ -212,11 +219,15 @@ def _largest_feasible_budget(
     predictions: PredictionCache,
     oom_penalties: Mapping[WorkflowModelFeatureKey, float],
     eps_mem_mb: float,
+    batch_size: int,
 ) -> _FeasibleCandidate | None:
     for output_length in output_lengths:
+        if sequence_length + output_length > node.execution.serving.max_model_len:
+            continue
         prediction = predictions.lookup_decode(
             model_name=node.model.name,
             gpu_kind=accelerator.gpu_kind,
+            batch_size=batch_size,
             sequence_length=sequence_length,
             decode_output_length=output_length,
         )

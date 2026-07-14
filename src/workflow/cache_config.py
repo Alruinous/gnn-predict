@@ -16,7 +16,7 @@ WorkflowPhase = Literal["prefill", "decode"]
 TorchDtypeName = Literal["float16", "bfloat16", "float32"]
 
 
-class OnnxCacheKey(BaseModel):
+class GraphCacheKey(BaseModel):
     model_name: NonEmptyStr
     phase: WorkflowPhase
     batch_size: PositiveInt
@@ -35,7 +35,7 @@ class OnnxCacheKey(BaseModel):
         )
 
 
-class OnnxCacheGroup(BaseModel):
+class GraphCacheGroup(BaseModel):
     name: NonEmptyStr
     model_name: NonEmptyStr
     model_path: Path
@@ -72,41 +72,41 @@ class OnnxCacheGroup(BaseModel):
         return value
 
 
-class OnnxCacheConfig(BaseModel):
-    cache_groups: list[OnnxCacheGroup]
+class GraphCacheConfig(BaseModel):
+    cache_groups: list[GraphCacheGroup]
 
     @field_validator("cache_groups")
     @classmethod
     def validate_unique_group_names(
         cls,
-        value: list[OnnxCacheGroup],
-    ) -> list[OnnxCacheGroup]:
+        value: list[GraphCacheGroup],
+    ) -> list[GraphCacheGroup]:
         names = [group.name for group in value]
         if len(names) != len(set(names)):
             raise ValueError("cache group names must be unique")
         return value
 
 
-class OnnxCacheExportSpec(BaseModel):
+class GraphCacheExportSpec(BaseModel):
     group_name: NonEmptyStr
     model_path: Path
     dtype: TorchDtypeName
-    key: OnnxCacheKey
+    key: GraphCacheKey
 
 
-def load_onnx_cache_config(path: Path) -> OnnxCacheConfig:
+def load_graph_cache_config(path: Path) -> GraphCacheConfig:
     with path.open() as f:
         raw = yaml.safe_load(f)
-    return OnnxCacheConfig.model_validate(raw)
+    return GraphCacheConfig.model_validate(raw)
 
 
-def expand_onnx_cache_specs(
-    config: OnnxCacheConfig,
+def expand_graph_cache_specs(
+    config: GraphCacheConfig,
     *,
     selected_group_names: set[str] | None = None,
     selected_phases: set[WorkflowPhase] | None = None,
-) -> list[OnnxCacheExportSpec]:
-    specs: list[OnnxCacheExportSpec] = []
+) -> list[GraphCacheExportSpec]:
+    specs: list[GraphCacheExportSpec] = []
     seen: set[tuple[str, str, int, int, int]] = set()
     for group in config.cache_groups:
         if selected_group_names is not None and group.name not in selected_group_names:
@@ -129,7 +129,7 @@ def expand_onnx_cache_specs(
                     )
                 decode_lengths = group.decode_max_output_length_list
             for decode_output_length in decode_lengths:
-                key = OnnxCacheKey(
+                key = GraphCacheKey(
                     model_name=group.model_name,
                     phase=phase,
                     batch_size=batch_size,
@@ -147,7 +147,7 @@ def expand_onnx_cache_specs(
                     continue
                 seen.add(ident)
                 specs.append(
-                    OnnxCacheExportSpec(
+                    GraphCacheExportSpec(
                         group_name=group.name,
                         model_path=group.model_path,
                         dtype=group.dtype,

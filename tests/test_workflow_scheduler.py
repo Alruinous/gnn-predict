@@ -65,7 +65,14 @@ def agent_workflow() -> Workflow:
                     "name": "agent",
                     "type": "agent",
                     "model": {"name": "test-model"},
-                    "execution": {"model_path": "/models/test-model"},
+                    "execution": {
+                        "model_path": "/models/test-model",
+                        "serving": {
+                            "max_model_len": 1024,
+                            "max_num_seqs": 1,
+                            "max_num_batched_tokens": 1024,
+                        },
+                    },
                     "token_budget": {
                         "min_max_new_tokens": 8,
                         "default_max_new_tokens": 16,
@@ -458,10 +465,15 @@ def test_agent_runtime_report_uses_the_plan_contract() -> None:
         "granted_max_new_tokens": 16,
         "output_tokens": 8,
         "hit_token_limit": False,
+        "finish_reason": None,
+        "queue_time_sec": None,
+        "time_to_first_token_sec": None,
+        "replica_inflight_at_start": 1,
         "started_at": 1.0,
         "finished_at": 2.0,
         "duration_sec": 1.0,
         "status": "success",
+        "engine_failed": False,
         "error_type": None,
     }
 

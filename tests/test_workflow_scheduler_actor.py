@@ -14,7 +14,6 @@ from ray.exceptions import RayActorError, RayTaskError
 import workflow.scheduler as scheduler_module
 from workflow.artifacts import (
     AcceleratorConfig,
-    DeploymentProfile,
     PredictionCache,
     PredictionEntry,
     SchedulerConfig,
@@ -32,7 +31,7 @@ from workflow.scheduler import (
     OutputReport,
     SchedulerActor,
 )
-from workflow.schema import Workflow
+from workflow.schema import ServingConfig, Workflow
 from workflow.types import (
     ModelReplicaState,
     SessionState,
@@ -89,6 +88,11 @@ class FakeWorker:
         return list(self.sessions)
 
 
+class LocalReplicaHandle:
+    def shutdown(self) -> None:
+        return None
+
+
 @_remote
 class FakeReplica:
     def __init__(self, deployment: ModelDeploymentConfig) -> None:
@@ -103,6 +107,9 @@ class FakeReplica:
 
     def ping(self) -> str:
         return self.deployment.model_name
+
+    def shutdown(self) -> None:
+        return None
 
 
 @_remote(max_concurrency=2)
@@ -124,6 +131,9 @@ class BlockingMismatchedReplica:
 
     def ping(self) -> str:
         return self.deployment.model_name
+
+    def shutdown(self) -> None:
+        return None
 
 
 class ImmediateTraceWriter:
@@ -172,6 +182,11 @@ def agent_workflow() -> Workflow:
                     "execution": {
                         "model_path": "/models/test-model",
                         "dtype": "float16",
+                        "serving": {
+                            "max_model_len": 1024,
+                            "max_num_seqs": 1,
+                            "max_num_batched_tokens": 1024,
+                        },
                     },
                     "token_budget": {
                         "min_max_new_tokens": 8,
@@ -214,6 +229,7 @@ def predictions() -> PredictionCache:
                     sequence_length=128,
                     decode_output_length=8,
                 ),
+                predicted_load_sec=5.0,
                 predicted_run_sec=0.1,
                 predicted_peak_vram_mb=1_000,
             ),
@@ -226,15 +242,12 @@ def predictions() -> PredictionCache:
                     sequence_length=128,
                     decode_output_length=16,
                 ),
+                predicted_load_sec=5.0,
                 predicted_run_sec=0.2,
                 predicted_peak_vram_mb=1_200,
             ),
         ),
     )
-
-
-def profile() -> DeploymentProfile:
-    return DeploymentProfile(version=1, entries=())
 
 
 def scheduler_actor(
@@ -249,7 +262,6 @@ def scheduler_actor(
         workflow=workflow or function_workflow(),
         scheduler_config=config or SchedulerConfig(max_tick_interval_sec=0.5),
         predictions=predictions() if with_resources else None,
-        profile=profile() if with_resources else None,
         trace_writer=trace_writer,
         replica_factory=replica_factory,
     )
@@ -305,7 +317,6 @@ def local_scheduler(
         workflow=function_workflow(),
         scheduler_config=config or SchedulerConfig(),
         predictions=None,
-        profile=None,
         trace_writer=ImmediateTraceWriter(),
         replica_factory=fake_replica_factory,
     )
@@ -577,7 +588,9 @@ def test_eviction_watcher_reports_configured_timeout(
 
     async def run_scenario() -> None:
         actor = local_scheduler(config=SchedulerConfig(eviction_timeout_sec=0.01))
-        watcher = asyncio.create_task(actor._watch_eviction("replica", object()))
+        watcher = asyncio.create_task(
+            actor._watch_eviction("replica", LocalReplicaHandle())
+        )
         try:
             command = await asyncio.wait_for(actor._commands.get(), timeout=0.2)
         finally:
@@ -593,7 +606,7 @@ def test_failed_replica_kill_keeps_handle_for_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     actor = local_scheduler()
-    handle = object()
+    handle = LocalReplicaHandle()
     actor._replica_handles["replica"] = handle
     attempts = 0
 
@@ -629,6 +642,11 @@ def test_force_cleanup_rejects_late_load_dispatch() -> None:
             model_name="test-model",
             model_path="/models/test-model",
             dtype="float16",
+            serving=ServingConfig(
+                max_model_len=1024,
+                max_num_seqs=1,
+                max_num_batched_tokens=1024,
+            ),
         ),
         accelerator=AcceleratorConfig(
             hostname="local",

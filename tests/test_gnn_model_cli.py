@@ -9,17 +9,17 @@ import sys
 from pathlib import Path
 
 import torch
-
-from gnn_model.data.extract import TARGET_FIELDS
 from gnn_model_test_utils import (
     TARGET_NAMES,
     build_toy_model,
-    export_architecture_only_onnx,
+    export_architecture_graph,
     write_result_json,
     write_split_config,
     write_split_dataset,
     write_target_scalers,
 )
+
+from gnn_model.data.extract import TARGET_FIELDS
 
 
 def test_gnn_model_cli_runs_end_to_end(tmp_path: Path) -> None:
@@ -64,7 +64,7 @@ def test_gnn_model_cli_extract_writes_manifest(tmp_path: Path) -> None:
     csv_dir = tmp_path / "csv"
     csv_dir.mkdir()
     res_root = tmp_path / "res"
-    write_variant_onnx_files(res_root, "demo", ("variant_a", "variant_b", "variant_c"))
+    write_variant_graph_files(res_root, "demo", ("variant_a", "variant_b", "variant_c"))
     write_monitor_csv(
         csv_dir / "demo_monitor.csv",
         [
@@ -95,9 +95,9 @@ def test_gnn_model_cli_extract_writes_manifest(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
     manifest_path = output_dir / "manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "4.1.0"
+    assert payload["schema_version"] == "5.0.0"
     assert payload["feature_source"] == (
-        "onnx_tool_static_metrics_shape_topology_features_op_reclass_identity"
+        "pytorch_export_inference_ir_static_metrics_shape_topology_v1"
     )
     assert payload["total_record_count"] == 3
     assert payload["target_names"] == list(TARGET_FIELDS)
@@ -161,19 +161,19 @@ def build_monitor_row(
     }
 
 
-def write_variant_onnx_files(
+def write_variant_graph_files(
     res_root: Path,
     target_name: str,
     variant_names: tuple[str, ...],
 ) -> None:
-    onnx_dir = res_root / target_name / "onnx_models"
-    onnx_dir.mkdir(parents=True)
-    first_path = onnx_dir / f"{variant_names[0]}.onnx"
-    export_architecture_only_onnx(
+    graph_dir = res_root / target_name / "fx_graphs"
+    graph_dir.mkdir(parents=True)
+    first_path = graph_dir / f"{variant_names[0]}.pt2"
+    export_architecture_graph(
         build_toy_model(0),
         first_path,
-        (1, 3, 32, 32),
+        (2, 3, 32, 32),
     )
     for variant_name in variant_names[1:]:
-        shutil.copyfile(first_path, onnx_dir / f"{variant_name}.onnx")
+        shutil.copyfile(first_path, graph_dir / f"{variant_name}.pt2")
     write_result_json(res_root, target_name, variant_names)

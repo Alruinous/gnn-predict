@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 
@@ -29,9 +30,11 @@ class InferenceResult(StrictModel):
     timings: TimeWindow = Field(default_factory=TimeWindow)
 
 
-class OnnxExportResult(StrictModel):
+class GraphExportResult(StrictModel):
     path: str
-    opset_version: int
+    format: Literal["pt2"] = "pt2"
+    artifact_schema_version: str
+    torch_version: str
     file_size_bytes: int | None = None
     graph_info: dict[str, int | float | str | list[str]] = Field(default_factory=dict)
 
@@ -49,13 +52,13 @@ class VariantResult(StrictModel):
     inference: InferenceResult | None = None
     prefill: InferenceResult | None = None
     decode: InferenceResult | None = None
-    onnx_export: OnnxExportResult | None = None
-    onnx_decode_export: OnnxExportResult | None = None
+    graph_export: GraphExportResult | None = None
+    decode_graph_export: GraphExportResult | None = None
     metadata: dict[str, JsonScalar] = Field(default_factory=dict)
 
 
 class ResultDocument(StrictModel):
-    schema_version: str = "2.0.0"
+    schema_version: str = "3.0.0"
     config_path: str
     gpu_node: str
     timings: dict[str, TimeWindow] = Field(default_factory=dict)

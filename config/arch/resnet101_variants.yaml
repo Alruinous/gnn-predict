@@ -10,8 +10,7 @@ base_model_groups:
     - 10
     - 1000
     base_variant_config_template:
-      export_onnx: false
-      onnx_export_mode: architecture_only
+      export_graph: false
       example_input_shape:
       - 1
       - 3

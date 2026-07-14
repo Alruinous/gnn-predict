@@ -1,12 +1,36 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
+import torch
 import torch.nn as nn
 from transformers import T5Config, T5ForSequenceClassification
 
 if TYPE_CHECKING:
     from gnn_archs.config import ResolvedVariantSpec
+
+
+class T5SequenceClassificationGraph(nn.Module):
+    def __init__(self, model: T5ForSequenceClassification) -> None:
+        super().__init__()
+        self.model = model
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        decoder_input_ids = self.model._shift_right(input_ids)
+        outputs = self.model.transformer(
+            input_ids,
+            attention_mask=attention_mask,
+            decoder_input_ids=decoder_input_ids,
+            use_cache=False,
+            return_dict=False,
+        )
+        sequence_output = cast(torch.Tensor, outputs[0])
+        sentence_representation = sequence_output[:, -1, :]  # [B,S,H]->[B,H]
+        return self.model.classification_head(sentence_representation)
 
 
 def build_t5_variant_model(spec: ResolvedVariantSpec) -> nn.Module:

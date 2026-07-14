@@ -3,24 +3,18 @@
 from __future__ import annotations
 
 import copy
-import json
 import time
 from typing import TYPE_CHECKING, Any
 
-import onnx
 import torch
 import torch.nn as nn
 
+from common.graph_artifact import capture_inference_graph
 from gnn_archs.result import (
+    GraphExportResult,
     InferenceResult,
-    OnnxExportResult,
     TimeWindow,
     TrainingResult,
-)
-from gnn_archs.util.onnx_initializer import (
-    ONNX_EXPORT_MODE_METADATA_KEY,
-    RUNTIME_INPUT_NAMES_METADATA_KEY,
-    set_model_metadata_value,
 )
 
 if TYPE_CHECKING:
@@ -258,13 +252,18 @@ def _adapt_module_replacement_args(
     return adapted_args
 
 
-def export_detection_onnx(
+def export_detection_graph(
     spec: ResolvedVariantSpec,
     model: nn.Module,
     context: RunContext,
-) -> OnnxExportResult:
-    """Export a YOLO detection model to ONNX."""
+) -> GraphExportResult:
+    from gnn_archs.graph_export import write_graph_export
+
     model.eval()
+    device = next(model.parameters()).device
+    dummy_input = torch.randn(*spec.variant_config.example_input_shape, device=device)
+    with torch.no_grad():
+        model(dummy_input)
 
     export_states = []
     for m in model.modules():
@@ -272,56 +271,13 @@ def export_detection_onnx(
             export_states.append((m, m.export))
             m.export = True
 
-    device = next(model.parameters()).device
-    dummy_input = torch.randn(*spec.variant_config.example_input_shape, device=device)
-    export_path = context.output_layout.onnx_models_dir / f"{spec.name}.onnx"
-
-    export_mode = spec.variant_config.onnx_export_mode
-    input_names = ["images"]
-
+    export_path = context.output_layout.fx_graphs_dir / f"{spec.name}.pt2"
     try:
-        torch.onnx.export(
+        exported_program = capture_inference_graph(
             model,
-            dummy_input,
-            str(export_path),
-            input_names=input_names,
-            output_names=["output"],
-            opset_version=14,
-            dynamo=False,
-            export_params=(export_mode == "full"),
+            (dummy_input,),
         )
-
-        onnx_model = onnx.load(str(export_path))
-        set_model_metadata_value(
-            onnx_model, RUNTIME_INPUT_NAMES_METADATA_KEY, json.dumps(input_names)
-        )
-        set_model_metadata_value(onnx_model, ONNX_EXPORT_MODE_METADATA_KEY, export_mode)
-        onnx.save(onnx_model, str(export_path))
-        onnx.checker.check_model(onnx_model)
-
-        graph_input_names = [v.name for v in onnx_model.graph.input]
-        parameter_input_names = [
-            name for name in graph_input_names if name not in input_names
-        ]
-        initializer_names = [v.name for v in onnx_model.graph.initializer]
-
-        graph_info = {
-            "node_count": len(onnx_model.graph.node),
-            "input_names": graph_input_names,
-            "output_names": [v.name for v in onnx_model.graph.output],
-            "op_types": sorted({node.op_type for node in onnx_model.graph.node}),
-            "runtime_input_names": input_names,
-            "parameter_input_names": parameter_input_names,
-            "initializer_names": initializer_names,
-            "initializer_count": len(initializer_names),
-        }
-
-        return OnnxExportResult(
-            path=str(export_path),
-            opset_version=14,
-            file_size_bytes=export_path.stat().st_size,
-            graph_info=graph_info,
-        )
+        return write_graph_export(exported_program, export_path, ["images"])
     finally:
         for module, export_state in export_states:
             module.export = export_state

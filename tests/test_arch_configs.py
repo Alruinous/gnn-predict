@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -14,7 +13,6 @@ from gnn_archs.config import (
     ResolvedVariantSpec,
     is_causal_lm_model_name,
     is_detection_model_name,
-    is_recommender_model_name,
     is_text_model_name,
 )
 from gnn_archs.mutations import (
@@ -22,10 +20,9 @@ from gnn_archs.mutations import (
     TEXT_MUTATION_TYPES,
     apply_text_config_mutations,
 )
-from gnn_archs.yolo_builder import YOLO_YAML_MUTATION_TYPES
 from gnn_archs.util.variant_expander import expand_arch_config
 from gnn_archs.variant_runner import build_bert_config
-
+from gnn_archs.yolo_builder import YOLO_YAML_MUTATION_TYPES
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCH_CONFIG_DIR = ROOT / "config" / "arch"
@@ -50,40 +47,7 @@ GEMMA_CONFIG_VARIANT_COUNTS = {
     "gemma_variants.yaml": 22,
 }
 GEMMA4_CONFIG_VARIANT_COUNTS = {
-    "gemma4_v100.yaml": 320,
-    "gemma4_a100.yaml": 367,
-}
-GEMMA4_LONG_DECODE_SHAPES = {
-    (batch_size, sequence_length)
-    for batch_size in (1, 2)
-    for sequence_length in (
-        64,
-        128,
-        192,
-        256,
-        384,
-        512,
-        768,
-        1024,
-        1536,
-        2048,
-        3072,
-        4096,
-    )
-}
-GEMMA4_LONG_DECODE_OUTPUTS = {
-    16,
-    32,
-    64,
-    128,
-    192,
-    256,
-    384,
-    512,
-    768,
-    1024,
-    1536,
-    2048,
+    "gemma4.yaml": 615,
 }
 CAUSAL_LM_FULL_FLOW_SHAPES = {
     (1, 128),
@@ -97,24 +61,6 @@ CAUSAL_LM_FULL_FLOW_SHAPES = {
     (3, 256),
     (4, 128),
     (4, 256),
-}
-RECOMMENDER_CONFIG_VARIANT_COUNTS = {
-    "deepfm_variants.yaml": 252,
-    "dcn_variants.yaml": 252,
-    "dcnv2_variants.yaml": 384,
-    "edcn_variants.yaml": 252,
-}
-RECOMMENDER_CONFIG_BATCH_COUNTS = {
-    "deepfm_variants.yaml": {1024: 6, 2048: 240, 4096: 6},
-    "dcn_variants.yaml": {1024: 6, 2048: 240, 4096: 6},
-    "dcnv2_variants.yaml": {1024: 6, 2048: 372, 4096: 6},
-    "edcn_variants.yaml": {1024: 6, 2048: 240, 4096: 6},
-}
-RECOMMENDER_CONFIG_SIGNATURE_COUNTS = {
-    "deepfm_variants.yaml": 240,
-    "dcn_variants.yaml": 240,
-    "dcnv2_variants.yaml": 372,
-    "edcn_variants.yaml": 240,
 }
 
 
@@ -177,8 +123,7 @@ def test_arch_configs_validate_and_expand(config_path: Path) -> None:
 
     assert variants
     assert all(
-        variant.variant_config.onnx_export_mode == "architecture_only"
-        for variant in variants
+        isinstance(variant.variant_config.export_graph, bool) for variant in variants
     )
 
 
@@ -355,17 +300,19 @@ def test_gemma4_arch_configs_expand_to_expected_counts(
 
     variants = expand_arch_config(config)
     full_flow_variants = [
-        variant for variant in variants if variant.variant_config.run_training
-    ]
-    long_decode_variants = [
         variant
         for variant in variants
-        if variant.variant_config.run_decode
-        and not variant.variant_config.run_training
-        and not variant.variant_config.run_prefill
-        and variant.variant_config.gemma4_config is not None
-        and variant.variant_config.gemma4_config.hidden_size == 768
-        and variant.variant_config.gemma4_config.num_hidden_layers == 16
+        if variant.variant_config.run_prefill and variant.variant_config.run_decode
+    ]
+    decode_only_variants = [
+        variant
+        for variant in variants
+        if variant.variant_config.run_decode and not variant.variant_config.run_prefill
+    ]
+    prefill_only_variants = [
+        variant
+        for variant in variants
+        if variant.variant_config.run_prefill and not variant.variant_config.run_decode
     ]
 
     assert len(variants) == expected_count
@@ -377,9 +324,7 @@ def test_gemma4_arch_configs_expand_to_expected_counts(
     assert all(variant.variant_config.use_fake_text_dataset for variant in variants)
     assert all(not variant.mutations for variant in variants)
     assert all(variant.variant_config.qwen3_config is None for variant in variants)
-    assert all(
-        variant.variant_config.gemma4_config is not None for variant in variants
-    )
+    assert all(variant.variant_config.gemma4_config is not None for variant in variants)
     assert all(
         variant.variant_config.target_input_channels is None for variant in variants
     )
@@ -402,167 +347,18 @@ def test_gemma4_arch_configs_expand_to_expected_counts(
         for variant in variants
         if variant.variant_config.gemma4_config is not None
     )
+    assert len(full_flow_variants) == 73
+    assert len(decode_only_variants) == 530
+    assert len(prefill_only_variants) == 12
+    assert all(not variant.variant_config.run_training for variant in variants)
     assert all(
-        variant.variant_config.run_prefill and variant.variant_config.run_decode
-        for variant in full_flow_variants
+        variant.variant_config.decode_max_output_length > 0
+        for variant in full_flow_variants + decode_only_variants
     )
-    assert len(long_decode_variants) == 288
-    assert {
-        tuple(variant.variant_config.example_input_shape)
-        for variant in long_decode_variants
-    } == GEMMA4_LONG_DECODE_SHAPES
-    assert {
-        variant.variant_config.decode_max_output_length
-        for variant in long_decode_variants
-    } == GEMMA4_LONG_DECODE_OUTPUTS
-
-    if config_name == "gemma4_v100.yaml":
-        assert len(full_flow_variants) == 18
-        assert all(
-            variant.variant_config.gemma4_config is not None
-            and variant.variant_config.gemma4_config.hidden_size <= 1280
-            for variant in full_flow_variants
-        )
-        assert all(
-            variant.variant_config.example_input_shape[0]
-            * variant.variant_config.example_input_shape[1]
-            <= 512
-            for variant in full_flow_variants
-        )
-    else:
-        assert len(full_flow_variants) == 25
-        assert max(
-            variant.variant_config.gemma4_config.hidden_size
-            for variant in full_flow_variants
-            if variant.variant_config.gemma4_config is not None
-        ) == 1792
-        assert {
-            tuple(variant.variant_config.example_input_shape)
-            for variant in full_flow_variants
-            if variant.variant_config.gemma4_config is not None
-            and variant.variant_config.gemma4_config.hidden_size == 1792
-        } == {(1, 128)}
-
-
-@pytest.mark.parametrize(
-    ("config_name", "expected_count"),
-    RECOMMENDER_CONFIG_VARIANT_COUNTS.items(),
-)
-def test_recommender_arch_configs_expand_to_expected_counts(
-    config_name: str, expected_count: int
-) -> None:
-    config = load_arch_config(ARCH_CONFIG_DIR / config_name)
-
-    variants = expand_arch_config(config)
-
-    assert len(variants) == expected_count
     assert all(
-        is_recommender_model_name(variant.base_model.name) for variant in variants
+        variant.variant_config.decode_max_output_length == 0
+        for variant in prefill_only_variants
     )
-    if config_name == "deepfm_variants.yaml":
-        assert all(variant.variant_config.deepfm_config is not None for variant in variants)
-        assert all(variant.variant_config.dcn_config is None for variant in variants)
-    if config_name == "dcn_variants.yaml":
-        assert all(variant.variant_config.dcn_config is not None for variant in variants)
-        assert all(variant.variant_config.deepfm_config is None for variant in variants)
-    if config_name == "dcnv2_variants.yaml":
-        assert all(variant.variant_config.dcnv2_config is not None for variant in variants)
-        assert all(variant.variant_config.deepfm_config is None for variant in variants)
-    if config_name == "edcn_variants.yaml":
-        assert all(variant.variant_config.edcn_config is not None for variant in variants)
-        assert all(variant.variant_config.deepfm_config is None for variant in variants)
-    assert all(
-        len(variant.variant_config.example_input_shape) == 1 for variant in variants
-    )
-    batch_counts = Counter(
-        variant.variant_config.example_input_shape[0] for variant in variants
-    )
-    assert batch_counts == RECOMMENDER_CONFIG_BATCH_COUNTS[config_name]
-    assert all(not variant.mutations for variant in variants)
-    assert (
-        len(build_recommender_structural_signatures(variants))
-        == RECOMMENDER_CONFIG_SIGNATURE_COUNTS[config_name]
-    )
-
-
-def test_recommender_variant_rejects_multiple_model_configs() -> None:
-    common_config = {
-        "sparse_features": [{"name": "user_id", "vocab_size": 32, "embed_dim": 4}],
-        "dense_features": [{"name": "score"}],
-        "mlp_dims": [8, 4],
-        "activation": "relu",
-        "dropout": 0.0,
-    }
-
-    with pytest.raises(ValueError, match="only one recommender config"):
-        ArchConfig.model_validate(
-            {
-                "base_model_groups": [
-                    {
-                        "base_model": {"name": "deepfm", "pretrained": False},
-                        "single_variant_define": [
-                            {
-                                "name": "invalid_recommender_config",
-                                "variant_config": {
-                                    "target_output_classes": 1,
-                                    "example_input_shape": [2],
-                                    "deepfm_config": {
-                                        **common_config,
-                                        "fm_feature_names": ["user_id"],
-                                    },
-                                    "dcn_config": {
-                                        **common_config,
-                                        "n_cross_layers": 2,
-                                    },
-                                },
-                                "mutations": [],
-                            }
-                        ],
-                    }
-                ]
-            }
-        )
-
-
-def build_recommender_structural_signatures(
-    variants: list[ResolvedVariantSpec],
-) -> set[tuple[object, ...]]:
-    signatures: set[tuple[object, ...]] = set()
-    for variant in variants:
-        variant_config = variant.variant_config
-        model_config = (
-            variant_config.deepfm_config
-            or variant_config.dcn_config
-            or variant_config.dcnv2_config
-            or variant_config.edcn_config
-        )
-        assert model_config is not None
-        signatures.add(
-            (
-                variant.base_model.name,
-                tuple(
-                    (feature.name, feature.vocab_size, feature.embed_dim)
-                    for feature in model_config.sparse_features
-                ),
-                tuple(
-                    (feature.name, feature.embed_dim)
-                    for feature in model_config.dense_features
-                ),
-                tuple(getattr(model_config, "mlp_dims", []) or []),
-                model_config.activation,
-                model_config.dropout,
-                tuple(getattr(model_config, "fm_feature_names", []) or []),
-                getattr(model_config, "n_cross_layers", None),
-                getattr(model_config, "low_rank", None),
-                getattr(model_config, "num_experts", None),
-                getattr(model_config, "model_structure", None),
-                getattr(model_config, "use_low_rank_mixture", None),
-                getattr(model_config, "bridge_type", None),
-                getattr(model_config, "use_regulation_module", None),
-                getattr(model_config, "temperature", None),
-            )
-        )
-    return signatures
 
 
 def assert_causal_lm_full_flow_variants(
@@ -632,8 +428,6 @@ def test_arch_config_mutations_match_model_kind(config_path: Path) -> None:
     for group in config.base_model_groups:
         if is_detection_model_name(group.base_model.name):
             allowed_mutation_types = YOLO_YAML_MUTATION_TYPES
-        elif is_recommender_model_name(group.base_model.name):
-            allowed_mutation_types = ()
         elif is_text_model_name(group.base_model.name):
             allowed_mutation_types = TEXT_MUTATION_TYPES
         else:
@@ -655,8 +449,7 @@ def test_arch_configs_define_phase_isolation_for_training_inference_pairs(
 
     for variant in expand_arch_config(config):
         if not (
-            variant.variant_config.run_training
-            and variant.variant_config.run_inference
+            variant.variant_config.run_training and variant.variant_config.run_inference
         ):
             continue
 
@@ -671,7 +464,9 @@ def test_bert_text_configs_apply_mutations_without_invalid_hidden_head_pairs(
 ) -> None:
     config = load_arch_config(config_path)
 
-    for case_name, base_model, variant_config, mutations in iter_text_variant_cases(config):
+    for case_name, base_model, variant_config, mutations in iter_text_variant_cases(
+        config
+    ):
         bert_config = build_bert_config(base_model, variant_config)
         mutated_config = apply_text_config_mutations(bert_config, mutations)
 

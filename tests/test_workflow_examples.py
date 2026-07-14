@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from workflow.artifacts import GpuKind, load_deployment_profile, load_prediction_cache
+from workflow.artifacts import GpuKind, load_prediction_cache
 from workflow.schema import AgentNodeConfig, FunctionNodeConfig, Workflow
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,18 +21,20 @@ def load_workflow(path: Path) -> Workflow:
 def test_runtime_examples_validate() -> None:
     workflow = load_workflow(EXAMPLE_DIR / "runtime.yaml")
     predictions = load_prediction_cache(EXAMPLE_DIR / "predictions.yaml")
-    profile = load_deployment_profile(EXAMPLE_DIR / "profile.yaml")
 
     assert workflow.graph.entry_node == "prepare"
     assert workflow.graph.terminal_node == "summarize"
-    assert predictions.version == 1
-    assert profile.version == 1
+    assert predictions.version == 2
+    assert predictions.environment == {
+        "storage_kind": "shared_model_dir",
+        "model_root": "/data/Models",
+        "prediction_scope": "gpu_kind",
+    }
 
 
-def test_runtime_artifacts_cover_agent_prediction_and_profile_keys() -> None:
+def test_runtime_prediction_cache_covers_agent_resource_keys() -> None:
     workflow = load_workflow(EXAMPLE_DIR / "runtime.yaml")
     predictions = load_prediction_cache(EXAMPLE_DIR / "predictions.yaml")
-    profile = load_deployment_profile(EXAMPLE_DIR / "profile.yaml")
     nodes = workflow.node_map()
     prepare = nodes["prepare"]
     summarize = nodes["summarize"]
@@ -40,15 +42,6 @@ def test_runtime_artifacts_cover_agent_prediction_and_profile_keys() -> None:
     assert isinstance(prepare, FunctionNodeConfig)
     assert prepare.routing == "broadcast"
     assert isinstance(summarize, AgentNodeConfig)
-
-    matching_profiles = {
-        entry.gpu_kind
-        for entry in profile.entries
-        if entry.model_name == summarize.model.name
-        and entry.model_path == summarize.execution.model_path
-        and entry.dtype == summarize.execution.dtype
-    }
-    assert matching_profiles == set(GPU_KINDS)
 
     for gpu_kind in GPU_KINDS:
         for output_length in OUTPUT_BUCKETS:
@@ -66,3 +59,6 @@ def test_runtime_artifacts_cover_agent_prediction_and_profile_keys() -> None:
                 "sequence_length": 2048,
                 "decode_output_length": output_length,
             }
+            assert entry.predicted_load_sec > 0
+            assert entry.predicted_run_sec > 0
+            assert entry.predicted_peak_vram_mb > 0

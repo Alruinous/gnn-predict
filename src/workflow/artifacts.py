@@ -24,7 +24,6 @@ from common.validate import NonEmptyStr
 from workflow.types import WorkflowModelFeatureKey
 
 GpuKind = Literal["v100", "a100"]
-DeploymentProfileIndexKey = tuple[str, str, str, str]
 OpenUnitInterval = Annotated[float, Field(gt=0, le=1)]
 UnitInterval = Annotated[float, Field(ge=0, le=1)]
 
@@ -46,15 +45,23 @@ class AcceleratorConfig(ArtifactModel):
 
 class SchedulerConfig(ArtifactModel):
     accelerators: tuple[AcceleratorConfig, ...] = ()
+    vllm_python_executable: NonEmptyStr | None = None
     eps_mem_mb: NonNegativeFloat = 512.0
     eps_time_sec: NonNegativeFloat = 0.25
     max_tick_interval_sec: PositiveFloat = 0.5
     acquire_timeout_sec: PositiveFloat = 60.0
     grant_poll_interval_sec: PositiveFloat = 0.05
     eviction_timeout_sec: PositiveFloat = 30.0
-    default_load_sec: PositiveFloat = 30.0
     history_ema_alpha: OpenUnitInterval = 0.2
     hit_limit_rate_threshold: UnitInterval = 0.1
+
+    @field_validator("vllm_python_executable")
+    @classmethod
+    def normalize_vllm_python_executable(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        # Resolving a venv Python symlink discards the environment's sys.prefix.
+        return str(Path(value).expanduser().absolute())
 
     @model_validator(mode="after")
     def validate_accelerators(self) -> Self:
@@ -80,6 +87,7 @@ class SchedulerConfig(ArtifactModel):
 
 class PredictionEntry(ArtifactModel):
     key: WorkflowModelFeatureKey
+    predicted_load_sec: PositiveFloat
     predicted_run_sec: PositiveFloat
     predicted_peak_vram_mb: PositiveFloat
     predicted_power_watts: NonNegativeFloat | None = None
@@ -98,6 +106,7 @@ class PredictionEntry(ArtifactModel):
 
 class PredictionCache(ArtifactModel):
     version: PositiveInt
+    environment: dict[str, JsonValue] = Field(default_factory=dict)
     entries: tuple[PredictionEntry, ...]
     _index: Mapping[WorkflowModelFeatureKey, PredictionEntry] = PrivateAttr(
         default_factory=dict
@@ -121,6 +130,7 @@ class PredictionCache(ArtifactModel):
         *,
         model_name: str,
         gpu_kind: GpuKind,
+        batch_size: int = 1,
         sequence_length: int,
         decode_output_length: int,
     ) -> PredictionEntry:
@@ -128,14 +138,17 @@ class PredictionCache(ArtifactModel):
             model_name=model_name,
             phase="decode",
             gpu_name=gpu_kind,
-            batch_size=1,
+            batch_size=batch_size,
             sequence_length=sequence_length,
             decode_output_length=decode_output_length,
         )
         return self.lookup(key)
 
     def decode_sequence_lengths(
-        self, model_name: str, gpu_kind: GpuKind
+        self,
+        model_name: str,
+        gpu_kind: GpuKind,
+        batch_size: int = 1,
     ) -> tuple[int, ...]:
         return tuple(
             sorted(
@@ -145,7 +158,7 @@ class PredictionCache(ArtifactModel):
                     if entry.key.model_name == model_name
                     and entry.key.phase == "decode"
                     and entry.key.gpu_name == gpu_kind
-                    and entry.key.batch_size == 1
+                    and entry.key.batch_size == batch_size
                 }
             )
         )
@@ -155,6 +168,7 @@ class PredictionCache(ArtifactModel):
         model_name: str,
         gpu_kind: GpuKind,
         sequence_length: int,
+        batch_size: int = 1,
     ) -> tuple[int, ...]:
         return tuple(
             sorted(
@@ -164,91 +178,38 @@ class PredictionCache(ArtifactModel):
                     if entry.key.model_name == model_name
                     and entry.key.phase == "decode"
                     and entry.key.gpu_name == gpu_kind
-                    and entry.key.batch_size == 1
+                    and entry.key.batch_size == batch_size
                     and entry.key.sequence_length == sequence_length
                 }
             )
         )
 
-
-class DeploymentProfileEntry(ArtifactModel):
-    model_name: NonEmptyStr
-    model_path: NonEmptyStr
-    dtype: NonEmptyStr
-    gpu_kind: GpuKind
-    samples: PositiveInt | None = None
-    load_sec_median: PositiveFloat | None = None
-    load_sec_p95: PositiveFloat | None = None
-    idle_vram_mb_median: NonNegativeFloat | None = None
-
-
-class DeploymentProfile(ArtifactModel):
-    version: PositiveInt
-    environment: dict[str, JsonValue] = Field(default_factory=dict)
-    entries: tuple[DeploymentProfileEntry, ...]
-    _index: Mapping[DeploymentProfileIndexKey, DeploymentProfileEntry] = PrivateAttr(
-        default_factory=dict
-    )
-
-    @model_validator(mode="after")
-    def build_index(self) -> Self:
-        index: dict[DeploymentProfileIndexKey, DeploymentProfileEntry] = {}
-        for entry in self.entries:
-            index_key = _deployment_profile_index_key(
-                entry.model_name,
-                entry.model_path,
-                entry.dtype,
-                entry.gpu_kind,
-            )
-            if index_key in index:
-                raise ValueError(f"duplicate deployment profile key: {index_key}")
-            index[index_key] = entry
-        self._index = MappingProxyType(index)
-        return self
-
-    def lookup(
+    def missing_decode_batch_keys(
         self,
         model_name: str,
-        model_path: str,
-        dtype: str,
         gpu_kind: GpuKind,
-    ) -> DeploymentProfileEntry | None:
-        return self._index.get(
-            _deployment_profile_index_key(model_name, model_path, dtype, gpu_kind)
+        max_batch_size: int,
+    ) -> tuple[WorkflowModelFeatureKey, ...]:
+        base_keys = sorted(
+            (
+                entry.key
+                for entry in self.entries
+                if entry.key.model_name == model_name
+                and entry.key.phase == "decode"
+                and entry.key.gpu_name == gpu_kind
+                and entry.key.batch_size == 1
+            ),
+            key=lambda key: (key.sequence_length, key.decode_output_length),
         )
-
-    def load_cost_sec(
-        self,
-        model_name: str,
-        model_path: str,
-        dtype: str,
-        gpu_kind: GpuKind,
-        default_load_sec: float,
-    ) -> float:
-        entry = self.lookup(model_name, model_path, dtype, gpu_kind)
-        if entry is None:
-            return default_load_sec
-        if entry.load_sec_p95 is not None:
-            return entry.load_sec_p95
-        if entry.load_sec_median is not None:
-            return entry.load_sec_median
-        return default_load_sec
+        missing: list[WorkflowModelFeatureKey] = []
+        for batch_size in range(1, max_batch_size + 1):
+            for base_key in base_keys:
+                key = base_key.model_copy(update={"batch_size": batch_size})
+                if key not in self._index:
+                    missing.append(key)
+        return tuple(missing)
 
 
 def load_prediction_cache(path: str | Path) -> PredictionCache:
     with Path(path).open(encoding="utf-8") as stream:
         return PredictionCache.model_validate(yaml.safe_load(stream))
-
-
-def load_deployment_profile(path: str | Path) -> DeploymentProfile:
-    with Path(path).open(encoding="utf-8") as stream:
-        return DeploymentProfile.model_validate(yaml.safe_load(stream))
-
-
-def _deployment_profile_index_key(
-    model_name: str,
-    model_path: str,
-    dtype: str,
-    gpu_kind: GpuKind,
-) -> DeploymentProfileIndexKey:
-    return model_name, model_path, dtype, gpu_kind

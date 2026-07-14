@@ -16,7 +16,7 @@ from langchain.agents import AgentState
 from langchain_core.messages import AIMessage
 from ray.exceptions import RayActorError
 
-from workflow.replica import PromptTokenizer, ReplicaInferenceResult
+from workflow.replica import PromptEncoding, ReplicaInferenceResult
 from workflow.scheduler import (
     AcquireAlreadyGrantedError,
     AgentTaskRuntimeReport,
@@ -50,7 +50,9 @@ class PromptTokenizerProtocol(Protocol):
         user_prompt: str,
         *,
         system_prompt: str | None = None,
-    ) -> tuple[str, int]: ...
+    ) -> PromptEncoding: ...
+
+    def decode(self, token_ids: tuple[int, ...]) -> str: ...
 
 
 PromptTokenizerFactory = Callable[[ExecutionConfig], PromptTokenizerProtocol]
@@ -206,12 +208,15 @@ async def execute_agent(
     tokenizer: PromptTokenizerProtocol,
     acquire_timeout_sec: float,
     grant_poll_interval_sec: float,
+    grant_observer: Callable[[GrantInfoProtocol], None] | None = None,
+    grant_finished: Callable[[], None] | None = None,
 ) -> AgentExecutionResult:
     user_prompt = _render_prompt(node.prompt_template, prompt_context)
-    prompt, input_tokens = tokenizer.build_prompt(
+    prompt = tokenizer.build_prompt(
         user_prompt,
         system_prompt=node.system_prompt,
     )
+    input_tokens = prompt.input_tokens
     acquire_value = await _invoke(
         scheduler,
         "request_acquire",
@@ -228,17 +233,24 @@ async def execute_agent(
         grant_poll_interval_sec=grant_poll_interval_sec,
     )
     _validate_grant(grant, acquire_value, task_id, input_tokens)
-
-    result_value = await _invoke(
-        grant.backend_handle,
-        "invoke",
-        prompt,
-        input_tokens=input_tokens,
-        max_new_tokens=grant.granted_max_new_tokens,
-        generation=node.execution,
-    )
+    if grant_observer is not None:
+        grant_observer(grant)
+    try:
+        result_value = await _invoke(
+            grant.backend_handle,
+            "invoke",
+            acquire_value,
+            prompt.token_ids,
+            max_new_tokens=grant.granted_max_new_tokens,
+            generation=node.execution,
+        )
+    finally:
+        if grant_finished is not None:
+            grant_finished()
     if not isinstance(result_value, ReplicaInferenceResult):
         raise TypeError("replica invoke must return ReplicaInferenceResult")
+    if result_value.request_id != acquire_value:
+        raise ValueError("replica result does not match the acquire request")
     report = AgentTaskRuntimeReport(
         acquire_id=acquire_value,
         task_id=task_id,
@@ -252,17 +264,21 @@ async def execute_agent(
         granted_max_new_tokens=grant.granted_max_new_tokens,
         output_tokens=result_value.output_tokens,
         hit_token_limit=result_value.hit_token_limit,
+        finish_reason=result_value.finish_reason,
+        queue_time_sec=result_value.queue_time_sec,
+        time_to_first_token_sec=result_value.time_to_first_token_sec,
+        replica_inflight_at_start=result_value.replica_inflight_at_start,
         started_at=result_value.started_at,
         finished_at=result_value.finished_at,
         duration_sec=result_value.duration_sec,
         status=result_value.status,
+        engine_failed=result_value.engine_failed,
         error_type=result_value.error_type,
     )
     output = None
     if result_value.status == "success":
-        if result_value.output_text is None:
-            raise ValueError("successful replica result must include output text")
-        output = AgentState(messages=[AIMessage(content=result_value.output_text)])
+        output_text = tokenizer.decode(result_value.output_token_ids)
+        output = AgentState(messages=[AIMessage(content=output_text)])
     return AgentExecutionResult(report=report, output=output)
 
 
@@ -314,14 +330,25 @@ class NodeWorker:
         self.status = NodeWorkerState.IDLE
         self._stopping = False
         self._run_started = False
-        self._processing = False
+        self._active_tasks: dict[str, asyncio.Task[None]] = {}
+        self._active_replica_requests: dict[str, tuple[object, str]] = {}
+        self._tokenizer: PromptTokenizerProtocol | None = None
 
     async def run(self) -> None:
         if self._run_started:
             raise RuntimeError("node worker has already started")
         self._run_started = True
         try:
-            while not self._stopping:
+            while True:
+                self._reap_finished_tasks()
+                if self._stopping:
+                    if self._active_tasks:
+                        await self._wait_for_finished_task()
+                        continue
+                    break
+                if len(self._active_tasks) >= self._concurrency_limit:
+                    await self._wait_for_finished_task()
+                    continue
                 item_value = await _poll_input_queue(
                     self.input_queue,
                     self.control_poll_interval_sec,
@@ -330,11 +357,31 @@ class NodeWorker:
                     continue
                 if not isinstance(item_value, WorkflowDataItem):
                     raise TypeError("node input queues carry WorkflowDataItem only")
-                await self.process_item(item_value)
+                if item_value.session_id in self._active_tasks:
+                    raise RuntimeError("node worker already handles this session")
+                task = asyncio.create_task(self.process_item(item_value))
+                self._active_tasks[item_value.session_id] = task
+                self.status = NodeWorkerState.RUNNING
         finally:
+            tasks = tuple(self._active_tasks.values())
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            self._active_tasks.clear()
             self.status = NodeWorkerState.STOPPED
 
     async def process_item(self, item: WorkflowDataItem) -> None:
+        managed = asyncio.current_task() in self._active_tasks.values()
+        if not managed:
+            self.status = NodeWorkerState.RUNNING
+        try:
+            await self._process_item(item)
+        finally:
+            if not managed and not self._stopping:
+                self.status = NodeWorkerState.IDLE
+
+    async def _process_item(self, item: WorkflowDataItem) -> None:
         if item.target_node != self.node.name:
             raise ValueError(
                 f"item target {item.target_node!r} does not match {self.node.name!r}"
@@ -370,56 +417,72 @@ class NodeWorker:
             ),
             input_item_ids=tuple(ready.input_item_ids),
         )
-        if self._processing:
-            raise RuntimeError("node worker already has an in-flight task")
-
-        self._processing = True
-        self.status = NodeWorkerState.RUNNING
         try:
-            try:
-                task_value = await _invoke(
-                    self.scheduler,
-                    "begin_node",
-                    item.session_id,
-                    self.node.name,
-                    ready.input_item_ids,
-                )
-            except SessionInactiveError:
-                return
-            if not isinstance(task_value, str):
-                raise TypeError("begin_node must return a task id")
-            session_inputs = await self._resolve_inputs(
-                ready.items[0].session_input_ref
+            task_value = await _invoke(
+                self.scheduler,
+                "begin_node",
+                item.session_id,
+                self.node.name,
+                ready.input_item_ids,
+            )
+        except SessionInactiveError:
+            return
+        if not isinstance(task_value, str):
+            raise TypeError("begin_node must return a task id")
+        session_inputs = await self._resolve_inputs(ready.items[0].session_input_ref)
+
+        if isinstance(self.node, FunctionNodeConfig):
+            await self._process_function(
+                task_value,
+                item.session_id,
+                ready,
+                session_inputs,
+            )
+        else:
+            await self._process_agent(
+                task_value,
+                item.session_id,
+                ready,
+                session_inputs,
             )
 
-            if isinstance(self.node, FunctionNodeConfig):
-                await self._process_function(
-                    task_value,
-                    item.session_id,
-                    ready,
-                    session_inputs,
-                )
-            else:
-                await self._process_agent(
-                    task_value,
-                    item.session_id,
-                    ready,
-                    session_inputs,
-                )
-        finally:
-            self._processing = False
-            if not self._stopping:
-                self.status = NodeWorkerState.IDLE
-
-    def cancel_session(self, session_id: str) -> None:
+    async def cancel_session(self, session_id: str) -> None:
         self.cancelled_sessions.add(session_id)
         self.fanin_store.pop(session_id, None)
+        active = self._active_replica_requests.get(session_id)
+        if active is not None:
+            backend_handle, request_id = active
+            await _invoke(backend_handle, "abort", request_id)
 
     def stop(self) -> None:
         self._stopping = True
 
     def get_state(self) -> NodeWorkerState:
         return self.status
+
+    @property
+    def _concurrency_limit(self) -> int:
+        if isinstance(self.node, AgentNodeConfig):
+            return self.node.execution.serving.max_num_seqs
+        return 1
+
+    def _reap_finished_tasks(self) -> None:
+        for session_id, task in tuple(self._active_tasks.items()):
+            if not task.done():
+                continue
+            del self._active_tasks[session_id]
+            task.result()
+        if not self._active_tasks and not self._stopping:
+            self.status = NodeWorkerState.IDLE
+
+    async def _wait_for_finished_task(self) -> None:
+        if not self._active_tasks:
+            return
+        await asyncio.wait(
+            tuple(self._active_tasks.values()),
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        self._reap_finished_tasks()
 
     async def _observe_input(
         self,
@@ -532,7 +595,7 @@ class NodeWorker:
         session_inputs: Mapping[str, object],
     ) -> None:
         node = cast(AgentNodeConfig, self.node)
-        tokenizer = self.prompt_tokenizer_factory(node.execution)
+        tokenizer = self._agent_tokenizer(node.execution)
         prompt_context = build_prompt_context(session_inputs, ready.states)
         timeout_attempts = 0
         while True:
@@ -547,6 +610,10 @@ class NodeWorker:
                     tokenizer=tokenizer,
                     acquire_timeout_sec=self.acquire_timeout_sec,
                     grant_poll_interval_sec=self.grant_poll_interval_sec,
+                    grant_observer=lambda grant: self._track_replica_request(
+                        session_id, grant
+                    ),
+                    grant_finished=lambda: self._forget_replica_request(session_id),
                 )
             except TimeoutError as error:
                 timeout_attempts += 1
@@ -596,6 +663,29 @@ class NodeWorker:
                 return
             await self._finish_node(task_id, session_id, output_report)
             return
+
+    def _agent_tokenizer(
+        self,
+        execution: ExecutionConfig,
+    ) -> PromptTokenizerProtocol:
+        if self._tokenizer is None:
+            self._tokenizer = self.prompt_tokenizer_factory(execution)
+        return self._tokenizer
+
+    def _track_replica_request(
+        self,
+        session_id: str,
+        grant: GrantInfoProtocol,
+    ) -> None:
+        if session_id in self._active_replica_requests:
+            raise RuntimeError("session already has an active replica request")
+        self._active_replica_requests[session_id] = (
+            grant.backend_handle,
+            grant.acquire_id,
+        )
+
+    def _forget_replica_request(self, session_id: str) -> None:
+        self._active_replica_requests.pop(session_id, None)
 
     async def _complete(
         self,
@@ -803,6 +893,9 @@ def _resolve_session_inputs(input_ref: object) -> object:
 
 
 def _create_prompt_tokenizer(execution: ExecutionConfig) -> PromptTokenizerProtocol:
+    # Function-only workers should not import the Transformers runtime.
+    from workflow.tokenizer import PromptTokenizer
+
     return PromptTokenizer(execution)
 
 

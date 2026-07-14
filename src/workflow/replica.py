@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
 from collections.abc import Callable, Sequence
-from typing import Any, Literal, Protocol, cast
+from typing import Literal, Protocol
 
 import ray
 from pydantic import (
@@ -16,9 +17,15 @@ from pydantic import (
 )
 
 from common.validate import NonEmptyStr
-from workflow.schema import AgentNodeConfig, ExecutionConfig
+from workflow.schema import AgentNodeConfig, ExecutionConfig, ServingConfig
 
 PhysicalGpuId = int | str
+FinishReason = Literal["stop", "length", "abort"]
+ReplicaStatus = Literal["success", "failed", "oom", "cancelled"]
+
+VLLM_VERSION = "0.10.2"
+VLLM_ENGINE_MODE = "V0"
+VLLM_ATTENTION_BACKEND = "XFORMERS"
 
 
 class ReplicaContract(BaseModel):
@@ -28,7 +35,8 @@ class ReplicaContract(BaseModel):
 class ModelDeploymentConfig(ReplicaContract):
     model_name: NonEmptyStr
     model_path: NonEmptyStr
-    dtype: NonEmptyStr
+    dtype: Literal["float16"]
+    serving: ServingConfig
 
     @classmethod
     def from_node(cls, node: AgentNodeConfig) -> ModelDeploymentConfig:
@@ -36,210 +44,118 @@ class ModelDeploymentConfig(ReplicaContract):
             model_name=node.model.name,
             model_path=node.execution.model_path,
             dtype=node.execution.dtype,
+            serving=node.execution.serving,
         )
 
     @property
     def model_key(self) -> str:
         payload = json.dumps(
-            (self.model_name, self.model_path, self.dtype),
+            {
+                "backend": f"vllm-{VLLM_VERSION}-{VLLM_ENGINE_MODE}",
+                "model_name": self.model_name,
+                "model_path": self.model_path,
+                "dtype": self.dtype,
+                "serving": self.serving.model_dump(mode="json"),
+            },
             ensure_ascii=False,
+            sort_keys=True,
             separators=(",", ":"),
         )
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
+class PromptEncoding(ReplicaContract):
+    text: str
+    token_ids: tuple[NonNegativeInt, ...]
+
+    @property
+    def input_tokens(self) -> int:
+        return len(self.token_ids)
+
+
 class GenerationRequest(ReplicaContract):
-    prompt: str
-    input_tokens: NonNegativeInt
+    request_id: NonEmptyStr
+    prompt_token_ids: tuple[NonNegativeInt, ...]
     max_new_tokens: PositiveInt
     do_sample: bool
     temperature: float | None
 
+    @property
+    def input_tokens(self) -> int:
+        return len(self.prompt_token_ids)
+
 
 class BackendGeneration(ReplicaContract):
-    output_text: str
-    output_tokens: NonNegativeInt
+    output_token_ids: tuple[NonNegativeInt, ...]
+    finish_reason: FinishReason
+    queue_time_sec: NonNegativeFloat | None = None
+    time_to_first_token_sec: NonNegativeFloat | None = None
 
 
 class ReplicaLoadResult(ReplicaContract):
     physical_gpu_id: PhysicalGpuId
     duration_sec: NonNegativeFloat
     idle_vram_mb: NonNegativeFloat
+    vllm_version: NonEmptyStr = VLLM_VERSION
+    engine_mode: Literal["V0"] = VLLM_ENGINE_MODE
+    attention_backend: Literal["XFORMERS"] = VLLM_ATTENTION_BACKEND
+    max_num_seqs: PositiveInt = 1
 
 
 class ReplicaInferenceResult(ReplicaContract):
-    output_text: str | None
+    request_id: NonEmptyStr
+    output_token_ids: tuple[NonNegativeInt, ...]
     input_tokens: NonNegativeInt
     output_tokens: NonNegativeInt
     hit_token_limit: bool
+    finish_reason: FinishReason | None
+    queue_time_sec: NonNegativeFloat | None
+    time_to_first_token_sec: NonNegativeFloat | None
+    replica_inflight_at_start: PositiveInt
     started_at: float
     finished_at: float
     duration_sec: NonNegativeFloat
-    status: Literal["success", "failed", "oom"]
+    status: ReplicaStatus
+    engine_failed: bool = False
     error_type: str | None
     error_message: str | None
 
 
+class ReplicaStats(ReplicaContract):
+    active_requests: NonNegativeInt
+    peak_active_requests: NonNegativeInt
+    stopping: bool
+
+
+class GenerationAbortedError(RuntimeError):
+    pass
+
+
+class GenerationEngineFailedError(RuntimeError):
+    pass
+
+
+class GenerationOutOfMemoryError(RuntimeError):
+    pass
+
+
 class GenerationBackend(Protocol):
-    def generate(self, request: GenerationRequest) -> BackendGeneration: ...
+    idle_vram_mb: float
+    vllm_version: str
+    engine_mode: Literal["V0"]
+    attention_backend: Literal["XFORMERS"]
 
+    def load(self) -> None: ...
 
-class PromptTokenizerBackend(Protocol):
-    truncation_side: str
+    async def generate(self, request: GenerationRequest) -> BackendGeneration: ...
 
-    def apply_chat_template(
-        self,
-        messages: list[dict[str, str]],
-        /,
-        **kwargs: object,
-    ) -> object: ...
+    async def abort(self, request_id: str) -> None: ...
 
-    def encode(self, prompt: str, /, **kwargs: object) -> list[int]: ...
-
-
-class TransformersTokenizerBackend(Protocol):
-    def __call__(self, prompt: str, /, **kwargs: object) -> Any: ...
-
-    def decode(self, token_ids: object, /, **kwargs: object) -> object: ...
-
-
-class TransformersModelBackend(Protocol):
-    def eval(self) -> object: ...
-
-    def generate(self, **kwargs: object) -> Any: ...
+    def shutdown(self) -> None: ...
 
 
 BackendFactory = Callable[[ModelDeploymentConfig], GenerationBackend]
 GpuIdProvider = Callable[[], Sequence[PhysicalGpuId]]
-PromptTokenizerFactory = Callable[[ExecutionConfig], PromptTokenizerBackend]
-
-
-class PromptTokenizer:
-    def __init__(
-        self,
-        execution: ExecutionConfig,
-        *,
-        tokenizer_factory: PromptTokenizerFactory | None = None,
-    ) -> None:
-        factory = tokenizer_factory or _load_prompt_tokenizer
-        self._execution = execution
-        self._tokenizer = factory(execution)
-        if execution.truncation_side is not None:
-            self._tokenizer.truncation_side = execution.truncation_side
-
-    def build_prompt(
-        self,
-        user_prompt: str,
-        *,
-        system_prompt: str | None = None,
-    ) -> tuple[str, int]:
-        if self._execution.use_chat_template:
-            messages = []
-            if system_prompt is not None:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": user_prompt})
-            rendered = self._tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=self._execution.enable_thinking,
-            )
-            if not isinstance(rendered, str):
-                raise TypeError("chat template must render a string")
-            prompt = rendered
-        elif system_prompt is None:
-            prompt = user_prompt
-        else:
-            prompt = f"{system_prompt}\n\n{user_prompt}"
-
-        token_ids = self._tokenizer.encode(
-            prompt,
-            add_special_tokens=False,
-            truncation=False,
-        )
-        return prompt, len(token_ids)
-
-
-class TransformersBackend:
-    def __init__(self, deployment: ModelDeploymentConfig) -> None:
-        import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-
-        dtype_map: dict[str, torch.dtype] = {
-            "float16": torch.float16,
-            "bfloat16": torch.bfloat16,
-            "float32": torch.float32,
-        }
-        try:
-            dtype = dtype_map[deployment.dtype]
-        except KeyError as error:
-            supported = ", ".join(sorted(dtype_map))
-            raise ValueError(
-                f"unsupported dtype {deployment.dtype!r}; expected one of {supported}"
-            ) from error
-
-        tokenizer = AutoTokenizer.from_pretrained(
-            deployment.model_path,
-            local_files_only=True,
-        )
-        if tokenizer is None:
-            raise RuntimeError("AutoTokenizer returned no tokenizer")
-        self._tokenizer = cast(TransformersTokenizerBackend, tokenizer)
-        self._model = cast(
-            TransformersModelBackend,
-            AutoModelForCausalLM.from_pretrained(
-                deployment.model_path,
-                local_files_only=True,
-                dtype=dtype,
-                device_map="cuda:0",
-            ),
-        )
-        self._model.eval()
-        self._idle_vram_mb = float(torch.cuda.memory_allocated("cuda:0")) / 1024**2
-
-    @property
-    def idle_vram_mb(self) -> float:
-        return self._idle_vram_mb
-
-    def generate(self, request: GenerationRequest) -> BackendGeneration:
-        import torch
-
-        encoded = self._tokenizer(
-            request.prompt,
-            return_tensors="pt",
-            add_special_tokens=False,
-            truncation=False,
-        )
-        encoded = encoded.to("cuda:0")
-        input_tokens = int(encoded["input_ids"].shape[-1])
-        if input_tokens != request.input_tokens:
-            raise ValueError(
-                "prompt token count changed: "
-                f"expected {request.input_tokens}, got {input_tokens}"
-            )
-        generation_kwargs: dict[str, object] = {
-            "max_new_tokens": request.max_new_tokens,
-            "do_sample": request.do_sample,
-            "return_dict_in_generate": False,
-        }
-        if request.temperature is not None:
-            generation_kwargs["temperature"] = request.temperature
-        with torch.inference_mode():
-            generated_ids = self._model.generate(
-                **encoded,
-                **generation_kwargs,
-            )
-        new_token_ids = generated_ids[0, input_tokens:]
-        output_text = self._tokenizer.decode(
-            new_token_ids,
-            skip_special_tokens=True,
-        )
-        if not isinstance(output_text, str):
-            raise TypeError("tokenizer decode must return a string")
-        return BackendGeneration(
-            output_text=output_text,
-            output_tokens=int(new_token_ids.shape[-1]),
-        )
 
 
 class ModelReplica:
@@ -251,13 +167,18 @@ class ModelReplica:
         gpu_id_provider: GpuIdProvider | None = None,
     ) -> None:
         self.deployment = deployment
-        self._backend_factory = backend_factory or TransformersBackend
+        self._backend_factory = backend_factory or _create_vllm_backend
         self._gpu_id_provider = gpu_id_provider or ray.get_gpu_ids
         self._backend: GenerationBackend | None = None
+        self._active_request_ids: set[str] = set()
+        self._peak_active_requests = 0
+        self._stopping = False
 
     def load(self) -> ReplicaLoadResult:
         if self._backend is not None:
             raise RuntimeError("model replica is already loaded")
+        if self._stopping:
+            raise RuntimeError("model replica is stopping")
         gpu_ids = tuple(self._gpu_id_provider())
         if len(gpu_ids) != 1:
             raise RuntimeError(
@@ -266,100 +187,191 @@ class ModelReplica:
 
         started = time.perf_counter()
         backend = self._backend_factory(self.deployment)
+        backend.load()
         duration_sec = time.perf_counter() - started
         self._backend = backend
-        idle_vram_mb = (
-            backend.idle_vram_mb if isinstance(backend, TransformersBackend) else 0.0
-        )
         return ReplicaLoadResult(
             physical_gpu_id=gpu_ids[0],
             duration_sec=duration_sec,
-            idle_vram_mb=idle_vram_mb,
+            idle_vram_mb=backend.idle_vram_mb,
+            vllm_version=backend.vllm_version,
+            engine_mode=backend.engine_mode,
+            attention_backend=backend.attention_backend,
+            max_num_seqs=self.deployment.serving.max_num_seqs,
         )
 
-    def invoke(
+    async def invoke(
         self,
-        prompt: str,
+        request_id: str,
+        prompt_token_ids: tuple[int, ...],
         *,
-        input_tokens: int,
         max_new_tokens: int,
         generation: ExecutionConfig,
     ) -> ReplicaInferenceResult:
-        import torch
-
-        backend = self._backend
-        if backend is None:
-            raise RuntimeError("model replica must load before invoke")
+        backend = self._require_backend()
+        if self._stopping:
+            raise RuntimeError("model replica is stopping")
+        if generation.serving != self.deployment.serving:
+            raise ValueError("generation serving config does not match the replica")
+        if request_id in self._active_request_ids:
+            raise ValueError(f"duplicate vLLM request id: {request_id}")
+        inflight = len(self._active_request_ids) + 1
+        if inflight > self.deployment.serving.max_num_seqs:
+            raise RuntimeError("replica request capacity exceeded")
         request = GenerationRequest(
-            prompt=prompt,
-            input_tokens=input_tokens,
+            request_id=request_id,
+            prompt_token_ids=prompt_token_ids,
             max_new_tokens=max_new_tokens,
             do_sample=generation.do_sample,
             temperature=generation.temperature,
         )
+        self._active_request_ids.add(request_id)
+        self._peak_active_requests = max(self._peak_active_requests, inflight)
         started_at = time.time()
         started = time.perf_counter()
         try:
-            result = backend.generate(request)
-        except torch.cuda.OutOfMemoryError as error:
+            result = await backend.generate(request)
+        except GenerationOutOfMemoryError as error:
             return _failure_result(
                 request=request,
                 status="oom",
                 error=error,
+                inflight=inflight,
                 started_at=started_at,
                 started=started,
             )
+        except GenerationAbortedError as error:
+            return _failure_result(
+                request=request,
+                status="cancelled",
+                error=error,
+                inflight=inflight,
+                started_at=started_at,
+                started=started,
+                finish_reason="abort",
+            )
+        except GenerationEngineFailedError as error:
+            return _failure_result(
+                request=request,
+                status="failed",
+                error=error,
+                inflight=inflight,
+                started_at=started_at,
+                started=started,
+                engine_failed=True,
+            )
+        except asyncio.CancelledError:
+            await backend.abort(request_id)
+            raise
         except Exception as error:
             return _failure_result(
                 request=request,
                 status="failed",
                 error=error,
+                inflight=inflight,
                 started_at=started_at,
                 started=started,
             )
+        finally:
+            self._active_request_ids.discard(request_id)
 
+        status: ReplicaStatus = (
+            "cancelled" if result.finish_reason == "abort" else "success"
+        )
         return ReplicaInferenceResult(
-            output_text=result.output_text,
+            request_id=request.request_id,
+            output_token_ids=result.output_token_ids,
             input_tokens=request.input_tokens,
-            output_tokens=result.output_tokens,
-            hit_token_limit=result.output_tokens >= request.max_new_tokens,
+            output_tokens=len(result.output_token_ids),
+            hit_token_limit=result.finish_reason == "length",
+            finish_reason=result.finish_reason,
+            queue_time_sec=result.queue_time_sec,
+            time_to_first_token_sec=result.time_to_first_token_sec,
+            replica_inflight_at_start=inflight,
             started_at=started_at,
             finished_at=time.time(),
             duration_sec=time.perf_counter() - started,
-            status="success",
+            status=status,
+            engine_failed=False,
             error_type=None,
             error_message=None,
         )
 
+    async def abort(self, request_id: str) -> None:
+        if request_id not in self._active_request_ids:
+            return
+        await self._require_backend().abort(request_id)
 
-def _load_prompt_tokenizer(execution: ExecutionConfig) -> PromptTokenizerBackend:
-    from transformers import AutoTokenizer
-    tokenizer = AutoTokenizer.from_pretrained(
-        execution.model_path,
-        local_files_only=True,
-    )
-    if tokenizer is None:
-        raise RuntimeError("AutoTokenizer returned no tokenizer")
-    return cast(PromptTokenizerBackend, tokenizer)
+    async def shutdown(self) -> None:
+        if self._backend is None:
+            self._stopping = True
+            return
+        self._stopping = True
+        aborts = [
+            self._backend.abort(request_id)
+            for request_id in tuple(self._active_request_ids)
+        ]
+        abort_failure: BaseException | None = None
+        if aborts:
+            results = await asyncio.gather(*aborts, return_exceptions=True)
+            failures = [
+                result for result in results if isinstance(result, BaseException)
+            ]
+            if failures:
+                abort_failure = failures[0]
+        self._backend.shutdown()
+        self._backend = None
+        if abort_failure is not None:
+            raise RuntimeError(
+                "failed to abort active vLLM requests"
+            ) from abort_failure
+
+    def get_stats(self) -> ReplicaStats:
+        return ReplicaStats(
+            active_requests=len(self._active_request_ids),
+            peak_active_requests=self._peak_active_requests,
+            stopping=self._stopping,
+        )
+
+    def _require_backend(self) -> GenerationBackend:
+        if self._backend is None:
+            raise RuntimeError("model replica must load before invoke")
+        return self._backend
+
+
+def _create_vllm_backend(deployment: ModelDeploymentConfig) -> GenerationBackend:
+    # The driver and serving actor intentionally use different Python environments.
+    from workflow.vllm_backend import VLLMBackend
+
+    return VLLMBackend(deployment)
 
 
 def _failure_result(
     *,
     request: GenerationRequest,
-    status: Literal["failed", "oom"],
+    status: Literal["failed", "oom", "cancelled"],
     error: Exception,
+    inflight: int,
     started_at: float,
     started: float,
+    finish_reason: FinishReason | None = None,
+    engine_failed: bool = False,
 ) -> ReplicaInferenceResult:
     return ReplicaInferenceResult(
-        output_text=None,
+        request_id=request.request_id,
+        output_token_ids=(),
         input_tokens=request.input_tokens,
         output_tokens=0,
         hit_token_limit=False,
+        finish_reason=finish_reason,
+        queue_time_sec=None,
+        time_to_first_token_sec=None,
+        replica_inflight_at_start=inflight,
         started_at=started_at,
         finished_at=time.time(),
         duration_sec=time.perf_counter() - started,
         status=status,
+        engine_failed=engine_failed,
         error_type=type(error).__name__,
         error_message=str(error),
     )

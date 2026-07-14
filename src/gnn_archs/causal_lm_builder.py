@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import torch
 import torch.nn as nn
@@ -25,7 +27,7 @@ CAUSAL_LM_MODEL_ROOTS = {
 }
 
 
-class CausalLMPrefillOnnxExport(nn.Module):
+class CausalLMPrefillGraph(nn.Module):
     def __init__(self, model: nn.Module) -> None:
         super().__init__()
         self.model = model
@@ -43,7 +45,7 @@ class CausalLMPrefillOnnxExport(nn.Module):
         return (outputs.logits, *flatten_causal_lm_kv_cache(outputs.past_key_values))
 
 
-class CausalLMDecodeOnnxExport(nn.Module):
+class CausalLMDecodeGraph(nn.Module):
     def __init__(self, model: nn.Module) -> None:
         super().__init__()
         self.model = model
@@ -118,14 +120,6 @@ def build_causal_lm_kv_input_names(layer_count: int) -> list[str]:
     return names
 
 
-def build_causal_lm_present_output_names(layer_count: int) -> list[str]:
-    names: list[str] = ["logits"]
-    for index in range(layer_count):
-        names.append(f"present_{index}_key")
-        names.append(f"present_{index}_value")
-    return names
-
-
 def run_causal_lm_dry_prefill(
     model: nn.Module,
     input_ids: torch.Tensor,
@@ -140,6 +134,30 @@ def run_causal_lm_dry_prefill(
             use_cache=True,
         )
     return cache
+
+
+@contextmanager
+def temporary_causal_lm_graph_mode(model: nn.Module) -> Iterator[None]:
+    previous_attention_values: list[tuple[Any, Any]] = []
+    for config in iter_causal_lm_configs(model):
+        if hasattr(config, "_attn_implementation"):
+            previous_attention_values.append((config, config._attn_implementation))
+            config._attn_implementation = "eager"
+    try:
+        yield
+    finally:
+        for config, value in previous_attention_values:
+            config._attn_implementation = value
+
+
+def iter_causal_lm_configs(model: nn.Module) -> tuple[Any, ...]:
+    config = getattr(model, "config", None)
+    if config is None:
+        return ()
+    text_config = getattr(config, "text_config", None)
+    if text_config is None:
+        return (config,)
+    return config, text_config
 
 
 def build_causal_lm_variant_model(spec: ResolvedVariantSpec) -> nn.Module:

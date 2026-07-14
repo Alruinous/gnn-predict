@@ -7,8 +7,6 @@ import pytest
 
 from workflow.artifacts import (
     AcceleratorConfig,
-    DeploymentProfile,
-    DeploymentProfileEntry,
     PredictionCache,
     PredictionEntry,
     SchedulerConfig,
@@ -38,7 +36,15 @@ def agent_node(name: str, model_name: str) -> dict[str, Any]:
         "name": name,
         "type": "agent",
         "model": {"name": model_name},
-        "execution": {"model_path": f"/models/{model_name}", "dtype": "float16"},
+        "execution": {
+            "model_path": f"/models/{model_name}",
+            "dtype": "float16",
+            "serving": {
+                "max_model_len": 4096,
+                "max_num_seqs": 1,
+                "max_num_batched_tokens": 4096,
+            },
+        },
         "token_budget": {
             "min_max_new_tokens": 512,
             "default_max_new_tokens": 512,
@@ -115,6 +121,7 @@ def prediction(model_name: str, *, run_sec: float = 4.0) -> PredictionEntry:
             sequence_length=2048,
             decode_output_length=512,
         ),
+        predicted_load_sec=5.0,
         predicted_run_sec=run_sec,
         predicted_peak_vram_mb=8_000,
     )
@@ -124,7 +131,6 @@ def policy_core(
     workflow: Workflow,
     *,
     accelerator_count: int = 1,
-    default_load_sec: float = 5.0,
 ) -> SchedulerCore:
     model_names = tuple(
         node.model.name for node in workflow.nodes if isinstance(node, AgentNodeConfig)
@@ -138,32 +144,17 @@ def policy_core(
         )
         for index in range(accelerator_count)
     )
-    profile = DeploymentProfile(
-        version=1,
-        entries=tuple(
-            DeploymentProfileEntry(
-                model_name=model_name,
-                model_path=f"/models/{model_name}",
-                dtype="float16",
-                gpu_kind="v100",
-                load_sec_p95=default_load_sec,
-            )
-            for model_name in model_names
-        ),
-    )
     return SchedulerCore(
         workflow,
         scheduler_config=SchedulerConfig(
             accelerators=accelerators,
             eps_time_sec=0.5,
-            default_load_sec=default_load_sec,
             history_ema_alpha=0.5,
         ),
         predictions=PredictionCache(
             version=1,
             entries=tuple(prediction(model_name) for model_name in model_names),
         ),
-        profile=profile,
     )
 
 
@@ -331,6 +322,7 @@ def test_near_ready_prefetch_uses_explicit_deadline() -> None:
     assert len(near) == 1
     assert near[0].node_id == "near"
     assert near[0].upstream_eta == 20.0
+    assert near[0].load_sec == 5.0
     assert near[0].prefetch_at == 14.5
     assert core.tick_once(now=14.49) == []
     actions = core.tick_once(now=14.5)
@@ -390,6 +382,7 @@ def test_ready_load_evicts_idle_victim_then_recomputes() -> None:
     eviction = actions[0]
     assert isinstance(eviction, EvictReplicaAction)
     assert eviction.reason == "ready_load"
+    assert eviction.reload_cost_sec == 5.0
     assert eviction.replica_id == resident_grant.replica_id
     assert core.replicas[eviction.replica_id].state == ModelReplicaState.EVICTING
     core.complete_eviction(eviction.replica_id)

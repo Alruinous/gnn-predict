@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future
@@ -16,10 +17,8 @@ from ray.util.queue import Queue
 
 from workflow.artifacts import (
     AcceleratorConfig,
-    DeploymentProfile,
     PredictionCache,
     SchedulerConfig,
-    load_deployment_profile,
     load_prediction_cache,
 )
 from workflow.scheduler import ItemTraceReport
@@ -80,7 +79,6 @@ class WorkflowController:
         output_dir: str | Path,
         run_id: str,
         prediction_path: str | Path | None = None,
-        profile_path: str | Path | None = None,
         replica_actor_factory: object | None = None,
         prompt_tokenizer_factory: Callable[..., object] | None = None,
         queue_factory: QueueFactory = Queue,
@@ -94,13 +92,11 @@ class WorkflowController:
         self.scheduler_config = scheduler_config
         self.output_dir = Path(output_dir)
         self.run_id = run_id
+        self._replica_actor_factory = replica_actor_factory
         self.predictions = (
             load_prediction_cache(prediction_path)
             if prediction_path is not None
             else None
-        )
-        self.profile = (
-            load_deployment_profile(profile_path) if profile_path is not None else None
         )
         self._validate_configuration()
 
@@ -109,7 +105,6 @@ class WorkflowController:
         self._worker_actor_factory = worker_actor_factory
         self._result_store_actor_factory = result_store_actor_factory
         self._trace_writer_actor_factory = trace_writer_actor_factory
-        self._replica_actor_factory = replica_actor_factory
         self._prompt_tokenizer_factory = prompt_tokenizer_factory
         self.input_queues: dict[str, object] = {}
         self.output_queues: dict[str, dict[str, object]] = {}
@@ -141,7 +136,6 @@ class WorkflowController:
         functions: Mapping[str, NodeFunction],
         scheduler_config: SchedulerConfig,
         prediction_path: str | Path | None,
-        profile_path: str | Path | None,
         output_dir: str | Path,
         run_id: str,
         replica_actor_factory: object | None = None,
@@ -154,7 +148,6 @@ class WorkflowController:
             functions=functions,
             scheduler_config=scheduler_config,
             prediction_path=prediction_path,
-            profile_path=profile_path,
             output_dir=output_dir,
             run_id=run_id,
             replica_actor_factory=replica_actor_factory,
@@ -201,7 +194,6 @@ class WorkflowController:
                 workflow=self.workflow,
                 scheduler_config=self.scheduler_config,
                 predictions=self.predictions,
-                profile=self.profile,
                 trace_writer=self.trace_writer,
                 ray_node_ids=ray_node_ids,
                 run_id=self.run_id,
@@ -538,6 +530,8 @@ class WorkflowController:
                         node.token_budget.min_max_new_tokens
                         <= output_length
                         <= node.token_budget.max_max_new_tokens
+                        and sequence_length + output_length
+                        <= node.execution.serving.max_model_len
                         for output_length in self.predictions.decode_output_lengths(
                             node.model.name,
                             gpu_kind,
@@ -550,6 +544,25 @@ class WorkflowController:
                         "prediction coverage has no usable token budget: "
                         f"{node.model.name}/{gpu_kind}/{missing_budgets}"
                     )
+                missing_batch_keys = self.predictions.missing_decode_batch_keys(
+                    node.model.name,
+                    gpu_kind,
+                    node.execution.serving.max_num_seqs,
+                )
+                if missing_batch_keys:
+                    first = missing_batch_keys[0]
+                    raise KeyError(
+                        "prediction batch coverage is missing: "
+                        f"{first.model_name}/{first.gpu_name}/batch={first.batch_size}/"
+                        f"sequence={first.sequence_length}/"
+                        f"output={first.decode_output_length}"
+                    )
+        executable = self.scheduler_config.vllm_python_executable
+        if executable is None:
+            raise ValueError("vllm_python_executable is required")
+        executable_path = Path(executable)
+        if not executable_path.is_file() or not os.access(executable_path, os.X_OK):
+            raise FileNotFoundError(executable_path)
 
     def _validate_live_accelerators(self) -> dict[str, str]:
         if not self.scheduler_config.accelerators:

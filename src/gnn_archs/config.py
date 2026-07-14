@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar, Literal, Self
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -70,14 +70,6 @@ def is_detection_model_name(model_name: str) -> bool:
     """判断是否为 YOLO 检测模型。"""
     normalized = normalize_model_identifier(model_name)
     return any(normalized.startswith(prefix) for prefix in DETECTION_MODEL_PREFIXES)
-
-
-RECOMMENDER_MODEL_NAMES = {"deepfm", "dcn", "dcnv2", "edcn"}
-
-
-def is_recommender_model_name(model_name: str) -> bool:
-    normalized_name = normalize_model_identifier(model_name)
-    return normalized_name in RECOMMENDER_MODEL_NAMES
 
 
 class StrictModel(BaseModel):
@@ -259,180 +251,6 @@ class Gemma4TextConfigOverride(StrictModel):
         return self
 
 
-class RecommenderSparseFeatureConfig(StrictModel):
-    name: str
-    vocab_size: int
-    embed_dim: int
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        normalized_value = value.strip()
-        if not normalized_value:
-            raise ValueError("sparse feature name must not be empty")
-        return normalized_value
-
-    @model_validator(mode="after")
-    def validate_positive_fields(self) -> RecommenderSparseFeatureConfig:
-        if self.vocab_size <= 0:
-            raise ValueError("sparse feature vocab_size must be positive")
-        if self.embed_dim <= 0:
-            raise ValueError("sparse feature embed_dim must be positive")
-        return self
-
-
-class RecommenderDenseFeatureConfig(StrictModel):
-    name: str
-    embed_dim: int = 1
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        normalized_value = value.strip()
-        if not normalized_value:
-            raise ValueError("dense feature name must not be empty")
-        return normalized_value
-
-    @field_validator("embed_dim")
-    @classmethod
-    def validate_embed_dim(cls, value: int) -> int:
-        if value <= 0:
-            raise ValueError("dense feature embed_dim must be positive")
-        return value
-
-
-class RecommenderBaseConfigOverride(StrictModel):
-    config_field_name: ClassVar[str] = "recommender_model_config"
-
-    sparse_features: list[RecommenderSparseFeatureConfig]
-    dense_features: list[RecommenderDenseFeatureConfig] = Field(default_factory=list)
-    activation: str = "relu"
-    dropout: float = 0.0
-
-    @model_validator(mode="after")
-    def validate_common_config(self) -> Self:
-        if not self.sparse_features:
-            raise ValueError(
-                f"{self.config_field_name}.sparse_features must not be empty"
-            )
-        if not 0 <= self.dropout < 1:
-            raise ValueError(f"{self.config_field_name}.dropout must be in [0, 1)")
-
-        sparse_names = [feature.name for feature in self.sparse_features]
-        dense_names = [feature.name for feature in self.dense_features]
-        feature_names = sparse_names + dense_names
-        if len(set(feature_names)) != len(feature_names):
-            raise ValueError("recommender feature names must be unique")
-        return self
-
-
-class RecommenderMlpConfigOverride(RecommenderBaseConfigOverride):
-    mlp_dims: list[int]
-
-    @model_validator(mode="after")
-    def validate_mlp_config(self) -> Self:
-        if not self.mlp_dims:
-            raise ValueError(f"{self.config_field_name}.mlp_dims must not be empty")
-        if any(dim <= 0 for dim in self.mlp_dims):
-            raise ValueError(f"{self.config_field_name}.mlp_dims must be positive")
-        return self
-
-
-class DeepFMConfigOverride(RecommenderMlpConfigOverride):
-    config_field_name: ClassVar[str] = "deepfm_config"
-
-    fm_feature_names: list[str]
-
-    @model_validator(mode="after")
-    def validate_deepfm_config(self) -> DeepFMConfigOverride:
-        sparse_names = {feature.name for feature in self.sparse_features}
-        if not self.fm_feature_names:
-            raise ValueError("deepfm_config.fm_feature_names must not be empty")
-        unknown_names = sorted(set(self.fm_feature_names) - sparse_names)
-        if unknown_names:
-            raise ValueError(
-                "deepfm_config.fm_feature_names must reference sparse "
-                f"features: {unknown_names}"
-            )
-        return self
-
-
-class DCNConfigOverride(RecommenderMlpConfigOverride):
-    config_field_name: ClassVar[str] = "dcn_config"
-
-    n_cross_layers: int
-
-    @field_validator("n_cross_layers")
-    @classmethod
-    def validate_n_cross_layers(cls, value: int) -> int:
-        if value <= 0:
-            raise ValueError("dcn_config.n_cross_layers must be positive")
-        return value
-
-
-class DCNv2ConfigOverride(RecommenderMlpConfigOverride):
-    config_field_name: ClassVar[str] = "dcnv2_config"
-
-    n_cross_layers: int
-    low_rank: int
-    num_experts: int
-    model_structure: Literal["crossnet_only", "stacked", "parallel"] = "parallel"
-    use_low_rank_mixture: bool = True
-
-    @model_validator(mode="after")
-    def validate_dcnv2_config(self) -> DCNv2ConfigOverride:
-        if self.n_cross_layers <= 0:
-            raise ValueError("dcnv2_config.n_cross_layers must be positive")
-        if self.low_rank <= 0:
-            raise ValueError("dcnv2_config.low_rank must be positive")
-        if self.num_experts <= 0:
-            raise ValueError("dcnv2_config.num_experts must be positive")
-        return self
-
-
-class EDCNConfigOverride(RecommenderBaseConfigOverride):
-    config_field_name: ClassVar[str] = "edcn_config"
-
-    n_cross_layers: int
-    bridge_type: Literal[
-        "hadamard_product",
-        "pointwise_addition",
-        "concatenation",
-        "attention_pooling",
-    ] = "hadamard_product"
-    use_regulation_module: bool = True
-    temperature: float = 1.0
-
-    @model_validator(mode="after")
-    def validate_edcn_config(self) -> EDCNConfigOverride:
-        if self.n_cross_layers <= 0:
-            raise ValueError("edcn_config.n_cross_layers must be positive")
-        if self.temperature <= 0:
-            raise ValueError("edcn_config.temperature must be positive")
-        return self
-
-
-def has_recommender_config(variant_config: VariantConfig) -> bool:
-    return (
-        variant_config.deepfm_config is not None
-        or variant_config.dcn_config is not None
-        or variant_config.dcnv2_config is not None
-        or variant_config.edcn_config is not None
-    )
-
-
-def count_recommender_configs(variant_config: VariantConfig) -> int:
-    return sum(
-        config is not None
-        for config in (
-            variant_config.deepfm_config,
-            variant_config.dcn_config,
-            variant_config.dcnv2_config,
-            variant_config.edcn_config,
-        )
-    )
-
-
 class VariantConfig(StrictModel):
     target_input_channels: int | None = None
     target_output_classes: int | None = None
@@ -448,30 +266,24 @@ class VariantConfig(StrictModel):
     prefill_measurement_min_seconds: float = 5.0
     decode_measurement_min_seconds: float = 5.0
     decode_max_output_length: int = 0
-    export_onnx: bool = False
-    onnx_export_mode: Literal["full", "architecture_only"] = "full"
+    export_graph: bool = False
     batch_size: int = 32
     training_measurement_min_seconds: float = 5.0
     use_fake_imagenet: bool = False
     use_fake_text_dataset: bool = False
-    use_fake_recommender_dataset: bool = False
     use_real_text_dataset: bool = False
     gpt2_config: Gpt2ConfigOverride | None = None
     t5_config: T5ConfigOverride | None = None
     qwen3_config: Qwen3ConfigOverride | None = None
     gemma4_config: Gemma4TextConfigOverride | None = None
-    deepfm_config: DeepFMConfigOverride | None = None
-    dcn_config: DCNConfigOverride | None = None
-    dcnv2_config: DCNv2ConfigOverride | None = None
-    edcn_config: EDCNConfigOverride | None = None
 
     @field_validator("example_input_shape")
     @classmethod
     def validate_example_input_shape(cls, value: list[int]) -> list[int]:
-        if len(value) not in (1, 2, 4):
+        if len(value) not in (2, 4):
             raise ValueError(
-                "example_input_shape must be [batch], [batch, seq_length] "
-                "or [batch, channels, height, width]"
+                "example_input_shape must be [batch, seq_length] or "
+                "[batch, channels, height, width]"
             )
         if any(item <= 0 for item in value):
             raise ValueError("example_input_shape values must be positive integers")
@@ -507,19 +319,6 @@ class VariantConfig(StrictModel):
             raise ValueError("decode_max_output_length must be positive for decode")
         if not self.run_decode and self.decode_max_output_length < 0:
             raise ValueError("decode_max_output_length must be non-negative")
-        recommender_config_count = count_recommender_configs(self)
-        if recommender_config_count > 1:
-            raise ValueError("variant_config must define only one recommender config")
-        if recommender_config_count == 0 and len(self.example_input_shape) == 1:
-            raise ValueError("non-recommender variants require 2D or 4D input shapes")
-        if recommender_config_count == 1:
-            if len(self.example_input_shape) != 1:
-                raise ValueError(
-                    "recommender variants require example_input_shape [batch]"
-                )
-            if self.target_output_classes != 1:
-                raise ValueError("recommender variants require target_output_classes=1")
-
         return self
 
 
@@ -678,8 +477,6 @@ class BaseModelGroup(StrictModel):
         self,
         variant: SingleVariantDefinition,
     ) -> None:
-        if has_recommender_config(variant.variant_config):
-            return
         if is_causal_lm_model_name(self.base_model.name):
             if variant.variant_config.target_input_channels is not None:
                 raise ValueError("causal lm variants must omit target_input_channels")

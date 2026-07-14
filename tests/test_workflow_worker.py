@@ -13,7 +13,7 @@ from langchain.agents import AgentState
 from langchain_core.messages import AIMessage
 from ray.exceptions import RayActorError
 
-from workflow.replica import ReplicaInferenceResult
+from workflow.replica import PromptEncoding, ReplicaInferenceResult
 from workflow.scheduler import (
     AcquireAlreadyGrantedError,
     AgentTaskRuntimeReport,
@@ -93,6 +93,11 @@ def agent_node(
             "execution": {
                 "model_path": "/models/test-model",
                 "use_chat_template": False,
+                "serving": {
+                    "max_model_len": 1024,
+                    "max_num_seqs": 3,
+                    "max_num_batched_tokens": 1536,
+                },
             },
             "token_budget": {
                 "min_max_new_tokens": 8,
@@ -110,14 +115,16 @@ def agent_node(
 
 
 class FakeQueue:
-    def __init__(self, before_put: Callable[[], None] | None = None) -> None:
+    def __init__(self, before_put: Callable[[], object] | None = None) -> None:
         self.items: list[WorkflowDataItem] = []
         self._incoming: asyncio.Queue[WorkflowDataItem] = asyncio.Queue()
         self.before_put = before_put
 
     async def put_async(self, value: WorkflowDataItem) -> None:
         if self.before_put is not None:
-            self.before_put()
+            result = self.before_put()
+            if inspect.isawaitable(result):
+                await result
         self.items.append(value)
 
     async def get_async(self) -> WorkflowDataItem:
@@ -154,26 +161,60 @@ class FakeTokenizer:
         user_prompt: str,
         *,
         system_prompt: str | None = None,
-    ) -> tuple[str, int]:
+    ) -> PromptEncoding:
         self.calls.append((user_prompt, system_prompt))
-        return f"rendered:{user_prompt}", 7
+        return PromptEncoding(
+            text=f"rendered:{user_prompt}",
+            token_ids=(0, 1, 2, 3, 4, 5, 6),
+        )
+
+    def decode(self, token_ids: tuple[int, ...]) -> str:
+        assert token_ids == (20, 21, 22, 23)
+        return "generated"
 
 
 class FakeReplica:
     def __init__(self, results: list[ReplicaInferenceResult]) -> None:
         self.results = results
-        self.calls: list[tuple[str, int, int]] = []
+        self.calls: list[tuple[str, tuple[int, ...], int]] = []
+        self.aborted: list[str] = []
 
     async def invoke(
         self,
-        prompt: str,
+        request_id: str,
+        prompt_token_ids: tuple[int, ...],
         *,
-        input_tokens: int,
         max_new_tokens: int,
         generation: object,
     ) -> ReplicaInferenceResult:
-        self.calls.append((prompt, input_tokens, max_new_tokens))
-        return self.results.pop(0)
+        self.calls.append((request_id, prompt_token_ids, max_new_tokens))
+        return self.results.pop(0).model_copy(update={"request_id": request_id})
+
+    async def abort(self, request_id: str) -> None:
+        self.aborted.append(request_id)
+
+
+class BlockingReplica(FakeReplica):
+    def __init__(self, result_count: int) -> None:
+        super().__init__([inference_result() for _ in range(result_count)])
+        self.active = 0
+        self.peak = 0
+        self.release = asyncio.Event()
+
+    async def invoke(
+        self,
+        request_id: str,
+        prompt_token_ids: tuple[int, ...],
+        *,
+        max_new_tokens: int,
+        generation: object,
+    ) -> ReplicaInferenceResult:
+        self.calls.append((request_id, prompt_token_ids, max_new_tokens))
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        await self.release.wait()
+        self.active -= 1
+        return self.results.pop(0).model_copy(update={"request_id": request_id})
 
 
 @dataclass(frozen=True)
@@ -198,7 +239,7 @@ class FakeScheduler:
         events: list[str] | None = None,
         inactive_sessions: set[str] | None = None,
         grant_on_cancel: FakeGrant | None = None,
-        on_complete: Callable[[], None] | None = None,
+        on_complete: Callable[[], object] | None = None,
         finish_cancelled: bool = False,
         fail_cancelled: bool = False,
     ) -> None:
@@ -274,7 +315,9 @@ class FakeScheduler:
         )
         self.reports.append(runtime_report)
         if self.on_complete is not None:
-            self.on_complete()
+            result = self.on_complete()
+            if inspect.isawaitable(result):
+                await result
         return self.decisions.pop(0)
 
     async def finish_node(self, task_id: str, output_report: OutputReport) -> None:
@@ -324,14 +367,17 @@ class RemoteHandle:
 
 def inference_result(
     status: Literal["success", "failed", "oom"] = "success",
-    *,
-    text: str | None = "generated",
 ) -> ReplicaInferenceResult:
     return ReplicaInferenceResult(
-        output_text=text if status == "success" else None,
+        request_id="request",
+        output_token_ids=(20, 21, 22, 23) if status == "success" else (),
         input_tokens=7,
         output_tokens=4 if status == "success" else 0,
         hit_token_limit=False,
+        finish_reason="stop" if status == "success" else None,
+        queue_time_sec=None,
+        time_to_first_token_sec=None,
+        replica_inflight_at_start=1,
         started_at=10.0,
         finished_at=11.0,
         duration_sec=1.0,
@@ -584,7 +630,9 @@ def test_agent_uses_granted_budget_and_builds_runtime_report() -> None:
     )
 
     assert tokenizer.calls == [("Summarize text", "system")]
-    assert replica.calls == [("rendered:Summarize text", 7, 32)]
+    assert replica.calls == [
+        ("acquire-1", (0, 1, 2, 3, 4, 5, 6), 32)
+    ]
     assert execution.output is not None
     assert execution.output["messages"][-1].content == "generated"
     assert execution.report.acquire_id == "acquire-1"
@@ -729,7 +777,9 @@ def test_remote_awaitable_handles_use_remote_methods() -> None:
     )
 
     assert execution.report.status == "success"
-    assert replica.calls == [("rendered:Summarize text", 7, 16)]
+    assert replica.calls == [
+        ("acquire-1", (0, 1, 2, 3, 4, 5, 6), 16)
+    ]
 
 
 def test_broadcast_function_uses_common_complete_emit_finish_flow() -> None:
@@ -979,7 +1029,7 @@ def test_terminal_result_is_persisted_before_finish() -> None:
 
 
 def test_agent_retry_decision_reacquires_once_then_emits() -> None:
-    first_replica = FakeReplica([inference_result("oom", text=None)])
+    first_replica = FakeReplica([inference_result("oom")])
     second_replica = FakeReplica([inference_result()])
     grants = [
         FakeGrant(
@@ -1037,7 +1087,7 @@ def test_non_oom_agent_retry_honors_retry_delay(
         delays.append(delay)
 
     monkeypatch.setattr("workflow.worker.asyncio.sleep", record_sleep)
-    first_replica = FakeReplica([inference_result("failed", text=None)])
+    first_replica = FakeReplica([inference_result("failed")])
     second_replica = FakeReplica([inference_result()])
     scheduler = FakeScheduler(
         decisions=[
@@ -1116,7 +1166,7 @@ def test_cancelled_session_purges_fanin_and_discards_later_items() -> None:
     asyncio.run(node_worker.process_item(item("s1", "left")))
     assert "s1" in node_worker.fanin_store
 
-    node_worker.cancel_session("s1")
+    asyncio.run(node_worker.cancel_session("s1"))
     asyncio.run(node_worker.process_item(item("s1", "right")))
 
     assert "s1" not in node_worker.fanin_store
@@ -1172,6 +1222,8 @@ def test_worker_is_running_only_while_processing() -> None:
         input_queue.feed(item("s1", None))
         while not scheduler.output_reports:
             await asyncio.sleep(0)
+        while node_worker.get_state() == NodeWorkerState.RUNNING:
+            await asyncio.sleep(0)
         assert node_worker.get_state() == NodeWorkerState.IDLE
         node_worker.stop()
         await run_task
@@ -1179,6 +1231,57 @@ def test_worker_is_running_only_while_processing() -> None:
     asyncio.run(run_one())
 
     assert observed_states == [NodeWorkerState.RUNNING]
+    assert node_worker.get_state() == NodeWorkerState.STOPPED
+
+
+def test_agent_worker_runs_three_sessions_concurrently() -> None:
+    replica = BlockingReplica(result_count=3)
+    grants = [
+        FakeGrant(
+            acquire_id=f"acquire-{index}",
+            task_id=f"task-s{index}-agent",
+            replica_id="replica-1",
+            backend_handle=replica,
+            accelerator_ids=("host/v100:0",),
+            model_key="model-key",
+            gpu_kind="v100",
+            input_tokens=7,
+            granted_max_new_tokens=16,
+        )
+        for index in range(1, 4)
+    ]
+    scheduler = FakeScheduler(
+        decisions=[CompleteDecision(emit_output=True) for _ in range(3)],
+        grants=grants,
+    )
+    input_queue = FakeQueue()
+    result_store = FakeResultStore()
+    tokenizer = FakeTokenizer()
+    node_worker = worker(
+        agent_node(),
+        scheduler,
+        tokenizer=tokenizer,
+        input_queue=input_queue,
+        result_store=result_store,
+    )
+
+    async def scenario() -> None:
+        run_task = asyncio.create_task(node_worker.run())
+        for index in range(1, 4):
+            input_queue.feed(item(f"s{index}", None, target_node="agent"))
+        while replica.peak < 3:
+            await asyncio.sleep(0)
+        replica.release.set()
+        while len(result_store.results) < 3:
+            await asyncio.sleep(0)
+        node_worker.stop()
+        await run_task
+
+    asyncio.run(scenario())
+
+    assert replica.peak == 3
+    assert set(result_store.results) == {"s1", "s2", "s3"}
+    assert len(tokenizer.calls) == 3
     assert node_worker.get_state() == NodeWorkerState.STOPPED
 
 

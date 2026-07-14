@@ -13,64 +13,65 @@ from gnn_archs.config import (
 )
 from gnn_archs.util.variant_expander import expand_arch_config, expand_group_variants
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def build_deepfm_variant_config_grid(
+def build_qwen_variant_config_grid(
     *,
     axes: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
-    resolved_axes = axes if axes is not None else [
-        {
-            "name": "mlp",
-            "values": [
-                {
-                    "name": "mlp8x4",
-                    "overrides": {"deepfm_config.mlp_dims": [8, 4]},
-                },
-                {
-                    "name": "mlp16x8",
-                    "overrides": {"deepfm_config.mlp_dims": [16, 8]},
-                },
-            ],
-        },
-        {
-            "name": "batch",
-            "values": [
-                {
-                    "name": "bs2",
-                    "overrides": {
-                        "example_input_shape": [2],
-                        "batch_size": 2,
+    resolved_axes = (
+        axes
+        if axes is not None
+        else [
+            {
+                "name": "hidden",
+                "values": [
+                    {
+                        "name": "h16",
+                        "overrides": {"qwen3_config.hidden_size": 16},
                     },
-                },
-                {
-                    "name": "bs8",
-                    "overrides": {
-                        "example_input_shape": [8],
-                        "batch_size": 8,
+                    {
+                        "name": "h32",
+                        "overrides": {"qwen3_config.hidden_size": 32},
                     },
-                },
-            ],
-        },
-    ]
+                ],
+            },
+            {
+                "name": "batch",
+                "values": [
+                    {
+                        "name": "bs2",
+                        "overrides": {
+                            "example_input_shape": [2, 8],
+                            "batch_size": 2,
+                        },
+                    },
+                    {
+                        "name": "bs8",
+                        "overrides": {
+                            "example_input_shape": [8, 8],
+                            "batch_size": 8,
+                        },
+                    },
+                ],
+            },
+        ]
+    )
     return {
         "base_variant_config_template": {
-            "target_output_classes": 1,
-            "example_input_shape": [2],
+            "example_input_shape": [2, 8],
             "batch_size": 2,
-            "use_fake_recommender_dataset": True,
-            "deepfm_config": {
-                "sparse_features": [
-                    {"name": "user_id", "vocab_size": 32, "embed_dim": 4},
-                    {"name": "item_id", "vocab_size": 64, "embed_dim": 4},
-                ],
-                "dense_features": [{"name": "score"}],
-                "mlp_dims": [8, 4],
-                "activation": "relu",
-                "dropout": 0.0,
-                "fm_feature_names": ["user_id", "item_id"],
+            "use_fake_text_dataset": True,
+            "qwen3_config": {
+                "vocab_size": 32,
+                "hidden_size": 16,
+                "intermediate_size": 32,
+                "num_hidden_layers": 1,
+                "num_attention_heads": 2,
+                "num_key_value_heads": 2,
+                "head_dim": 8,
+                "max_position_embeddings": 16,
             },
         },
         "axes": resolved_axes,
@@ -78,14 +79,14 @@ def build_deepfm_variant_config_grid(
     }
 
 
-def build_deepfm_variant_config_grid_arch(
+def build_qwen_variant_config_grid_arch(
     *,
     variant_config_grid: dict[str, object] | None = None,
     extra_group_fields: dict[str, object] | None = None,
 ) -> ArchConfig:
     group: dict[str, object] = {
-        "base_model": {"name": "deepfm", "pretrained": False},
-        "variant_config_grid": variant_config_grid or build_deepfm_variant_config_grid(),
+        "base_model": {"name": "qwen3", "pretrained": False},
+        "variant_config_grid": variant_config_grid or build_qwen_variant_config_grid(),
     }
     if extra_group_fields is not None:
         group.update(extra_group_fields)
@@ -105,8 +106,7 @@ def test_expand_group_variants_generates_grid_and_fc_variants() -> None:
                             "example_input_shape": [1, 3, 224, 224],
                             "run_training": False,
                             "run_inference": True,
-                            "export_onnx": True,
-                            "onnx_export_mode": "architecture_only",
+                            "export_graph": True,
                         },
                         "mutation_sets": [
                             {"name": "no_mutations", "mutations": []},
@@ -156,10 +156,7 @@ def test_expand_group_variants_generates_grid_and_fc_variants() -> None:
     assert all(
         variant.variant_config.target_output_classes == 10 for variant in variants
     )
-    assert all(
-        variant.variant_config.onnx_export_mode == "architecture_only"
-        for variant in variants
-    )
+    assert all(variant.variant_config.export_graph for variant in variants)
     assert all(
         variant.variant_config.pre_inference_cooldown_seconds == 3.0
         for variant in variants
@@ -175,29 +172,29 @@ def test_expand_group_variants_generates_grid_and_fc_variants() -> None:
 
 
 def test_expand_group_variants_generates_variant_config_grid_variants() -> None:
-    config = build_deepfm_variant_config_grid_arch()
+    config = build_qwen_variant_config_grid_arch()
 
     variants = expand_group_variants(config.base_model_groups[0])
 
     assert [variant.name for variant in variants] == [
-        "deepfm_mlp8x4_bs2",
-        "deepfm_mlp8x4_bs8",
-        "deepfm_mlp16x8_bs2",
-        "deepfm_mlp16x8_bs8",
+        "qwen3_h16_bs2",
+        "qwen3_h16_bs8",
+        "qwen3_h32_bs2",
+        "qwen3_h32_bs8",
     ]
     assert all(variant.source == "variant_config_grid" for variant in variants)
     assert all(variant.group_total_variants_defined == 4 for variant in variants)
     assert [variant.variant_config.example_input_shape for variant in variants] == [
-        [2],
-        [8],
-        [2],
-        [8],
+        [2, 8],
+        [8, 8],
+        [2, 8],
+        [8, 8],
     ]
     assert [variant.variant_config.batch_size for variant in variants] == [2, 8, 2, 8]
-    assert variants[0].variant_config.deepfm_config is not None
-    assert variants[0].variant_config.deepfm_config.mlp_dims == [8, 4]
-    assert variants[2].variant_config.deepfm_config is not None
-    assert variants[2].variant_config.deepfm_config.mlp_dims == [16, 8]
+    assert variants[0].variant_config.qwen3_config is not None
+    assert variants[0].variant_config.qwen3_config.hidden_size == 16
+    assert variants[2].variant_config.qwen3_config is not None
+    assert variants[2].variant_config.qwen3_config.hidden_size == 32
 
 
 @pytest.mark.parametrize(
@@ -207,7 +204,7 @@ def test_expand_group_variants_generates_variant_config_grid_variants() -> None:
         (
             [
                 {
-                    "name": "mlp",
+                    "name": "hidden",
                     "values": [],
                 }
             ],
@@ -218,8 +215,8 @@ def test_expand_group_variants_generates_variant_config_grid_variants() -> None:
                 {
                     "name": "mlp",
                     "values": [
-                        {"name": "same", "overrides": {"deepfm_config.mlp_dims": [8]}},
-                        {"name": "same", "overrides": {"deepfm_config.mlp_dims": [16]}},
+                        {"name": "same", "overrides": {"qwen3_config.hidden_size": 16}},
+                        {"name": "same", "overrides": {"qwen3_config.hidden_size": 32}},
                     ],
                 }
             ],
@@ -230,13 +227,13 @@ def test_expand_group_variants_generates_variant_config_grid_variants() -> None:
                 {
                     "name": "dup",
                     "values": [
-                        {"name": "a", "overrides": {"deepfm_config.mlp_dims": [8]}},
+                        {"name": "a", "overrides": {"qwen3_config.hidden_size": 16}},
                     ],
                 },
                 {
                     "name": "dup",
                     "values": [
-                        {"name": "b", "overrides": {"deepfm_config.mlp_dims": [16]}},
+                        {"name": "b", "overrides": {"qwen3_config.hidden_size": 32}},
                     ],
                 },
             ],
@@ -249,21 +246,21 @@ def test_variant_config_grid_rejects_invalid_axes(
     match: str,
 ) -> None:
     with pytest.raises(ValueError, match=match):
-        build_deepfm_variant_config_grid_arch(
-            variant_config_grid=build_deepfm_variant_config_grid(axes=axes)
+        build_qwen_variant_config_grid_arch(
+            variant_config_grid=build_qwen_variant_config_grid(axes=axes)
         )
 
 
 def test_variant_config_grid_rejects_unknown_override_path() -> None:
-    config = build_deepfm_variant_config_grid_arch(
-        variant_config_grid=build_deepfm_variant_config_grid(
+    config = build_qwen_variant_config_grid_arch(
+        variant_config_grid=build_qwen_variant_config_grid(
             axes=[
                 {
                     "name": "bad",
                     "values": [
                         {
                             "name": "unknown_path",
-                            "overrides": {"deepfm_config.unknown_field": 1},
+                            "overrides": {"qwen3_config.unknown_field": 1},
                         }
                     ],
                 }
@@ -276,34 +273,24 @@ def test_variant_config_grid_rejects_unknown_override_path() -> None:
 
 
 def test_variant_config_grid_rejects_duplicate_variant_names() -> None:
-    config = build_deepfm_variant_config_grid_arch(
+    config = build_qwen_variant_config_grid_arch(
         extra_group_fields={
             "single_variant_define": [
                 {
-                    "name": "deepfm_mlp8x4_bs2",
+                    "name": "qwen3_h16_bs2",
                     "variant_config": {
-                        "target_output_classes": 1,
-                        "example_input_shape": [2],
+                        "example_input_shape": [2, 8],
                         "batch_size": 2,
-                        "use_fake_recommender_dataset": True,
-                        "deepfm_config": {
-                            "sparse_features": [
-                                {
-                                    "name": "user_id",
-                                    "vocab_size": 32,
-                                    "embed_dim": 4,
-                                },
-                                {
-                                    "name": "item_id",
-                                    "vocab_size": 64,
-                                    "embed_dim": 4,
-                                },
-                            ],
-                            "dense_features": [{"name": "score"}],
-                            "mlp_dims": [8, 4],
-                            "activation": "relu",
-                            "dropout": 0.0,
-                            "fm_feature_names": ["user_id", "item_id"],
+                        "use_fake_text_dataset": True,
+                        "qwen3_config": {
+                            "vocab_size": 32,
+                            "hidden_size": 16,
+                            "intermediate_size": 32,
+                            "num_hidden_layers": 1,
+                            "num_attention_heads": 2,
+                            "num_key_value_heads": 2,
+                            "head_dim": 8,
+                            "max_position_embeddings": 16,
                         },
                     },
                     "mutations": [],
@@ -318,7 +305,7 @@ def test_variant_config_grid_rejects_duplicate_variant_names() -> None:
 
 def test_base_model_group_rejects_multiple_grid_types() -> None:
     with pytest.raises(ValueError, match="must not define both"):
-        build_deepfm_variant_config_grid_arch(
+        build_qwen_variant_config_grid_arch(
             extra_group_fields={
                 "combinatorial_variant_grid": {
                     "input_channels": [1],
@@ -345,7 +332,7 @@ def test_expand_group_variants_keeps_text_input_shape_flat() -> None:
                             "example_input_shape": [1, 128],
                             "run_training": False,
                             "run_inference": True,
-                            "export_onnx": False,
+                            "export_graph": False,
                             "use_fake_text_dataset": True,
                         },
                         "mutation_sets": [
@@ -374,7 +361,9 @@ def test_expand_group_variants_keeps_text_input_shape_flat() -> None:
     assert all(
         variant.variant_config.example_input_shape == [1, 128] for variant in variants
     )
-    assert all(variant.variant_config.target_input_channels == 1 for variant in variants)
+    assert all(
+        variant.variant_config.target_input_channels == 1 for variant in variants
+    )
 
 
 def test_variant_config_rejects_training_epochs_field() -> None:
@@ -452,5 +441,9 @@ def test_expand_arch_config_keeps_resnet50_as_image_model() -> None:
 
     assert variants
     assert all(not is_text_model_name(variant.base_model.name) for variant in variants)
-    assert all(len(variant.variant_config.example_input_shape) == 4 for variant in variants)
-    assert all(variant.variant_config.target_input_channels == 1 for variant in variants)
+    assert all(
+        len(variant.variant_config.example_input_shape) == 4 for variant in variants
+    )
+    assert all(
+        variant.variant_config.target_input_channels == 1 for variant in variants
+    )

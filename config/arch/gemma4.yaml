@@ -18,8 +18,7 @@ base_model_groups:
       prefill_measurement_min_seconds: 40.0
       decode_measurement_min_seconds: 40.0
       decode_max_output_length: 32
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 1
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -111,8 +110,7 @@ base_model_groups:
       prefill_measurement_min_seconds: 40.0
       decode_measurement_min_seconds: 40.0
       decode_max_output_length: 32
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 1
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -194,8 +192,7 @@ base_model_groups:
       prefill_measurement_min_seconds: 40.0
       decode_measurement_min_seconds: 40.0
       decode_max_output_length: 16
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 1
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -394,8 +391,7 @@ base_model_groups:
       prefill_measurement_min_seconds: 40.0
       decode_measurement_min_seconds: 40.0
       decode_max_output_length: 32
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 1
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -448,8 +444,7 @@ base_model_groups:
       prefill_measurement_min_seconds: 40.0
       decode_measurement_min_seconds: 40.0
       decode_max_output_length: 32
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 1
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -589,8 +584,7 @@ base_model_groups:
       prefill_measurement_min_seconds: 40.0
       decode_measurement_min_seconds: 40.0
       decode_max_output_length: 0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 1
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -709,8 +703,7 @@ base_model_groups:
       prefill_measurement_min_seconds: 40.0
       decode_measurement_min_seconds: 40.0
       decode_max_output_length: 16
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 1
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -840,8 +833,7 @@ base_model_groups:
       prefill_measurement_min_seconds: 40.0
       decode_measurement_min_seconds: 40.0
       decode_max_output_length: 16
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 1
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -977,8 +969,7 @@ base_model_groups:
       prefill_measurement_min_seconds: 40.0
       decode_measurement_min_seconds: 40.0
       decode_max_output_length: 16
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 1
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true

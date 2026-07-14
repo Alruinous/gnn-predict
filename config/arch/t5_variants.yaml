@@ -12,8 +12,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 2
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -40,8 +39,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -68,8 +66,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -96,8 +93,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -124,8 +120,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 2
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -152,8 +147,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -180,8 +174,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -208,8 +201,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -236,8 +228,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 2
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -264,8 +255,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -292,8 +282,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -320,8 +309,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -348,8 +336,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 2
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -376,8 +363,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -404,8 +390,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -432,8 +417,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -460,8 +444,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 2
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -488,8 +471,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -516,8 +498,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -544,8 +525,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -572,8 +552,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 2
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -600,8 +579,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -628,8 +606,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 8
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -656,8 +633,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true
@@ -684,8 +660,7 @@ base_model_groups:
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
       inference_measurement_min_seconds: 40.0
-      export_onnx: true
-      onnx_export_mode: architecture_only
+      export_graph: true
       batch_size: 4
       training_measurement_min_seconds: 40.0
       use_fake_text_dataset: true

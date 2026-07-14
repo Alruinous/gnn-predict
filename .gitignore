@@ -44,3 +44,4 @@ ruff.toml
 /archive/
 
 /.env
+/envs
