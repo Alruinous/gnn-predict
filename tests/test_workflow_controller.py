@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import time
 from collections.abc import Callable
 from contextlib import suppress
@@ -140,7 +141,7 @@ def test_submit_requires_started_controller(tmp_path: Path) -> None:
         controller.submit("session-1", {"value": "one"})
 
 
-def test_agent_prediction_budgets_are_validated_before_start(tmp_path: Path) -> None:
+def test_agent_fixed_output_bucket_is_validated_before_start(tmp_path: Path) -> None:
     model_path = tmp_path / "model"
     model_path.mkdir()
     prediction_path = tmp_path / "predictions.yaml"
@@ -154,7 +155,7 @@ entries:
       gpu_name: v100
       batch_size: 1
       sequence_length: 128
-      decode_output_length: 32
+      decode_output_length: 8
     predicted_load_sec: 5.0
     predicted_run_sec: 1.0
     predicted_peak_vram_mb: 1024.0
@@ -170,16 +171,12 @@ entries:
                     "model": {"name": "test-model"},
                     "execution": {
                         "model_path": str(model_path),
+                        "max_new_tokens": 16,
                         "serving": {
                             "max_model_len": 128,
                             "max_num_seqs": 1,
                             "max_num_batched_tokens": 128,
                         },
-                    },
-                    "token_budget": {
-                        "min_max_new_tokens": 8,
-                        "default_max_new_tokens": 16,
-                        "max_max_new_tokens": 16,
                     },
                     "prompt_template": "{content}",
                 }
@@ -188,7 +185,7 @@ entries:
         }
     )
 
-    with pytest.raises(KeyError, match="prediction coverage"):
+    with pytest.raises(KeyError, match="no output bucket"):
         WorkflowController(
             workflow,
             functions={},
@@ -208,7 +205,7 @@ entries:
         )
 
 
-def test_agent_requires_contiguous_prediction_batch_coverage(
+def test_agent_allows_missing_higher_batch_prediction_coverage(
     tmp_path: Path,
 ) -> None:
     model_path = tmp_path / "model"
@@ -240,16 +237,12 @@ entries:
                     "model": {"name": "test-model"},
                     "execution": {
                         "model_path": str(model_path),
+                        "max_new_tokens": 32,
                         "serving": {
                             "max_model_len": 256,
                             "max_num_seqs": 2,
                             "max_num_batched_tokens": 256,
                         },
-                    },
-                    "token_budget": {
-                        "min_max_new_tokens": 32,
-                        "default_max_new_tokens": 32,
-                        "max_max_new_tokens": 32,
                     },
                     "prompt_template": "{content}",
                 }
@@ -258,24 +251,26 @@ entries:
         }
     )
 
-    with pytest.raises(KeyError, match="batch coverage.*batch=2"):
-        WorkflowController(
-            workflow,
-            functions={},
-            scheduler_config=SchedulerConfig(
-                accelerators=(
-                    AcceleratorConfig(
-                        hostname="gpu-node",
-                        gpu_kind="v100",
-                        local_index=0,
-                        total_mem_mb=16_000,
-                    ),
-                )
+    controller = WorkflowController(
+        workflow,
+        functions={},
+        scheduler_config=SchedulerConfig(
+            accelerators=(
+                AcceleratorConfig(
+                    hostname="gpu-node",
+                    gpu_kind="v100",
+                    local_index=0,
+                    total_mem_mb=16_000,
+                ),
             ),
-            prediction_path=prediction_path,
-            output_dir=tmp_path / "output",
-            run_id="missing-batch",
-        )
+            vllm_python_executable=sys.executable,
+        ),
+        prediction_path=prediction_path,
+        output_dir=tmp_path / "output",
+        run_id="missing-batch",
+    )
+
+    assert controller.workflow is workflow
 
 
 def test_replica_factory_does_not_bypass_vllm_executable_validation(
@@ -310,16 +305,12 @@ entries:
                     "model": {"name": "test-model"},
                     "execution": {
                         "model_path": str(model_path),
+                        "max_new_tokens": 16,
                         "serving": {
                             "max_model_len": 128,
                             "max_num_seqs": 1,
                             "max_num_batched_tokens": 128,
                         },
-                    },
-                    "token_budget": {
-                        "min_max_new_tokens": 16,
-                        "default_max_new_tokens": 16,
-                        "max_max_new_tokens": 16,
                     },
                     "prompt_template": "{content}",
                 }

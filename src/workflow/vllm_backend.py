@@ -32,6 +32,9 @@ class VLLMBackend:
         self.vllm_version = VLLM_VERSION
         self.engine_mode: Literal["V0"] = VLLM_ENGINE_MODE
         self.attention_backend: Literal["XFORMERS"] = VLLM_ATTENTION_BACKEND
+        self.block_size = 0
+        self.num_gpu_blocks = 0
+        self.gpu_kv_tokens = 0
         self._engine: AsyncLLMEngine | None = None
 
     def load(self) -> None:
@@ -79,6 +82,21 @@ class VLLMBackend:
             enable_log_requests=False,
         )
         self._engine = AsyncLLMEngine.from_engine_args(engine_args)
+        cache_config = self._engine.engine.cache_config
+        block_size = cache_config.block_size
+        num_gpu_blocks = cache_config.num_gpu_blocks
+        if (
+            isinstance(block_size, bool)
+            or not isinstance(block_size, int)
+            or block_size <= 0
+            or isinstance(num_gpu_blocks, bool)
+            or not isinstance(num_gpu_blocks, int)
+            or num_gpu_blocks <= 0
+        ):
+            raise RuntimeError("vLLM did not initialize GPU KV cache blocks")
+        self.block_size = block_size
+        self.num_gpu_blocks = num_gpu_blocks
+        self.gpu_kv_tokens = self.block_size * self.num_gpu_blocks
         self.idle_vram_mb = float(torch.cuda.memory_allocated(0)) / 1024**2
 
     async def generate(self, request: GenerationRequest) -> BackendGeneration:

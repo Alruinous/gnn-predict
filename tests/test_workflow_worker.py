@@ -24,8 +24,8 @@ from workflow.scheduler import (
     SessionInactiveError,
     TaskCancelledError,
 )
-from workflow.storage import ResultPersistenceError
 from workflow.schema import AgentNodeConfig, FunctionNodeConfig
+from workflow.storage import ResultPersistenceError
 from workflow.types import NodeWorkerState, WorkflowDataItem
 from workflow.worker import (
     NodeWorker,
@@ -67,6 +67,7 @@ def function_node(
     function: str = "merge_states",
     routing: Literal["broadcast", "targeted"] = "broadcast",
     max_attempts: int = 1,
+    max_concurrency: int = 1,
 ) -> FunctionNodeConfig:
     return FunctionNodeConfig.model_validate(
         {
@@ -74,6 +75,7 @@ def function_node(
             "type": "function",
             "function": function,
             "routing": routing,
+            "max_concurrency": max_concurrency,
             "retry": {"max_attempts": max_attempts},
         }
     )
@@ -92,17 +94,13 @@ def agent_node(
             "model": {"name": "test-model"},
             "execution": {
                 "model_path": "/models/test-model",
+                "max_new_tokens": 16,
                 "use_chat_template": False,
                 "serving": {
                     "max_model_len": 1024,
                     "max_num_seqs": 3,
                     "max_num_batched_tokens": 1536,
                 },
-            },
-            "token_budget": {
-                "min_max_new_tokens": 8,
-                "default_max_new_tokens": 16,
-                "max_max_new_tokens": 32,
             },
             "prompt_template": prompt_template,
             "system_prompt": "system",
@@ -227,7 +225,7 @@ class FakeGrant:
     model_key: str
     gpu_kind: str
     input_tokens: int
-    granted_max_new_tokens: int
+    max_new_tokens: int
 
 
 class FakeScheduler:
@@ -599,7 +597,7 @@ def test_agent_formats_and_validates_prompt_before_acquire() -> None:
     assert not any(call[0] == "request_acquire" for call in scheduler.calls)
 
 
-def test_agent_uses_granted_budget_and_builds_runtime_report() -> None:
+def test_agent_uses_fixed_output_limit_and_builds_runtime_report() -> None:
     replica = FakeReplica([inference_result()])
     grant = FakeGrant(
         acquire_id="acquire-1",
@@ -610,7 +608,7 @@ def test_agent_uses_granted_budget_and_builds_runtime_report() -> None:
         model_key="model-key",
         gpu_kind="v100",
         input_tokens=7,
-        granted_max_new_tokens=32,
+        max_new_tokens=16,
     )
     scheduler = FakeScheduler(grants=[grant])
     tokenizer = FakeTokenizer()
@@ -630,14 +628,12 @@ def test_agent_uses_granted_budget_and_builds_runtime_report() -> None:
     )
 
     assert tokenizer.calls == [("Summarize text", "system")]
-    assert replica.calls == [
-        ("acquire-1", (0, 1, 2, 3, 4, 5, 6), 32)
-    ]
+    assert replica.calls == [("acquire-1", (0, 1, 2, 3, 4, 5, 6), 16)]
     assert execution.output is not None
     assert execution.output["messages"][-1].content == "generated"
     assert execution.report.acquire_id == "acquire-1"
     assert execution.report.accelerator_id == "host/v100:0"
-    assert execution.report.granted_max_new_tokens == 32
+    assert execution.report.max_new_tokens == 16
 
 
 def test_agent_cancels_pending_acquire_on_timeout() -> None:
@@ -672,7 +668,7 @@ def test_acquire_cancel_race_consumes_the_grant() -> None:
         model_key="model-key",
         gpu_kind="v100",
         input_tokens=7,
-        granted_max_new_tokens=16,
+        max_new_tokens=16,
     )
     scheduler = FakeScheduler(grant_on_cancel=grant)
     node_worker = worker(
@@ -712,7 +708,7 @@ def test_inactive_acquire_does_not_stop_worker_before_next_session() -> None:
         model_key="model-key",
         gpu_kind="v100",
         input_tokens=7,
-        granted_max_new_tokens=16,
+        max_new_tokens=16,
     )
     scheduler = InactiveAcquireScheduler(grant)
     input_queue = FakeQueue()
@@ -758,7 +754,7 @@ def test_remote_awaitable_handles_use_remote_methods() -> None:
         model_key="model-key",
         gpu_kind="v100",
         input_tokens=7,
-        granted_max_new_tokens=16,
+        max_new_tokens=16,
     )
     scheduler = FakeScheduler(grants=[grant])
 
@@ -777,9 +773,7 @@ def test_remote_awaitable_handles_use_remote_methods() -> None:
     )
 
     assert execution.report.status == "success"
-    assert replica.calls == [
-        ("acquire-1", (0, 1, 2, 3, 4, 5, 6), 16)
-    ]
+    assert replica.calls == [("acquire-1", (0, 1, 2, 3, 4, 5, 6), 16)]
 
 
 def test_broadcast_function_uses_common_complete_emit_finish_flow() -> None:
@@ -1041,7 +1035,7 @@ def test_agent_retry_decision_reacquires_once_then_emits() -> None:
             model_key="model-key",
             gpu_kind="v100",
             input_tokens=7,
-            granted_max_new_tokens=16,
+            max_new_tokens=16,
         ),
         FakeGrant(
             acquire_id="acquire-2",
@@ -1052,7 +1046,7 @@ def test_agent_retry_decision_reacquires_once_then_emits() -> None:
             model_key="model-key",
             gpu_kind="a100",
             input_tokens=7,
-            granted_max_new_tokens=32,
+            max_new_tokens=16,
         ),
     ]
     scheduler = FakeScheduler(
@@ -1104,7 +1098,7 @@ def test_non_oom_agent_retry_honors_retry_delay(
                 model_key="model-key",
                 gpu_kind="v100",
                 input_tokens=7,
-                granted_max_new_tokens=16,
+                max_new_tokens=16,
             ),
             FakeGrant(
                 acquire_id="acquire-2",
@@ -1115,7 +1109,7 @@ def test_non_oom_agent_retry_honors_retry_delay(
                 model_key="model-key",
                 gpu_kind="a100",
                 input_tokens=7,
-                granted_max_new_tokens=16,
+                max_new_tokens=16,
             ),
         ],
     )
@@ -1234,6 +1228,39 @@ def test_worker_is_running_only_while_processing() -> None:
     assert node_worker.get_state() == NodeWorkerState.STOPPED
 
 
+def test_worker_serializes_concurrent_fanin_items_for_one_session() -> None:
+    scheduler = FakeScheduler(
+        decisions=[CompleteDecision(emit_output=True)],
+    )
+    input_queue = FakeQueue()
+    result_store = FakeResultStore()
+    node_worker = worker(
+        function_node(max_concurrency=2),
+        scheduler,
+        dependencies=("left", "right"),
+        functions={
+            "merge_states": lambda inputs, states, parameters: state("merged")
+        },
+        input_queue=input_queue,
+        result_store=result_store,
+    )
+
+    async def scenario() -> None:
+        run_task = asyncio.create_task(node_worker.run())
+        input_queue.feed(item("s1", "left"))
+        input_queue.feed(item("s1", "right"))
+        while "s1" not in result_store.results:
+            if run_task.done():
+                await run_task
+            await asyncio.sleep(0)
+        node_worker.stop()
+        await run_task
+
+    asyncio.run(scenario())
+
+    assert result_store.results["s1"]["messages"][-1].content == "merged"
+
+
 def test_agent_worker_runs_three_sessions_concurrently() -> None:
     replica = BlockingReplica(result_count=3)
     grants = [
@@ -1246,7 +1273,7 @@ def test_agent_worker_runs_three_sessions_concurrently() -> None:
             model_key="model-key",
             gpu_kind="v100",
             input_tokens=7,
-            granted_max_new_tokens=16,
+            max_new_tokens=16,
         )
         for index in range(1, 4)
     ]
@@ -1283,6 +1310,57 @@ def test_agent_worker_runs_three_sessions_concurrently() -> None:
     assert set(result_store.results) == {"s1", "s2", "s3"}
     assert len(tokenizer.calls) == 3
     assert node_worker.get_state() == NodeWorkerState.STOPPED
+
+
+def test_function_worker_honors_configured_concurrency() -> None:
+    scheduler = FakeScheduler(
+        decisions=[CompleteDecision(emit_output=True) for _ in range(3)]
+    )
+    input_queue = FakeQueue()
+    result_store = FakeResultStore()
+    release = asyncio.Event()
+    two_started = asyncio.Event()
+    active = 0
+    peak = 0
+
+    async def bounded(
+        inputs: Mapping[str, object],
+        states: Mapping[str, AgentState],
+        parameters: Mapping[str, object],
+    ) -> AgentState:
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        if active == 2:
+            two_started.set()
+        await release.wait()
+        active -= 1
+        return state(cast(str, inputs["content"]))
+
+    node_worker = worker(
+        function_node(function="bounded", max_concurrency=2),
+        scheduler,
+        functions={"bounded": bounded},
+        input_queue=input_queue,
+        result_store=result_store,
+    )
+
+    async def scenario() -> None:
+        run_task = asyncio.create_task(node_worker.run())
+        for index in range(1, 4):
+            input_queue.feed(item(f"s{index}", None))
+        await asyncio.wait_for(two_started.wait(), timeout=0.5)
+        assert peak == 2
+        release.set()
+        while len(result_store.results) < 3:
+            await asyncio.sleep(0)
+        node_worker.stop()
+        await run_task
+
+    asyncio.run(scenario())
+
+    assert peak == 2
+    assert set(result_store.results) == {"s1", "s2", "s3"}
 
 
 def test_run_stops_without_queue_control_messages() -> None:

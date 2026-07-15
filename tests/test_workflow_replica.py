@@ -14,6 +14,7 @@ from workflow.replica import (
     ModelDeploymentConfig,
     ModelReplica,
     PromptEncoding,
+    ReplicaLoadResult,
 )
 from workflow.schema import AgentNodeConfig, ExecutionConfig, ServingConfig
 from workflow.tokenizer import PromptTokenizer
@@ -46,16 +47,12 @@ def agent_node(
             "model": {"name": model_name},
             "execution": {
                 "model_path": model_path,
+                "max_new_tokens": 16,
                 "dtype": "float16",
                 "do_sample": do_sample,
                 "temperature": temperature,
                 "enable_thinking": enable_thinking,
                 "serving": (serving_config or serving()).model_dump(),
-            },
-            "token_budget": {
-                "min_max_new_tokens": 8,
-                "default_max_new_tokens": 16,
-                "max_max_new_tokens": 32,
             },
             "prompt_template": "Question: {content}",
             "system_prompt": "Be concise.",
@@ -66,6 +63,7 @@ def agent_node(
 DEPLOYMENT = ModelDeploymentConfig.from_node(agent_node())
 GENERATION = ExecutionConfig(
     model_path=DEPLOYMENT.model_path,
+    max_new_tokens=16,
     dtype=DEPLOYMENT.dtype,
     do_sample=True,
     temperature=0.7,
@@ -78,6 +76,9 @@ class FakeBackend:
     vllm_version: str = "0.10.2"
     engine_mode: Literal["V0"] = "V0"
     attention_backend: Literal["XFORMERS"] = "XFORMERS"
+    block_size: int = 16
+    num_gpu_blocks: int = 100
+    gpu_kv_tokens: int = 1_600
 
     def __init__(
         self,
@@ -171,7 +172,7 @@ def invoke(
     replica: ModelReplica,
     *,
     request_id: str = "request-1",
-    max_new_tokens: int = 96,
+    max_new_tokens: int = 16,
 ) -> Any:
     return replica.invoke(
         request_id,
@@ -243,6 +244,18 @@ def test_load_reports_vllm_runtime_and_ray_gpu() -> None:
     assert result.engine_mode == "V0"
     assert result.attention_backend == "XFORMERS"
     assert result.max_num_seqs == 3
+    assert result.block_size == 16
+    assert result.num_gpu_blocks == 100
+    assert result.gpu_kv_tokens == 1_600
+
+
+def test_load_result_requires_kv_capacity() -> None:
+    with pytest.raises(ValidationError, match="block_size"):
+        ReplicaLoadResult(
+            physical_gpu_id=0,
+            duration_sec=1.0,
+            idle_vram_mb=1_000,
+        )
 
 
 @pytest.mark.parametrize("gpu_ids", [[], [0, 1]])
@@ -282,7 +295,7 @@ def test_replica_passes_exact_tokens_and_generation_parameters() -> None:
             GenerationRequest(
                 request_id="request-1",
                 prompt_token_ids=(1, 2, 3),
-                max_new_tokens=96,
+                max_new_tokens=16,
                 do_sample=True,
                 temperature=0.7,
             )
@@ -293,6 +306,13 @@ def test_replica_passes_exact_tokens_and_generation_parameters() -> None:
         assert result.hit_token_limit is False
 
     asyncio.run(scenario())
+
+
+def test_invoke_rejects_output_limit_different_from_workflow() -> None:
+    replica = loaded_replica(FakeBackend())
+
+    with pytest.raises(ValueError, match="output limit"):
+        asyncio.run(invoke(replica, max_new_tokens=2))
 
 
 def test_finish_reason_length_sets_token_limit() -> None:
@@ -306,7 +326,7 @@ def test_finish_reason_length_sets_token_limit() -> None:
     )
 
     async def scenario() -> None:
-        result = await invoke(loaded_replica(backend), max_new_tokens=2)
+        result = await invoke(loaded_replica(backend))
 
         assert result.status == "success"
         assert result.hit_token_limit is True
@@ -390,6 +410,7 @@ def test_prompt_tokenizer_returns_exact_ids_and_decodes_output() -> None:
     tokenizer = FakeTokenizer()
     execution = ExecutionConfig(
         model_path="/models/test-model",
+        max_new_tokens=16,
         use_chat_template=True,
         enable_thinking=True,
         truncation_side="left",
@@ -409,9 +430,7 @@ def test_prompt_tokenizer_returns_exact_ids_and_decodes_output() -> None:
     )
     assert tokenizer.truncation_side == "left"
     assert tokenizer.encode_calls[0][1]["truncation"] is False
-    assert tokenizer.decode_calls == [
-        ([20, 21], {"skip_special_tokens": True})
-    ]
+    assert tokenizer.decode_calls == [([20, 21], {"skip_special_tokens": True})]
     assert output == "decoded answer"
 
 
@@ -419,6 +438,7 @@ def test_prompt_tokenizer_joins_system_without_chat_template() -> None:
     tokenizer = FakeTokenizer()
     execution = ExecutionConfig(
         model_path="/models/test-model",
+        max_new_tokens=16,
         use_chat_template=False,
         serving=serving(),
     )

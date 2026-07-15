@@ -11,9 +11,10 @@ from workflow.artifacts import (
     PredictionEntry,
     SchedulerConfig,
 )
-from workflow.replica import ReplicaLoadResult
+from workflow.replica import ModelDeploymentConfig, ReplicaLoadResult
 from workflow.scheduler import (
     AgentTaskRuntimeReport,
+    DurationHistoryRecord,
     EvictReplicaAction,
     FunctionTaskRuntimeReport,
     GrantInfo,
@@ -38,17 +39,13 @@ def agent_node(name: str, model_name: str) -> dict[str, Any]:
         "model": {"name": model_name},
         "execution": {
             "model_path": f"/models/{model_name}",
+            "max_new_tokens": 512,
             "dtype": "float16",
             "serving": {
                 "max_model_len": 4096,
                 "max_num_seqs": 1,
                 "max_num_batched_tokens": 4096,
             },
-        },
-        "token_budget": {
-            "min_max_new_tokens": 512,
-            "default_max_new_tokens": 512,
-            "max_max_new_tokens": 512,
         },
         "prompt_template": "{content}",
     }
@@ -131,6 +128,7 @@ def policy_core(
     workflow: Workflow,
     *,
     accelerator_count: int = 1,
+    policy: Literal["fifo", "history", "cache"] = "cache",
 ) -> SchedulerCore:
     model_names = tuple(
         node.model.name for node in workflow.nodes if isinstance(node, AgentNodeConfig)
@@ -147,6 +145,7 @@ def policy_core(
     return SchedulerCore(
         workflow,
         scheduler_config=SchedulerConfig(
+            policy=policy,
             accelerators=accelerators,
             eps_time_sec=0.5,
             history_ema_alpha=0.5,
@@ -211,6 +210,9 @@ def complete_load_and_grant(
             physical_gpu_id=load.accelerator.local_index,
             duration_sec=1.0,
             idle_vram_mb=4_000,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
         ),
         backend_handle=f"backend-{load.replica_id}",
         now=now + 1,
@@ -241,7 +243,7 @@ def agent_report(
         accelerator_id=grant.accelerator_ids[0],
         gpu_kind=grant.gpu_kind,
         input_tokens=grant.input_tokens,
-        granted_max_new_tokens=grant.granted_max_new_tokens,
+        max_new_tokens=grant.max_new_tokens,
         output_tokens=output_tokens,
         hit_token_limit=hit_token_limit,
         started_at=10.0,
@@ -263,7 +265,7 @@ def history_report(index: int) -> AgentTaskRuntimeReport:
         accelerator_id="node/v100:0",
         gpu_kind="v100",
         input_tokens=128,
-        granted_max_new_tokens=512,
+        max_new_tokens=512,
         output_tokens=index,
         hit_token_limit=index % 2 == 0,
         started_at=float(index),
@@ -306,7 +308,6 @@ def test_runtime_history_is_keyed_bounded_and_aggregated() -> None:
     assert isinstance(history, RuntimeHistoryRecord)
     assert len(history.samples) == 64
     assert history.output_tokens_p90 == 64
-    assert history.hit_limit_rate == 0.5
     assert history.oom_count == 7
     assert math.isclose(history.duration_sec_ema, 69.0)
 
@@ -329,6 +330,66 @@ def test_near_ready_prefetch_uses_explicit_deadline() -> None:
     assert len(actions) == 1
     assert isinstance(actions[0], LoadReplicaAction)
     assert actions[0].reason == "near_ready_prefetch"
+
+
+def test_fifo_disables_near_ready_prefetch() -> None:
+    core = policy_core(near_workflow(), policy="fifo")
+    core.register_session("near-session")
+    core.begin_node("near-session", "upstream", ["input-near"])
+    core.record_running_upstream("near-session", "upstream", finish_at=20.0)
+
+    assert core.near_ready_tasks() == ()
+    assert core.tick_once(now=20.0) == []
+
+
+def test_history_prefetch_requires_observed_load_history() -> None:
+    core = policy_core(near_workflow(), policy="history")
+    core.register_session("near-session")
+    core.begin_node("near-session", "upstream", ["input-near"])
+    core.record_running_upstream("near-session", "upstream", finish_at=20.0)
+
+    assert core.near_ready_tasks() == ()
+    node = core.workflow.node_map()["near"]
+    assert isinstance(node, AgentNodeConfig)
+    model_key = ModelDeploymentConfig.from_node(node).model_key
+    core.load_history[(model_key, "v100")] = DurationHistoryRecord(duration_sec_ema=2.0)
+
+    near = core.near_ready_tasks()
+    assert len(near) == 1
+    assert near[0].load_sec == 2.0
+    assert near[0].prefetch_at == 17.5
+
+
+def test_cache_prefetch_ignores_observed_load_history() -> None:
+    core = policy_core(near_workflow(), policy="cache")
+    core.register_session("near-session")
+    core.begin_node("near-session", "upstream", ["input-near"])
+    core.record_running_upstream("near-session", "upstream", finish_at=20.0)
+    node = core.workflow.node_map()["near"]
+    assert isinstance(node, AgentNodeConfig)
+    model_key = ModelDeploymentConfig.from_node(node).model_key
+    core.load_history[(model_key, "v100")] = DurationHistoryRecord(duration_sec_ema=2.0)
+
+    near = core.near_ready_tasks()
+
+    assert len(near) == 1
+    assert near[0].load_sec == 5.0
+    assert near[0].prefetch_at == 14.5
+
+
+def test_fifo_uses_global_request_order_across_nodes() -> None:
+    core = policy_core(eviction_workflow(), policy="fifo")
+    core.register_session("s1")
+    finish_function(core, "s1", "start")
+    request_agent(core, "s1", "waiting", created_at=1.0)
+    request_agent(core, "s1", "resident", created_at=2.0)
+
+    actions = core.tick_once(now=3.0)
+
+    assert len(actions) == 1
+    load = actions[0]
+    assert isinstance(load, LoadReplicaAction)
+    assert load.deployment.model_name == "model-waiting"
 
 
 def test_ready_work_outranks_near_ready_prefetch() -> None:
@@ -460,7 +521,7 @@ def test_eviction_prefers_no_future_demand_over_near_reuse() -> None:
 
 
 def test_eviction_unknown_reuse_falls_back_to_longest_idle() -> None:
-    core = policy_core(multi_eviction_workflow(), accelerator_count=2)
+    core = policy_core(multi_eviction_workflow(), accelerator_count=2, policy="fifo")
     grant_a = seed_idle_replica(core, "seed-a", "agent_a", now=3.0)
     grant_b = seed_idle_replica(core, "seed-b", "agent_b", now=7.0)
     replica_a = core.replicas[grant_a.replica_id]

@@ -9,6 +9,7 @@ nodes:
       name: Qwen3-4B
     execution:
       model_path: /data/Models/Qwen/Qwen3-4B
+      max_new_tokens: 512
       dtype: float16
       do_sample: false
       serving:
@@ -16,10 +17,6 @@ nodes:
         max_num_seqs: 3
         max_num_batched_tokens: 6144
         gpu_memory_utilization: 0.98
-    token_budget:
-      min_max_new_tokens: 128
-      default_max_new_tokens: 512
-      max_max_new_tokens: 1024
     prompt_template: "Summarize the prepared content: {content}"
 edges:
   - source: prepare

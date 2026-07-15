@@ -24,8 +24,8 @@ from common.validate import NonEmptyStr
 from workflow.types import WorkflowModelFeatureKey
 
 GpuKind = Literal["v100", "a100"]
+SchedulerPolicy = Literal["fifo", "history", "cache"]
 OpenUnitInterval = Annotated[float, Field(gt=0, le=1)]
-UnitInterval = Annotated[float, Field(ge=0, le=1)]
 
 
 class ArtifactModel(BaseModel):
@@ -44,6 +44,7 @@ class AcceleratorConfig(ArtifactModel):
 
 
 class SchedulerConfig(ArtifactModel):
+    policy: SchedulerPolicy = "cache"
     accelerators: tuple[AcceleratorConfig, ...] = ()
     vllm_python_executable: NonEmptyStr | None = None
     eps_mem_mb: NonNegativeFloat = 512.0
@@ -53,7 +54,6 @@ class SchedulerConfig(ArtifactModel):
     grant_poll_interval_sec: PositiveFloat = 0.05
     eviction_timeout_sec: PositiveFloat = 30.0
     history_ema_alpha: OpenUnitInterval = 0.2
-    hit_limit_rate_threshold: UnitInterval = 0.1
 
     @field_validator("vllm_python_executable")
     @classmethod

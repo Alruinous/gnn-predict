@@ -80,13 +80,16 @@ def test_prediction_cache_reports_missing_contiguous_batch_keys() -> None:
     batch_three = prediction_entry(prediction_key(batch_size=3))
     cache = PredictionCache(version=1, entries=(batch_one, batch_three))
 
-    assert cache.lookup_decode(
-        model_name="test-model",
-        gpu_kind="v100",
-        batch_size=3,
-        sequence_length=2048,
-        decode_output_length=512,
-    ) == batch_three
+    assert (
+        cache.lookup_decode(
+            model_name="test-model",
+            gpu_kind="v100",
+            batch_size=3,
+            sequence_length=2048,
+            decode_output_length=512,
+        )
+        == batch_three
+    )
     missing = cache.missing_decode_batch_keys("test-model", "v100", 3)
 
     assert len(missing) == 1
@@ -182,7 +185,7 @@ def test_accelerator_identity_and_scheduler_defaults_are_deterministic() -> None
 
     assert accelerator.accelerator_id == "gpu-node-0/v100:1"
     assert config.eps_mem_mb == 512.0
-    assert config.hit_limit_rate_threshold == 0.1
+    assert config.policy == "cache"
 
 
 def test_scheduler_config_allows_no_accelerators() -> None:
@@ -232,8 +235,6 @@ def test_scheduler_config_rejects_conflicting_host_local_indexes() -> None:
         ("eviction_timeout_sec", 0),
         ("history_ema_alpha", 0),
         ("history_ema_alpha", 1.1),
-        ("hit_limit_rate_threshold", -0.1),
-        ("hit_limit_rate_threshold", 1.1),
     ],
 )
 def test_scheduler_config_rejects_invalid_numeric_bounds(

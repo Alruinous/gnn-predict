@@ -128,6 +128,9 @@ class ImmediateReplica:
             physical_gpu_id=0,
             duration_sec=0.25,
             idle_vram_mb=900,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
         )
 
     def shutdown(self) -> None:
@@ -163,17 +166,13 @@ def agent_workflow() -> Workflow:
                     "model": {"name": "test-model"},
                     "execution": {
                         "model_path": "/models/test-model",
+                        "max_new_tokens": 8,
                         "dtype": "float16",
                         "serving": {
                             "max_model_len": 1024,
                             "max_num_seqs": 1,
                             "max_num_batched_tokens": 1024,
                         },
-                    },
-                    "token_budget": {
-                        "min_max_new_tokens": 8,
-                        "default_max_new_tokens": 8,
-                        "max_max_new_tokens": 8,
                     },
                     "prompt_template": "{content}",
                 }
@@ -198,17 +197,13 @@ def prefetch_workflow() -> Workflow:
                     "model": {"name": "test-model"},
                     "execution": {
                         "model_path": "/models/test-model",
+                        "max_new_tokens": 8,
                         "dtype": "float16",
                         "serving": {
                             "max_model_len": 1024,
                             "max_num_seqs": 1,
                             "max_num_batched_tokens": 1024,
                         },
-                    },
-                    "token_budget": {
-                        "min_max_new_tokens": 8,
-                        "default_max_new_tokens": 8,
-                        "max_max_new_tokens": 8,
                     },
                     "prompt_template": "{content}",
                 },
@@ -259,6 +254,9 @@ def prepare_grant(actor: Any) -> tuple[str, GrantInfo]:
             physical_gpu_id=0,
             duration_sec=0.25,
             idle_vram_mb=900,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
         ),
         backend_handle=object(),
         now=10.25,
@@ -383,7 +381,7 @@ def test_scheduler_trace_records_tick_and_load_decision_payload(
     assert decision.gpu_kind == "v100"
 
 
-def test_token_budget_infeasible_trace_preserves_failure_inputs(
+def test_request_infeasible_trace_preserves_fixed_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     actor = trace_actor(agent_workflow(), predictions=predictions())
@@ -394,18 +392,15 @@ def test_token_budget_infeasible_trace_preserves_failure_inputs(
 
     actor._run_scheduling_pass()
 
-    event = events(actor, "token_budget_infeasible")[-1]
+    event = events(actor, "request_infeasible")[-1]
     assert event.ts == 50.0
     assert event.session_id == "session-1"
     assert event.task_id == task_id
     assert event.node_id == "agent"
     assert event.payload == {
-        "action": "infeasible",
         "reason": "input_bucket_missing",
         "input_tokens": 1_000,
-        "min_max_new_tokens": 8,
-        "default_max_new_tokens": 8,
-        "max_max_new_tokens": 8,
+        "max_new_tokens": 8,
     }
 
 
@@ -416,15 +411,11 @@ def test_agent_trace_uses_runtime_timestamp_and_prediction_payload() -> None:
 
     actor._record_new_grants()
 
-    selected = events(actor, "token_budget_selected")[-1]
+    selected = events(actor, "placement_selected")[-1]
     prediction = cache.lookup(grant.prediction_key)
     assert selected.payload == {
-        "action": "fixed",
         "input_tokens": 64,
-        "granted_max_new_tokens": 8,
-        "min_max_new_tokens": 8,
-        "default_max_new_tokens": 8,
-        "max_max_new_tokens": 8,
+        "max_new_tokens": 8,
         "admitted_batch_size": 1,
         "replica_inflight_at_grant": 1,
         "prediction_cache_version": 7,
@@ -446,7 +437,7 @@ def test_agent_trace_uses_runtime_timestamp_and_prediction_payload() -> None:
         accelerator_id=grant.accelerator_ids[0],
         gpu_kind=grant.gpu_kind,
         input_tokens=64,
-        granted_max_new_tokens=8,
+        max_new_tokens=8,
         output_tokens=6,
         hit_token_limit=False,
         started_at=100.0,
@@ -461,17 +452,19 @@ def test_agent_trace_uses_runtime_timestamp_and_prediction_payload() -> None:
     assert finished.payload == {
         "status": "success",
         "duration_sec": 5.0,
+        "started_at": 100.0,
+        "finished_at": 105.0,
         "input_tokens": 64,
-        "granted_max_new_tokens": 8,
-            "output_tokens": 6,
-            "hit_token_limit": False,
-            "finish_reason": None,
-            "queue_time_sec": None,
-            "time_to_first_token_sec": None,
-            "replica_inflight_at_start": 1,
-            "admitted_batch_size": 1,
-            "engine_failed": False,
-            "prediction_key": prediction.key.model_dump(mode="json"),
+        "max_new_tokens": 8,
+        "output_tokens": 6,
+        "hit_token_limit": False,
+        "finish_reason": None,
+        "queue_time_sec": None,
+        "time_to_first_token_sec": None,
+        "replica_inflight_at_start": 1,
+        "admitted_batch_size": 1,
+        "engine_failed": False,
+        "prediction_key": prediction.key.model_dump(mode="json"),
         "predicted_load_sec": 5.0,
         "predicted_run_sec": 2.5,
         "predicted_peak_vram_mb": 1_024.0,
@@ -500,6 +493,7 @@ def test_prefetch_trace_records_started_and_finished(
     trace = asyncio.run(run_scenario())
     started = next(event for event in trace if event.event_type == "prefetch_started")
     finished = next(event for event in trace if event.event_type == "prefetch_finished")
+    loaded = next(event for event in trace if event.event_type == "model_load_finished")
     assert started.session_id == "near-session"
     assert started.node_id == "agent"
     assert started.payload == {
@@ -513,6 +507,9 @@ def test_prefetch_trace_records_started_and_finished(
         "prefetch_at": 14.5,
         "duration_sec": 0.25,
     }
+    assert loaded.payload["block_size"] == 16
+    assert loaded.payload["num_gpu_blocks"] == 100
+    assert loaded.payload["gpu_kv_tokens"] == 1_600
 
 
 def test_prefetch_trace_records_resident_skip(
@@ -528,6 +525,9 @@ def test_prefetch_trace_records_resident_skip(
             physical_gpu_id=0,
             duration_sec=0.25,
             idle_vram_mb=900,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
         ),
         backend_handle=object(),
         now=14.5,

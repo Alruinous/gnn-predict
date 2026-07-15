@@ -11,21 +11,18 @@ from workflow.artifacts import (
 from workflow.policy import (
     EvictionCandidate,
     select_eviction_victim,
-    select_token_budget,
+    select_placement,
 )
 from workflow.schema import AgentNodeConfig
 from workflow.types import (
     ModelReplicaState,
-    TokenBudgetAction,
     WorkflowModelFeatureKey,
 )
 
 
 def agent_node(
     *,
-    min_tokens: int = 128,
-    default_tokens: int = 512,
-    max_tokens: int = 1024,
+    max_new_tokens: int = 512,
 ) -> AgentNodeConfig:
     return AgentNodeConfig.model_validate(
         {
@@ -34,17 +31,13 @@ def agent_node(
             "model": {"name": "test-model"},
             "execution": {
                 "model_path": "/models/test-model",
+                "max_new_tokens": max_new_tokens,
                 "dtype": "float16",
                 "serving": {
                     "max_model_len": 4096,
                     "max_num_seqs": 1,
                     "max_num_batched_tokens": 4096,
                 },
-            },
-            "token_budget": {
-                "min_max_new_tokens": min_tokens,
-                "default_max_new_tokens": default_tokens,
-                "max_max_new_tokens": max_tokens,
             },
             "prompt_template": "{content}",
         }
@@ -101,13 +94,12 @@ def prediction_cache() -> PredictionCache:
     return PredictionCache(version=1, entries=entries)
 
 
-def test_token_policy_chooses_largest_feasible_cached_budget() -> None:
-    decision = select_token_budget(
+def test_placement_uses_the_smallest_bucket_covering_the_fixed_limit() -> None:
+    decision = select_placement(
         node=agent_node(),
         input_tokens=1100,
         accelerators=[accelerator("v100", 16_000), accelerator("a100", 40_000)],
         predictions=prediction_cache(),
-        history={},
         oom_penalties={},
         eps_mem_mb=512,
     )
@@ -115,50 +107,29 @@ def test_token_policy_chooses_largest_feasible_cached_budget() -> None:
     assert decision.gpu_kind == "v100"
     assert decision.sequence_length == 2048
     assert decision.predicted_load_sec == 5.0
-    assert decision.granted_max_new_tokens == 512
-    assert decision.action == TokenBudgetAction.FIXED
+    assert decision.max_new_tokens == 512
+    assert decision.prediction_key is not None
+    assert decision.prediction_key.decode_output_length == 512
+    assert decision.feasible is True
 
 
-def test_token_policy_prefers_quality_headroom_after_repeated_limit_hits() -> None:
-    decision = select_token_budget(
-        node=agent_node(),
+def test_placement_uses_a_larger_bucket_without_changing_the_fixed_limit() -> None:
+    decision = select_placement(
+        node=agent_node(max_new_tokens=600),
         input_tokens=1100,
-        accelerators=[accelerator("v100", 16_000), accelerator("a100", 40_000)],
+        accelerators=[accelerator("a100", 40_000)],
         predictions=prediction_cache(),
-        history={"v100": 0.2},
         oom_penalties={},
         eps_mem_mb=512,
     )
 
+    assert decision.max_new_tokens == 600
+    assert decision.prediction_key is not None
+    assert decision.prediction_key.decode_output_length == 1024
     assert decision.gpu_kind == "a100"
-    assert decision.granted_max_new_tokens == 1024
-    assert decision.action == TokenBudgetAction.UPSCALED
 
 
-def test_token_policy_falls_back_to_largest_budget_when_small_gpu_hits_limit() -> None:
-    cache = PredictionCache(
-        version=1,
-        entries=(
-            entry("v100", 2048, 1024, 12_000, 4.0),
-            entry("a100", 2048, 512, 12_000, 3.0),
-        ),
-    )
-
-    decision = select_token_budget(
-        node=agent_node(),
-        input_tokens=1100,
-        accelerators=[accelerator("v100", 16_000), accelerator("a100", 40_000)],
-        predictions=cache,
-        history={"v100": 0.2},
-        oom_penalties={},
-        eps_mem_mb=512,
-    )
-
-    assert decision.gpu_kind == "v100"
-    assert decision.granted_max_new_tokens == 1024
-
-
-def test_token_policy_applies_the_exact_bucket_oom_penalty() -> None:
+def test_placement_oom_penalty_never_downscales_the_fixed_limit() -> None:
     cache = prediction_cache()
     penalized_key = WorkflowModelFeatureKey(
         model_name="test-model",
@@ -169,53 +140,50 @@ def test_token_policy_applies_the_exact_bucket_oom_penalty() -> None:
         decode_output_length=512,
     )
 
-    decision = select_token_budget(
+    decision = select_placement(
         node=agent_node(),
         input_tokens=1100,
         accelerators=[accelerator("v100", 16_000)],
         predictions=cache,
-        history={},
         oom_penalties={penalized_key: 1_000},
         eps_mem_mb=512,
     )
 
-    assert decision.granted_max_new_tokens == 128
-    assert decision.effective_vram_mb == 11_512
-    assert decision.action == TokenBudgetAction.DOWNSCALED
+    assert decision.feasible is False
+    assert decision.reason == "request_infeasible"
+    assert decision.max_new_tokens is None
 
 
-def test_token_policy_does_not_clamp_an_uncovered_input() -> None:
-    decision = select_token_budget(
+def test_placement_does_not_clamp_an_uncovered_input() -> None:
+    decision = select_placement(
         node=agent_node(),
-        input_tokens=8192,
+        input_tokens=3000,
         accelerators=[accelerator("v100", 16_000), accelerator("a100", 40_000)],
         predictions=prediction_cache(),
-        history={},
         oom_penalties={},
         eps_mem_mb=512,
     )
 
-    assert decision.action == TokenBudgetAction.INFEASIBLE
+    assert decision.feasible is False
     assert decision.reason == "input_bucket_missing"
-    assert decision.granted_max_new_tokens is None
+    assert decision.max_new_tokens is None
 
 
-def test_token_policy_uses_cached_decode_buckets_inside_the_configured_range() -> None:
-    decision = select_token_budget(
-        node=agent_node(min_tokens=400, default_tokens=600, max_tokens=900),
-        input_tokens=1100,
-        accelerators=[accelerator("a100", 40_000)],
+def test_placement_rejects_a_request_outside_the_serving_context() -> None:
+    decision = select_placement(
+        node=agent_node(),
+        input_tokens=4090,
+        accelerators=[accelerator("v100", 16_000)],
         predictions=prediction_cache(),
-        history={},
         oom_penalties={},
         eps_mem_mb=512,
     )
 
-    assert decision.granted_max_new_tokens == 512
-    assert decision.action == TokenBudgetAction.DOWNSCALED
+    assert decision.feasible is False
+    assert decision.reason == "request_infeasible"
 
 
-def test_token_policy_uses_runtime_then_id_for_stable_ties() -> None:
+def test_placement_uses_runtime_then_id_for_stable_ties() -> None:
     cache = PredictionCache(
         version=1,
         entries=(
@@ -223,16 +191,14 @@ def test_token_policy_uses_runtime_then_id_for_stable_ties() -> None:
             entry("a100", 2048, 1024, 12_000, 3.0),
         ),
     )
-    decision = select_token_budget(
+    decision = select_placement(
         node=agent_node(),
         input_tokens=1100,
         accelerators=[
             accelerator("a100", 40_000, hostname="z-node"),
             accelerator("a100", 40_000, hostname="a-node"),
-            accelerator("v100", 16_000),
         ],
         predictions=cache,
-        history={"v100": 0.2},
         oom_penalties={},
         eps_mem_mb=512,
     )

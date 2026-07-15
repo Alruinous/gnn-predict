@@ -67,7 +67,7 @@ class GrantInfoProtocol(Protocol):
     model_key: str
     gpu_kind: str
     input_tokens: int
-    granted_max_new_tokens: int
+    max_new_tokens: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,7 +232,13 @@ async def execute_agent(
         acquire_timeout_sec=acquire_timeout_sec,
         grant_poll_interval_sec=grant_poll_interval_sec,
     )
-    _validate_grant(grant, acquire_value, task_id, input_tokens)
+    _validate_grant(
+        grant,
+        acquire_value,
+        task_id,
+        input_tokens,
+        node.execution.max_new_tokens,
+    )
     if grant_observer is not None:
         grant_observer(grant)
     try:
@@ -241,7 +247,7 @@ async def execute_agent(
             "invoke",
             acquire_value,
             prompt.token_ids,
-            max_new_tokens=grant.granted_max_new_tokens,
+            max_new_tokens=node.execution.max_new_tokens,
             generation=node.execution,
         )
     finally:
@@ -261,7 +267,7 @@ async def execute_agent(
         accelerator_id=grant.accelerator_ids[0],
         gpu_kind=grant.gpu_kind,
         input_tokens=result_value.input_tokens,
-        granted_max_new_tokens=grant.granted_max_new_tokens,
+        max_new_tokens=node.execution.max_new_tokens,
         output_tokens=result_value.output_tokens,
         hit_token_limit=result_value.hit_token_limit,
         finish_reason=result_value.finish_reason,
@@ -358,7 +364,8 @@ class NodeWorker:
                 if not isinstance(item_value, WorkflowDataItem):
                     raise TypeError("node input queues carry WorkflowDataItem only")
                 if item_value.session_id in self._active_tasks:
-                    raise RuntimeError("node worker already handles this session")
+                    await self._active_tasks[item_value.session_id]
+                    self._reap_finished_tasks()
                 task = asyncio.create_task(self.process_item(item_value))
                 self._active_tasks[item_value.session_id] = task
                 self.status = NodeWorkerState.RUNNING
@@ -464,7 +471,7 @@ class NodeWorker:
     def _concurrency_limit(self) -> int:
         if isinstance(self.node, AgentNodeConfig):
             return self.node.execution.serving.max_num_seqs
-        return 1
+        return self.node.max_concurrency
 
     def _reap_finished_tasks(self) -> None:
         for session_id, task in tuple(self._active_tasks.items()):
@@ -845,11 +852,14 @@ def _validate_grant(
     acquire_id: str,
     task_id: str,
     input_tokens: int,
+    max_new_tokens: int,
 ) -> None:
     if grant.acquire_id != acquire_id or grant.task_id != task_id:
         raise ValueError("grant identity does not match the acquire request")
     if grant.input_tokens != input_tokens:
         raise ValueError("grant input token count does not match the prompt")
+    if grant.max_new_tokens != max_new_tokens:
+        raise ValueError("grant output limit does not match the workflow")
     if len(grant.accelerator_ids) != 1:
         raise ValueError("current model replicas require one accelerator")
 

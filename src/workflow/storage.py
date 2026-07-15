@@ -11,7 +11,7 @@ import ray
 from langchain.agents import AgentState
 from langchain_core.load import dumpd
 
-from workflow.types import TokenBudgetAction, TraceEvent
+from workflow.types import TraceEvent
 
 RESULTS_FILENAME = "session_results.jsonl"
 TRACE_FILENAME = "workflow_trace.jsonl"
@@ -125,18 +125,40 @@ def _read_jsonl(path: Path) -> Iterator[dict[str, object]]:
             yield cast(dict[str, object], value)
 
 
-def _payload_duration(event: TraceEvent) -> float:
-    duration = event.payload["duration_sec"]
-    if isinstance(duration, bool) or not isinstance(duration, (int, float)):
-        raise TypeError(f"invalid duration_sec for event {event.event_id}")
-    return float(duration)
-
-
 def _session_latency(event: TraceEvent) -> float:
     value = event.payload["latency_sec"]
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
         raise TypeError(f"invalid latency_sec for event {event.event_id}")
     return float(value)
+
+
+def _execution_interval(event: TraceEvent) -> tuple[float, float]:
+    started_at = event.payload["started_at"]
+    finished_at = event.payload["finished_at"]
+    if (
+        isinstance(started_at, bool)
+        or not isinstance(started_at, (int, float))
+        or isinstance(finished_at, bool)
+        or not isinstance(finished_at, (int, float))
+        or finished_at < started_at
+    ):
+        raise TypeError(f"invalid execution interval for event {event.event_id}")
+    return float(started_at), float(finished_at)
+
+
+def _interval_union_duration(intervals: list[tuple[float, float]]) -> float:
+    if not intervals:
+        return 0.0
+    ordered = sorted(intervals)
+    merged_start, merged_end = ordered[0]
+    duration = 0.0
+    for started_at, finished_at in ordered[1:]:
+        if started_at > merged_end:
+            duration += merged_end - merged_start
+            merged_start, merged_end = started_at, finished_at
+        else:
+            merged_end = max(merged_end, finished_at)
+    return duration + merged_end - merged_start
 
 
 def _percentile(values: list[float], quantile: float) -> float:
@@ -160,14 +182,15 @@ def write_run_summary(output_dir: Path | str, run_id: str) -> None:
     completed_session_count = 0
     failed_session_count = 0
     per_node_task_counts: dict[str, dict[str, int]] = {}
-    token_budget_action_counts = {action.value: 0 for action in TokenBudgetAction}
+    placement_count = 0
+    request_infeasible_count = 0
     oom_count = 0
     model_load_count = 0
     model_reuse_count = 0
     model_evict_count = 0
     batched_admission_count = 0
     peak_replica_inflight = 0
-    active_gpu_seconds = 0.0
+    active_intervals: dict[str, list[tuple[float, float]]] = {}
     resident_gpu_seconds = 0.0
     residency_starts: dict[str, float] = {}
     run_finished_ts: float | None = None
@@ -188,7 +211,11 @@ def write_run_summary(output_dir: Path | str, run_id: str) -> None:
             session_latencies.append(_session_latency(event))
         elif event.event_type == "task_execution_finished":
             if event.accelerator_id is not None:
-                active_gpu_seconds += _payload_duration(event)
+                if event.replica_id is None:
+                    raise ValueError("GPU execution event requires replica_id")
+                active_intervals.setdefault(event.replica_id, []).append(
+                    _execution_interval(event)
+                )
             if event.payload.get("status") == "oom":
                 oom_count += 1
         elif event.event_type in ("task_completed", "task_failed"):
@@ -200,23 +227,13 @@ def write_run_summary(output_dir: Path | str, run_id: str) -> None:
             status = "completed" if event.event_type == "task_completed" else "failed"
             node_counts[status] += 1
             if (
-                event.event_type == "task_completed"
-                and event.accelerator_id is not None
-                and not event.payload.get("execution_event_recorded", False)
-            ):
-                active_gpu_seconds += _payload_duration(event)
-            if (
                 event.event_type == "task_failed"
                 and event.payload.get("status") == "oom"
                 and not event.payload.get("execution_event_recorded", False)
             ):
                 oom_count += 1
-        elif event.event_type == "token_budget_selected":
-            action = event.payload.get("action")
-            if action not in token_budget_action_counts:
-                raise ValueError(f"invalid token budget action {action!r}")
-            assert isinstance(action, str)
-            token_budget_action_counts[action] += 1
+        elif event.event_type == "placement_selected":
+            placement_count += 1
             admitted_batch_size = event.payload.get("admitted_batch_size", 1)
             if (
                 isinstance(admitted_batch_size, bool)
@@ -230,8 +247,8 @@ def write_run_summary(output_dir: Path | str, run_id: str) -> None:
             )
             if admitted_batch_size > 1:
                 batched_admission_count += 1
-        elif event.event_type == "token_budget_infeasible":
-            token_budget_action_counts[TokenBudgetAction.INFEASIBLE.value] += 1
+        elif event.event_type == "request_infeasible":
+            request_infeasible_count += 1
         elif event.event_type == "model_load_started":
             if event.replica_id is not None:
                 residency_starts.setdefault(event.replica_id, event.ts)
@@ -255,6 +272,9 @@ def write_run_summary(output_dir: Path | str, run_id: str) -> None:
         resident_gpu_seconds += sum(
             run_finished_ts - started_at for started_at in residency_starts.values()
         )
+    active_gpu_seconds = sum(
+        _interval_union_duration(intervals) for intervals in active_intervals.values()
+    )
 
     summary: dict[str, object] = {
         "run_id": run_id,
@@ -263,7 +283,8 @@ def write_run_summary(output_dir: Path | str, run_id: str) -> None:
         "failed_session_count": failed_session_count,
         "result_count": result_count,
         "per_node_task_counts": per_node_task_counts,
-        "token_budget_action_counts": token_budget_action_counts,
+        "placement_count": placement_count,
+        "request_infeasible_count": request_infeasible_count,
         "oom_count": oom_count,
         "model_load_count": model_load_count,
         "model_reuse_count": model_reuse_count,

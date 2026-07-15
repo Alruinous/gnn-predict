@@ -100,6 +100,9 @@ class ReplicaLoadResult(ReplicaContract):
     engine_mode: Literal["V0"] = VLLM_ENGINE_MODE
     attention_backend: Literal["XFORMERS"] = VLLM_ATTENTION_BACKEND
     max_num_seqs: PositiveInt = 1
+    block_size: PositiveInt
+    num_gpu_blocks: PositiveInt
+    gpu_kv_tokens: PositiveInt
 
 
 class ReplicaInferenceResult(ReplicaContract):
@@ -144,6 +147,9 @@ class GenerationBackend(Protocol):
     vllm_version: str
     engine_mode: Literal["V0"]
     attention_backend: Literal["XFORMERS"]
+    block_size: int
+    num_gpu_blocks: int
+    gpu_kv_tokens: int
 
     def load(self) -> None: ...
 
@@ -198,6 +204,9 @@ class ModelReplica:
             engine_mode=backend.engine_mode,
             attention_backend=backend.attention_backend,
             max_num_seqs=self.deployment.serving.max_num_seqs,
+            block_size=backend.block_size,
+            num_gpu_blocks=backend.num_gpu_blocks,
+            gpu_kv_tokens=backend.gpu_kv_tokens,
         )
 
     async def invoke(
@@ -213,6 +222,8 @@ class ModelReplica:
             raise RuntimeError("model replica is stopping")
         if generation.serving != self.deployment.serving:
             raise ValueError("generation serving config does not match the replica")
+        if max_new_tokens != generation.max_new_tokens:
+            raise ValueError("generation output limit does not match the workflow")
         if request_id in self._active_request_ids:
             raise ValueError(f"duplicate vLLM request id: {request_id}")
         inflight = len(self._active_request_ids) + 1

@@ -16,7 +16,6 @@ from workflow.schema import (
     FunctionNodeConfig,
     NodeConfig,
     RetryConfig,
-    TokenBudgetConfig,
     Workflow,
     WorkflowGraph,
     WorkflowModelConfig,
@@ -71,13 +70,6 @@ class ModelReplicaState(StrEnum):
     BUSY = "busy"
     EVICTING = "evicting"
     SUSPECT = "suspect"
-
-
-class TokenBudgetAction(StrEnum):
-    FIXED = "fixed"
-    UPSCALED = "upscaled"
-    DOWNSCALED = "downscaled"
-    INFEASIBLE = "infeasible"
 
 
 class WorkerQueueItem(BaseModel):

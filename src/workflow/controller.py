@@ -523,39 +523,19 @@ class WorkflowController:
                     raise KeyError(
                         f"prediction coverage is missing: {node.model.name}/{gpu_kind}"
                     )
-                missing_budgets = [
-                    sequence_length
+                if not any(
+                    output_length >= node.execution.max_new_tokens
                     for sequence_length in sequence_lengths
-                    if not any(
-                        node.token_budget.min_max_new_tokens
-                        <= output_length
-                        <= node.token_budget.max_max_new_tokens
-                        and sequence_length + output_length
-                        <= node.execution.serving.max_model_len
-                        for output_length in self.predictions.decode_output_lengths(
-                            node.model.name,
-                            gpu_kind,
-                            sequence_length,
-                        )
+                    for output_length in self.predictions.decode_output_lengths(
+                        node.model.name,
+                        gpu_kind,
+                        sequence_length,
                     )
-                ]
-                if missing_budgets:
+                ):
                     raise KeyError(
-                        "prediction coverage has no usable token budget: "
-                        f"{node.model.name}/{gpu_kind}/{missing_budgets}"
-                    )
-                missing_batch_keys = self.predictions.missing_decode_batch_keys(
-                    node.model.name,
-                    gpu_kind,
-                    node.execution.serving.max_num_seqs,
-                )
-                if missing_batch_keys:
-                    first = missing_batch_keys[0]
-                    raise KeyError(
-                        "prediction batch coverage is missing: "
-                        f"{first.model_name}/{first.gpu_name}/batch={first.batch_size}/"
-                        f"sequence={first.sequence_length}/"
-                        f"output={first.decode_output_length}"
+                        "prediction coverage has no output bucket: "
+                        f"{node.model.name}/{gpu_kind}/"
+                        f"max_new_tokens={node.execution.max_new_tokens}"
                     )
         executable = self.scheduler_config.vllm_python_executable
         if executable is None:

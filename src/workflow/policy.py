@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -22,7 +22,6 @@ from workflow.artifacts import (
 from workflow.schema import AgentNodeConfig
 from workflow.types import (
     ModelReplicaState,
-    TokenBudgetAction,
     WorkflowModelFeatureKey,
 )
 
@@ -31,22 +30,22 @@ class PolicyModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class TokenBudgetDecision(PolicyModel):
+class PlacementDecision(PolicyModel):
     accelerator_id: NonEmptyStr | None = None
     gpu_kind: GpuKind | None = None
     sequence_length: PositiveInt | None = None
-    granted_max_new_tokens: PositiveInt | None = None
+    max_new_tokens: PositiveInt | None = None
     prediction_key: WorkflowModelFeatureKey | None = None
     predicted_load_sec: PositiveFloat | None = None
     predicted_run_sec: PositiveFloat | None = None
     predicted_peak_vram_mb: PositiveFloat | None = None
     effective_vram_mb: PositiveFloat | None = None
-    action: TokenBudgetAction
+    feasible: bool
     reason: (
         Literal[
             "input_bucket_missing",
             "prediction_bucket_missing",
-            "token_budget_infeasible",
+            "request_infeasible",
         ]
         | None
     ) = None
@@ -67,22 +66,23 @@ class _FeasibleCandidate:
     effective_vram_mb: float
 
 
-def select_token_budget(
+def select_placement(
     *,
     node: AgentNodeConfig,
     input_tokens: int,
     accelerators: Sequence[AcceleratorConfig],
     predictions: PredictionCache,
-    history: Mapping[str, float],
     oom_penalties: Mapping[WorkflowModelFeatureKey, float],
     eps_mem_mb: float,
-    hit_limit_rate_threshold: float = 0.1,
     batch_size: int = 1,
-) -> TokenBudgetDecision:
+) -> PlacementDecision:
     if input_tokens <= 0:
         raise ValueError("input_tokens must be positive")
-    if not 0 <= hit_limit_rate_threshold <= 1:
-        raise ValueError("hit_limit_rate_threshold must be between 0 and 1")
+    if (
+        input_tokens + node.execution.max_new_tokens
+        > node.execution.serving.max_model_len
+    ):
+        return PlacementDecision(feasible=False, reason="request_infeasible")
 
     feasible: list[_FeasibleCandidate] = []
     has_input_bucket = False
@@ -104,24 +104,25 @@ def select_token_budget(
             sequence_length,
             batch_size,
         )
-        candidates = [
-            output_length
-            for output_length in output_lengths
-            if node.token_budget.min_max_new_tokens
-            <= output_length
-            <= node.token_budget.max_max_new_tokens
-        ]
-        if candidates:
+        output_length = next(
+            (
+                candidate
+                for candidate in output_lengths
+                if candidate >= node.execution.max_new_tokens
+            ),
+            None,
+        )
+        if output_length is not None:
             has_output_bucket = True
-        candidate = _largest_feasible_budget(
-            node,
-            accelerator,
-            sequence_length,
-            reversed(candidates),
-            predictions,
-            oom_penalties,
-            eps_mem_mb,
-            batch_size,
+        candidate = _feasible_placement(
+            accelerator=accelerator,
+            model_name=node.model.name,
+            sequence_length=sequence_length,
+            output_length=output_length,
+            predictions=predictions,
+            oom_penalties=oom_penalties,
+            eps_mem_mb=eps_mem_mb,
+            batch_size=batch_size,
         )
         if candidate is not None:
             feasible.append(candidate)
@@ -132,33 +133,62 @@ def select_token_budget(
         elif not has_output_bucket:
             reason = "prediction_bucket_missing"
         else:
-            reason = "token_budget_infeasible"
-        return TokenBudgetDecision(action=TokenBudgetAction.INFEASIBLE, reason=reason)
+            reason = "request_infeasible"
+        return PlacementDecision(feasible=False, reason=reason)
 
-    chosen = _choose_placement(
+    chosen = min(
         feasible,
-        node.token_budget.default_max_new_tokens,
-        history,
-        hit_limit_rate_threshold,
+        key=lambda candidate: (
+            candidate.accelerator.total_mem_mb,
+            candidate.prediction.predicted_run_sec,
+            candidate.accelerator.accelerator_id,
+        ),
     )
-    granted = chosen.prediction.key.decode_output_length
-    if granted == node.token_budget.default_max_new_tokens:
-        action = TokenBudgetAction.FIXED
-    elif granted > node.token_budget.default_max_new_tokens:
-        action = TokenBudgetAction.UPSCALED
-    else:
-        action = TokenBudgetAction.DOWNSCALED
-    return TokenBudgetDecision(
+    return PlacementDecision(
         accelerator_id=chosen.accelerator.accelerator_id,
         gpu_kind=chosen.accelerator.gpu_kind,
         sequence_length=chosen.prediction.key.sequence_length,
-        granted_max_new_tokens=granted,
+        max_new_tokens=node.execution.max_new_tokens,
         prediction_key=chosen.prediction.key,
         predicted_load_sec=chosen.prediction.predicted_load_sec,
         predicted_run_sec=chosen.prediction.predicted_run_sec,
         predicted_peak_vram_mb=chosen.prediction.predicted_peak_vram_mb,
         effective_vram_mb=chosen.effective_vram_mb,
-        action=action,
+        feasible=True,
+    )
+
+
+def _feasible_placement(
+    *,
+    accelerator: AcceleratorConfig,
+    model_name: str,
+    sequence_length: int,
+    output_length: int | None,
+    predictions: PredictionCache,
+    oom_penalties: Mapping[WorkflowModelFeatureKey, float],
+    eps_mem_mb: float,
+    batch_size: int,
+) -> _FeasibleCandidate | None:
+    if output_length is None:
+        return None
+    prediction = predictions.lookup_decode(
+        model_name=model_name,
+        gpu_kind=accelerator.gpu_kind,
+        batch_size=batch_size,
+        sequence_length=sequence_length,
+        decode_output_length=output_length,
+    )
+    effective_vram_mb = (
+        prediction.predicted_peak_vram_mb
+        + eps_mem_mb
+        + oom_penalties.get(prediction.key, 0.0)
+    )
+    if effective_vram_mb > accelerator.total_mem_mb:
+        return None
+    return _FeasibleCandidate(
+        accelerator=accelerator,
+        prediction=prediction,
+        effective_vram_mb=effective_vram_mb,
     )
 
 
@@ -208,68 +238,4 @@ def _covering_sequence_length(
             if sequence_length >= input_tokens
         ),
         None,
-    )
-
-
-def _largest_feasible_budget(
-    node: AgentNodeConfig,
-    accelerator: AcceleratorConfig,
-    sequence_length: int,
-    output_lengths: Iterable[int],
-    predictions: PredictionCache,
-    oom_penalties: Mapping[WorkflowModelFeatureKey, float],
-    eps_mem_mb: float,
-    batch_size: int,
-) -> _FeasibleCandidate | None:
-    for output_length in output_lengths:
-        if sequence_length + output_length > node.execution.serving.max_model_len:
-            continue
-        prediction = predictions.lookup_decode(
-            model_name=node.model.name,
-            gpu_kind=accelerator.gpu_kind,
-            batch_size=batch_size,
-            sequence_length=sequence_length,
-            decode_output_length=output_length,
-        )
-        effective_vram_mb = (
-            prediction.predicted_peak_vram_mb
-            + eps_mem_mb
-            + oom_penalties.get(prediction.key, 0.0)
-        )
-        if effective_vram_mb <= accelerator.total_mem_mb:
-            return _FeasibleCandidate(
-                accelerator=accelerator,
-                prediction=prediction,
-                effective_vram_mb=effective_vram_mb,
-            )
-    return None
-
-
-def _choose_placement(
-    candidates: Sequence[_FeasibleCandidate],
-    default_max_new_tokens: int,
-    history: Mapping[str, float],
-    hit_limit_rate_threshold: float,
-) -> _FeasibleCandidate:
-    smallest = min(
-        candidates,
-        key=lambda candidate: (
-            candidate.accelerator.total_mem_mb,
-            -candidate.prediction.key.decode_output_length,
-            candidate.prediction.predicted_run_sec,
-            candidate.accelerator.accelerator_id,
-        ),
-    )
-    if (
-        smallest.prediction.key.decode_output_length >= default_max_new_tokens
-        and history.get(smallest.accelerator.gpu_kind, 0.0) <= hit_limit_rate_threshold
-    ):
-        return smallest
-    return min(
-        candidates,
-        key=lambda candidate: (
-            -candidate.prediction.key.decode_output_length,
-            candidate.prediction.predicted_run_sec,
-            candidate.accelerator.accelerator_id,
-        ),
     )

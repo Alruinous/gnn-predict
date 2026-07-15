@@ -46,17 +46,13 @@ def agent_workflow(
                     "model": {"name": "test-model"},
                     "execution": {
                         "model_path": "/models/test-model",
+                        "max_new_tokens": 512,
                         "dtype": "float16",
                         "serving": {
                             "max_model_len": 4096,
                             "max_num_seqs": max_num_seqs,
                             "max_num_batched_tokens": 4096,
                         },
-                    },
-                    "token_budget": {
-                        "min_max_new_tokens": 128,
-                        "default_max_new_tokens": 512,
-                        "max_max_new_tokens": 1024,
                     },
                     "prompt_template": "{content}",
                     "retry": {"max_attempts": max_attempts},
@@ -73,17 +69,13 @@ def branched_agent_workflow() -> Workflow:
         "model": {"name": "test-model"},
         "execution": {
             "model_path": "/models/test-model",
+            "max_new_tokens": 512,
             "dtype": "float16",
             "serving": {
                 "max_model_len": 4096,
                 "max_num_seqs": 1,
                 "max_num_batched_tokens": 4096,
             },
-        },
-        "token_budget": {
-            "min_max_new_tokens": 128,
-            "default_max_new_tokens": 512,
-            "max_max_new_tokens": 1024,
         },
         "prompt_template": "{content}",
     }
@@ -248,6 +240,9 @@ def load_and_grant(
             physical_gpu_id=action.accelerator.local_index,
             duration_sec=1.0,
             idle_vram_mb=8_000,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
         ),
         backend_handle=f"backend-{action.replica_id}",
         now=now + 1,
@@ -275,7 +270,7 @@ def agent_report(
         accelerator_id=grant.accelerator_ids[0],
         gpu_kind=grant.gpu_kind,
         input_tokens=grant.input_tokens,
-        granted_max_new_tokens=grant.granted_max_new_tokens,
+        max_new_tokens=grant.max_new_tokens,
         output_tokens=256 if status == "success" else 0,
         hit_token_limit=False,
         replica_inflight_at_start=grant.admitted_batch_size,
@@ -309,7 +304,14 @@ def test_ready_acquire_reserves_load_then_grants_the_idle_replica() -> None:
 
     core.complete_load(
         action.replica_id,
-        ReplicaLoadResult(physical_gpu_id=0, duration_sec=1.0, idle_vram_mb=8_000),
+        ReplicaLoadResult(
+            physical_gpu_id=0,
+            duration_sec=1.0,
+            idle_vram_mb=8_000,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
+        ),
         backend_handle="backend",
         now=3.0,
     )
@@ -317,7 +319,7 @@ def test_ready_acquire_reserves_load_then_grants_the_idle_replica() -> None:
     grant = core.poll_grant(acquire_id)
     assert grant is not None
     assert grant.replica_id == action.replica_id
-    assert grant.granted_max_new_tokens == 512
+    assert grant.max_new_tokens == 512
     assert grant.backend_handle == "backend"
     assert core.tasks[task_id].state == NodeTaskState.RUNNING
     assert core.replicas[action.replica_id].state == ModelReplicaState.BUSY
@@ -340,7 +342,14 @@ def test_ready_acquires_use_request_insertion_fifo(
     action = core.tick_once(now=2.0)[0]
     core.complete_load(
         action.replica_id,
-        ReplicaLoadResult(physical_gpu_id=0, duration_sec=1.0, idle_vram_mb=8_000),
+        ReplicaLoadResult(
+            physical_gpu_id=0,
+            duration_sec=1.0,
+            idle_vram_mb=8_000,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
+        ),
         backend_handle="backend",
         now=3.0,
     )
@@ -387,7 +396,14 @@ def test_busy_replica_grants_batch_envelopes_up_to_capacity() -> None:
     assert isinstance(action, LoadReplicaAction)
     core.complete_load(
         action.replica_id,
-        ReplicaLoadResult(physical_gpu_id=0, duration_sec=1.0, idle_vram_mb=8_000),
+        ReplicaLoadResult(
+            physical_gpu_id=0,
+            duration_sec=1.0,
+            idle_vram_mb=8_000,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
+        ),
         backend_handle="backend",
         now=5.0,
     )
@@ -403,9 +419,7 @@ def test_busy_replica_grants_batch_envelopes_up_to_capacity() -> None:
     assert len({grant.replica_id for grant in typed_grants}) == 1
     replica = core.replicas[action.replica_id]
     assert replica.state == ModelReplicaState.BUSY
-    assert replica.active_acquire_ids == {
-        acquire_id for _, acquire_id in requests
-    }
+    assert replica.active_acquire_ids == {acquire_id for _, acquire_id in requests}
 
     _, fourth_acquire = request_agent(core, "s4", now=6.0)
     assert core.tick_once(now=6.0) == []
@@ -419,7 +433,14 @@ def test_busy_replica_releases_out_of_order_and_refills_capacity() -> None:
     assert isinstance(action, LoadReplicaAction)
     core.complete_load(
         action.replica_id,
-        ReplicaLoadResult(physical_gpu_id=0, duration_sec=1.0, idle_vram_mb=8_000),
+        ReplicaLoadResult(
+            physical_gpu_id=0,
+            duration_sec=1.0,
+            idle_vram_mb=8_000,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
+        ),
         backend_handle="backend",
         now=3.0,
     )
@@ -475,6 +496,33 @@ def test_joint_batch_infeasibility_waits_until_replica_is_idle() -> None:
     assert second.admitted_batch_size == 1
 
 
+def test_missing_higher_batch_prediction_waits_until_replica_is_idle() -> None:
+    core = resource_core(max_num_seqs=2)
+    assert core.predictions is not None
+    core.predictions = PredictionCache(
+        version=core.predictions.version,
+        entries=tuple(
+            entry for entry in core.predictions.entries if entry.key.batch_size == 1
+        ),
+    )
+    _, first_acquire = request_agent(core, "s1")
+    first, action = load_and_grant(core, first_acquire)
+    _, second_acquire = request_agent(core, "s2", now=4.0)
+
+    assert core.tick_once(now=5.0) == []
+    assert core.poll_grant(second_acquire) is None
+    core.complete(
+        first.task_id,
+        agent_report(core, first),
+        acquire_id=first.acquire_id,
+    )
+    assert core.tick_once(now=6.0) == []
+    second = core.poll_grant(second_acquire)
+    assert second is not None
+    assert second.replica_id == action.replica_id
+    assert second.admitted_batch_size == 1
+
+
 def test_suspect_replica_drains_remaining_leases_before_eviction() -> None:
     core = resource_core(max_num_seqs=2, max_attempts=2)
     requests = [request_agent(core, session_id) for session_id in ("s1", "s2")]
@@ -482,7 +530,14 @@ def test_suspect_replica_drains_remaining_leases_before_eviction() -> None:
     assert isinstance(action, LoadReplicaAction)
     core.complete_load(
         action.replica_id,
-        ReplicaLoadResult(physical_gpu_id=0, duration_sec=1.0, idle_vram_mb=8_000),
+        ReplicaLoadResult(
+            physical_gpu_id=0,
+            duration_sec=1.0,
+            idle_vram_mb=8_000,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
+        ),
         backend_handle="backend",
         now=3.0,
     )
@@ -573,6 +628,9 @@ def test_load_identity_mismatch_is_atomic() -> None:
                 physical_gpu_id=7,
                 duration_sec=1.0,
                 idle_vram_mb=8_000,
+                block_size=16,
+                num_gpu_blocks=100,
+                gpu_kv_tokens=1_600,
             ),
             backend_handle="backend",
             now=3.0,
@@ -610,6 +668,9 @@ def test_load_rebinds_same_host_reservation_to_reported_local_index() -> None:
             physical_gpu_id=1,
             duration_sec=1.0,
             idle_vram_mb=8_000,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
         ),
         backend_handle="backend",
         now=3.0,
@@ -655,6 +716,9 @@ def test_load_rejects_missing_backend_before_state_mutation() -> None:
                 physical_gpu_id=0,
                 duration_sec=1.0,
                 idle_vram_mb=8_000,
+                block_size=16,
+                num_gpu_blocks=100,
+                gpu_kv_tokens=1_600,
             ),
             backend_handle=None,
             now=3.0,
@@ -677,6 +741,9 @@ def test_load_normalizes_numeric_string_gpu_identity() -> None:
             physical_gpu_id="0",
             duration_sec=1.0,
             idle_vram_mb=8_000,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
         ),
         backend_handle="backend",
         now=3.0,
@@ -698,6 +765,9 @@ def test_load_rejects_non_numeric_gpu_identity_atomically() -> None:
                 physical_gpu_id="gpu-zero",
                 duration_sec=1.0,
                 idle_vram_mb=8_000,
+                block_size=16,
+                num_gpu_blocks=100,
+                gpu_kv_tokens=1_600,
             ),
             backend_handle="backend",
             now=3.0,
@@ -898,7 +968,7 @@ def test_infeasible_prediction_fails_the_session_explicitly() -> None:
 
     assert core.tick_once(now=2.0) == []
     assert core.tasks[task_id].state == NodeTaskState.FAILED
-    assert core.tasks[task_id].error_type == "TokenBudgetInfeasible"
+    assert core.tasks[task_id].error_type == "RequestInfeasible"
     assert core.sessions["s1"].state == SessionState.FAILED
     with pytest.raises(SessionInactiveError, match="session is not active"):
         core.poll_grant(acquire_id)

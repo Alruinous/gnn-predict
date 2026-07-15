@@ -27,9 +27,9 @@ from workflow.artifacts import (
 )
 from workflow.policy import (
     EvictionCandidate,
-    TokenBudgetDecision,
+    PlacementDecision,
     select_eviction_victim,
-    select_token_budget,
+    select_placement,
 )
 from workflow.replica import (
     ModelDeploymentConfig,
@@ -41,7 +41,6 @@ from workflow.types import (
     ModelReplicaState,
     NodeTaskState,
     SessionState,
-    TokenBudgetAction,
     TraceEvent,
     WorkflowModelFeatureKey,
 )
@@ -106,7 +105,7 @@ class AgentTaskRuntimeReport(StrictFrozenModel):
     accelerator_id: NonEmptyStr
     gpu_kind: NonEmptyStr
     input_tokens: PositiveInt
-    granted_max_new_tokens: PositiveInt
+    max_new_tokens: PositiveInt
     output_tokens: NonNegativeInt
     hit_token_limit: bool
     finish_reason: Literal["stop", "length", "abort"] | None = None
@@ -167,13 +166,9 @@ class GrantInfo(StrictFrozenModel):
     model_key: NonEmptyStr
     gpu_kind: GpuKind
     input_tokens: PositiveInt
-    granted_max_new_tokens: PositiveInt
-    min_max_new_tokens: PositiveInt
-    default_max_new_tokens: PositiveInt
-    max_max_new_tokens: PositiveInt
+    max_new_tokens: PositiveInt
     admitted_batch_size: PositiveInt = 1
     prediction_key: WorkflowModelFeatureKey
-    token_budget_action: TokenBudgetAction
 
 
 class LoadReplicaAction(StrictFrozenModel):
@@ -211,7 +206,7 @@ class NearReadyTask(StrictFrozenModel):
     prefetch_at: float
     load_sec: float = Field(gt=0)
     deployment: ModelDeploymentConfig
-    decision: TokenBudgetDecision
+    decision: PlacementDecision
 
 
 HISTORY_SAMPLE_LIMIT = 64
@@ -241,14 +236,6 @@ class RuntimeHistoryRecord(MutableRecord):
             return 0
         values = sorted(report.output_tokens for report in self.samples)
         return values[ceil(0.9 * len(values)) - 1]
-
-    @property
-    def hit_limit_rate(self) -> float:
-        if not self.samples:
-            return 0.0
-        return sum(report.hit_token_limit for report in self.samples) / len(
-            self.samples
-        )
 
 
 class DurationHistoryRecord(MutableRecord):
@@ -320,6 +307,9 @@ class ModelReplicaRecord(MutableRecord):
     vllm_version: str | None = None
     engine_mode: str | None = None
     attention_backend: str | None = None
+    block_size: int | None = Field(default=None, gt=0)
+    num_gpu_blocks: int | None = Field(default=None, gt=0)
+    gpu_kv_tokens: int | None = Field(default=None, gt=0)
     eviction_error_type: str | None = None
     eviction_error_message: str | None = None
 
@@ -573,7 +563,7 @@ class SchedulerCore:
                 granted_ready = True
 
         actions: list[LoadReplicaAction | EvictReplicaAction] = []
-        blocked_ready: list[tuple[PendingAcquire, TokenBudgetDecision]] = []
+        blocked_ready: list[tuple[PendingAcquire, PlacementDecision]] = []
         for acquire_id in tuple(decisions):
             pending = self.pending_acquires.get(acquire_id)
             if pending is None:
@@ -665,6 +655,9 @@ class SchedulerCore:
         replica.vllm_version = result.vllm_version
         replica.engine_mode = result.engine_mode
         replica.attention_backend = result.attention_backend
+        replica.block_size = result.block_size
+        replica.num_gpu_blocks = result.num_gpu_blocks
+        replica.gpu_kv_tokens = result.gpu_kv_tokens
         replica.idle_since = now
         replica.state = ModelReplicaState.IDLE
         load_key = (replica.model_key, replica.gpu_kind)
@@ -944,21 +937,26 @@ class SchedulerCore:
         if identity != expected:
             raise ValueError("runtime report does not match task")
 
-    def _ready_decisions(self) -> dict[str, TokenBudgetDecision]:
+    def _ready_decisions(self) -> dict[str, PlacementDecision]:
         if not self.pending_acquires:
             return {}
         predictions = self.predictions
         if predictions is None:
             raise RuntimeError("agent scheduling requires a prediction cache")
 
+        pending_values = tuple(self.pending_acquires.values())
         ordered = sorted(
-            tuple(self.pending_acquires.values()),
-            key=lambda pending: (
-                self._node_order[self.tasks[pending.task_id].node_id],
-                pending.request_seq,
+            pending_values,
+            key=(
+                (lambda pending: pending.request_seq)
+                if self.scheduler_config.policy == "fifo"
+                else lambda pending: (
+                    self._node_order[self.tasks[pending.task_id].node_id],
+                    pending.request_seq,
+                )
             ),
         )
-        decisions: dict[str, TokenBudgetDecision] = {}
+        decisions: dict[str, PlacementDecision] = {}
         for snapshot in ordered:
             pending = self.pending_acquires.get(snapshot.acquire_id)
             if pending is None:
@@ -969,40 +967,38 @@ class SchedulerCore:
             node = self._nodes[task.node_id]
             if not isinstance(node, AgentNodeConfig):
                 raise RuntimeError("pending acquire belongs to a function task")
-            decision = self._token_decision(node, pending.input_tokens, predictions)
-            if decision.action == TokenBudgetAction.INFEASIBLE:
+            decision = self._placement_decision(
+                node,
+                pending.input_tokens,
+                predictions,
+            )
+            if not decision.feasible:
                 task.state = NodeTaskState.FAILED
-                task.error_type = "TokenBudgetInfeasible"
+                task.error_type = "RequestInfeasible"
                 task.error_message = decision.reason
                 self._fail_session(task.session_id, task.task_id)
                 continue
             decisions[pending.acquire_id] = decision
         return decisions
 
-    def _token_decision(
+    def _placement_decision(
         self,
         node: AgentNodeConfig,
         input_tokens: int,
         predictions: PredictionCache,
-    ) -> TokenBudgetDecision:
-        model_key = ModelDeploymentConfig.from_node(node).model_key
-        hit_limit_history: dict[str, float] = {
-            gpu_kind: history.hit_limit_rate
-            for (node_id, history_model_key, gpu_kind), history in self.history.items()
-            if node_id == node.name and history_model_key == model_key
-        }
-        return select_token_budget(
+    ) -> PlacementDecision:
+        return select_placement(
             node=node,
             input_tokens=input_tokens,
             accelerators=tuple(record.config for record in self.accelerators.values()),
             predictions=predictions,
-            history=hit_limit_history,
             oom_penalties=self.oom_penalties,
             eps_mem_mb=self.scheduler_config.eps_mem_mb,
-            hit_limit_rate_threshold=self.scheduler_config.hit_limit_rate_threshold,
         )
 
     def _collect_near_ready_tasks(self) -> list[NearReadyTask]:
+        if self.scheduler_config.policy == "fifo":
+            return []
         predictions = self.predictions
         if predictions is None:
             return []
@@ -1039,17 +1035,23 @@ class SchedulerCore:
                 if not eligible or not estimates:
                     continue
                 input_tokens = self._estimate_near_input_tokens(node, dependencies)
-                decision = self._token_decision(node, input_tokens, predictions)
-                if decision.action == TokenBudgetAction.INFEASIBLE:
+                decision = self._placement_decision(node, input_tokens, predictions)
+                if not decision.feasible:
                     continue
                 gpu_kind = decision.gpu_kind
                 if gpu_kind is None:
-                    raise RuntimeError("feasible token decision has no GPU kind")
+                    raise RuntimeError("feasible placement has no GPU kind")
                 load_sec = decision.predicted_load_sec
                 if load_sec is None:
-                    raise RuntimeError("feasible token decision has no load prediction")
+                    raise RuntimeError("feasible placement has no load prediction")
                 deployment = ModelDeploymentConfig.from_node(node)
-                load_sec = self._load_cost(deployment, gpu_kind, load_sec)
+                if self.scheduler_config.policy == "history":
+                    load_history = self.load_history.get(
+                        (deployment.model_key, gpu_kind)
+                    )
+                    if load_history is None:
+                        continue
+                    load_sec = load_history.duration_sec_ema
                 upstream_eta = max(estimates)
                 near.append(
                     NearReadyTask(
@@ -1081,13 +1083,17 @@ class SchedulerCore:
     ) -> int:
         estimated_outputs = 0
         for dependency in dependencies:
-            samples = [
-                history.output_tokens_p90
-                for (history_node_id, _, _), history in self.history.items()
-                if history_node_id == dependency and history.samples
-            ]
+            samples = (
+                [
+                    history.output_tokens_p90
+                    for (history_node_id, _, _), history in self.history.items()
+                    if history_node_id == dependency and history.samples
+                ]
+                if self.scheduler_config.policy == "history"
+                else []
+            )
             estimated_outputs += (
-                max(samples) if samples else node.token_budget.default_max_new_tokens
+                max(samples) if samples else node.execution.max_new_tokens
             )
         prompt_overhead = max(1, len(node.prompt_template.split()))
         return max(1, estimated_outputs + prompt_overhead)
@@ -1095,11 +1101,11 @@ class SchedulerCore:
     def _replica_for_decision(
         self,
         pending: PendingAcquire,
-        decision: TokenBudgetDecision,
+        decision: PlacementDecision,
     ) -> ModelReplicaRecord | None:
         gpu_kind = decision.gpu_kind
         if gpu_kind is None:
-            raise RuntimeError("feasible token decision has no GPU kind")
+            raise RuntimeError("feasible placement has no GPU kind")
         task = self.tasks[pending.task_id]
         node = self._nodes[task.node_id]
         if not isinstance(node, AgentNodeConfig):
@@ -1110,12 +1116,12 @@ class SchedulerCore:
 
     def _free_accelerator(
         self,
-        decision: TokenBudgetDecision,
+        decision: PlacementDecision,
     ) -> AcceleratorRecord | None:
         gpu_kind = decision.gpu_kind
         effective_vram_mb = decision.effective_vram_mb
         if gpu_kind is None or effective_vram_mb is None:
-            raise RuntimeError("feasible token decision is incomplete")
+            raise RuntimeError("feasible placement is incomplete")
         candidates = [
             accelerator
             for accelerator in self.accelerators.values()
@@ -1135,13 +1141,13 @@ class SchedulerCore:
     def _start_ready_load(
         self,
         pending: PendingAcquire,
-        decision: TokenBudgetDecision,
+        decision: PlacementDecision,
         accelerator: AcceleratorRecord,
         now: float,
     ) -> LoadReplicaAction:
         gpu_kind = decision.gpu_kind
         if gpu_kind is None:
-            raise RuntimeError("feasible token decision has no GPU kind")
+            raise RuntimeError("feasible placement has no GPU kind")
         task = self.tasks[pending.task_id]
         node = self._nodes[task.node_id]
         if not isinstance(node, AgentNodeConfig):
@@ -1154,7 +1160,7 @@ class SchedulerCore:
             raise RuntimeError("accelerator is already reserved")
         expected_load_sec = decision.predicted_load_sec
         if expected_load_sec is None:
-            raise RuntimeError("feasible token decision has no load prediction")
+            raise RuntimeError("feasible placement has no load prediction")
         expected_load_sec = self._load_cost(
             deployment,
             gpu_kind,
@@ -1192,7 +1198,7 @@ class SchedulerCore:
     ) -> LoadReplicaAction:
         gpu_kind = near.decision.gpu_kind
         if gpu_kind is None:
-            raise RuntimeError("feasible token decision has no GPU kind")
+            raise RuntimeError("feasible placement has no GPU kind")
         pair = (near.deployment.model_key, gpu_kind)
         if pair in self._replica_pairs:
             raise RuntimeError(f"replica pair already exists: {pair}")
@@ -1231,13 +1237,13 @@ class SchedulerCore:
     ) -> ModelReplicaRecord | None:
         gpu_kind = near.decision.gpu_kind
         if gpu_kind is None:
-            raise RuntimeError("feasible token decision has no GPU kind")
+            raise RuntimeError("feasible placement has no GPU kind")
         replica_id = self._replica_pairs.get((near.deployment.model_key, gpu_kind))
         return self.replicas.get(replica_id) if replica_id is not None else None
 
     def _ready_pairs(
         self,
-        decisions: dict[str, TokenBudgetDecision],
+        decisions: dict[str, PlacementDecision],
     ) -> set[tuple[str, GpuKind]]:
         pairs: set[tuple[str, GpuKind]] = set()
         for acquire_id, decision in decisions.items():
@@ -1246,7 +1252,7 @@ class SchedulerCore:
                 continue
             gpu_kind = decision.gpu_kind
             if gpu_kind is None:
-                raise RuntimeError("feasible token decision has no GPU kind")
+                raise RuntimeError("feasible placement has no GPU kind")
             task = self.tasks[pending.task_id]
             node = self._nodes[task.node_id]
             if not isinstance(node, AgentNodeConfig):
@@ -1273,7 +1279,7 @@ class SchedulerCore:
 
     def _start_eviction_for_decision(
         self,
-        decision: TokenBudgetDecision,
+        decision: PlacementDecision,
         *,
         reason: Literal["ready_load", "near_ready_prefetch"],
         now: float,
@@ -1284,7 +1290,7 @@ class SchedulerCore:
         gpu_kind = decision.gpu_kind
         effective_vram_mb = decision.effective_vram_mb
         if gpu_kind is None or effective_vram_mb is None:
-            raise RuntimeError("feasible token decision is incomplete")
+            raise RuntimeError("feasible placement is incomplete")
         candidates: list[EvictionCandidate] = []
         for accelerator in self.accelerators.values():
             if accelerator.config.gpu_kind != gpu_kind:
@@ -1400,12 +1406,13 @@ class SchedulerCore:
                     return None
         return inf
 
-    def _reload_cost(self, replica: ModelReplicaRecord) -> float:
-        return self._load_cost(
-            replica.deployment,
-            replica.gpu_kind,
-            replica.expected_load_sec,
-        )
+    def _reload_cost(self, replica: ModelReplicaRecord) -> float | None:
+        if self.scheduler_config.policy == "fifo":
+            return None
+        if self.scheduler_config.policy == "cache":
+            return replica.expected_load_sec
+        history = self.load_history.get((replica.model_key, replica.gpu_kind))
+        return history.duration_sec_ema if history is not None else None
 
     def _load_cost(
         self,
@@ -1413,15 +1420,15 @@ class SchedulerCore:
         gpu_kind: GpuKind,
         predicted_load_sec: float,
     ) -> float:
-        history = self.load_history.get((deployment.model_key, gpu_kind))
-        if history is None:
+        if self.scheduler_config.policy != "history":
             return predicted_load_sec
-        return max(predicted_load_sec, history.duration_sec_ema)
+        history = self.load_history.get((deployment.model_key, gpu_kind))
+        return history.duration_sec_ema if history is not None else predicted_load_sec
 
     def _grant(
         self,
         pending: PendingAcquire,
-        decision: TokenBudgetDecision,
+        decision: PlacementDecision,
         prediction: PredictionEntry,
         replica: ModelReplicaRecord,
         now: float,
@@ -1430,10 +1437,10 @@ class SchedulerCore:
             raise RuntimeError("replica is not accepting requests")
         if replica.backend_handle is None:
             raise RuntimeError("loaded replica has no backend handle")
-        granted_max_new_tokens = decision.granted_max_new_tokens
+        max_new_tokens = decision.max_new_tokens
         gpu_kind = decision.gpu_kind
-        if granted_max_new_tokens is None or gpu_kind is None:
-            raise RuntimeError("feasible token decision is incomplete")
+        if max_new_tokens is None or gpu_kind is None:
+            raise RuntimeError("feasible placement decision is incomplete")
         admitted_batch_size = len(replica.active_acquire_ids) + 1
         if prediction.key.batch_size != admitted_batch_size:
             raise RuntimeError("batch prediction does not match replica occupancy")
@@ -1450,35 +1457,37 @@ class SchedulerCore:
             model_key=replica.model_key,
             gpu_kind=gpu_kind,
             input_tokens=pending.input_tokens,
-            granted_max_new_tokens=granted_max_new_tokens,
-            min_max_new_tokens=node.token_budget.min_max_new_tokens,
-            default_max_new_tokens=node.token_budget.default_max_new_tokens,
-            max_max_new_tokens=node.token_budget.max_max_new_tokens,
+            max_new_tokens=max_new_tokens,
             admitted_batch_size=admitted_batch_size,
             prediction_key=prediction.key,
-            token_budget_action=decision.action,
         )
         replica.state = ModelReplicaState.BUSY
         replica.active_acquire_ids.add(pending.acquire_id)
         task.state = NodeTaskState.RUNNING
         self._remove_pending(pending.acquire_id)
         self.grants[pending.acquire_id] = grant
-        duration = prediction.predicted_run_sec
-        history = self.duration_history.get(
-            (task.node_id, replica.model_key, gpu_kind, admitted_batch_size)
-        )
-        if history is not None:
-            duration = max(duration, history.duration_sec_ema)
-        self.running_estimates[(task.session_id, task.node_id)] = RunningTaskEstimate(
-            session_id=task.session_id,
-            node_id=task.node_id,
-            finish_at=now + duration,
-        )
+        duration: float | None = None
+        if self.scheduler_config.policy == "cache":
+            duration = prediction.predicted_run_sec
+        elif self.scheduler_config.policy == "history":
+            history = self.duration_history.get(
+                (task.node_id, replica.model_key, gpu_kind, admitted_batch_size)
+            )
+            if history is not None:
+                duration = history.duration_sec_ema
+        if duration is not None:
+            self.running_estimates[(task.session_id, task.node_id)] = (
+                RunningTaskEstimate(
+                    session_id=task.session_id,
+                    node_id=task.node_id,
+                    finish_at=now + duration,
+                )
+            )
         self._validate_resource_ledger()
 
     def _admission_prediction(
         self,
-        decision: TokenBudgetDecision,
+        decision: PlacementDecision,
         replica: ModelReplicaRecord,
     ) -> PredictionEntry | None:
         if replica.state not in (ModelReplicaState.IDLE, ModelReplicaState.BUSY):
@@ -1489,7 +1498,7 @@ class SchedulerCore:
         decision_key = decision.prediction_key
         gpu_kind = decision.gpu_kind
         if decision_key is None or gpu_kind is None:
-            raise RuntimeError("feasible token decision is incomplete")
+            raise RuntimeError("feasible placement is incomplete")
         active_keys = [
             self.grants[acquire_id].prediction_key
             for acquire_id in replica.active_acquire_ids
@@ -1505,13 +1514,18 @@ class SchedulerCore:
         predictions = self.predictions
         if predictions is None:
             raise RuntimeError("agent scheduling requires a prediction cache")
-        prediction = predictions.lookup_decode(
-            model_name=replica.deployment.model_name,
-            gpu_kind=gpu_kind,
-            batch_size=batch_size,
-            sequence_length=sequence_length,
-            decode_output_length=output_length,
-        )
+        try:
+            prediction = predictions.lookup_decode(
+                model_name=replica.deployment.model_name,
+                gpu_kind=gpu_kind,
+                batch_size=batch_size,
+                sequence_length=sequence_length,
+                decode_output_length=output_length,
+            )
+        except KeyError:
+            if batch_size == 1:
+                raise RuntimeError("batch-1 placement prediction is missing") from None
+            return None
         accelerator = self.accelerators[replica.accelerator_ids[0]].config
         effective_vram_mb = (
             prediction.predicted_peak_vram_mb
@@ -1589,7 +1603,7 @@ class SchedulerCore:
             report.accelerator_id,
             report.gpu_kind,
             report.input_tokens,
-            report.granted_max_new_tokens,
+            report.max_new_tokens,
         )
         expected = (
             acquire_id,
@@ -1601,7 +1615,7 @@ class SchedulerCore:
             grant.accelerator_ids[0],
             grant.gpu_kind,
             grant.input_tokens,
-            grant.granted_max_new_tokens,
+            grant.max_new_tokens,
         )
         if (
             identity != expected
@@ -2284,6 +2298,9 @@ class _SchedulerActor:
                     "engine_mode": result.engine_mode,
                     "attention_backend": result.attention_backend,
                     "max_num_seqs": result.max_num_seqs,
+                    "block_size": result.block_size,
+                    "num_gpu_blocks": result.num_gpu_blocks,
+                    "gpu_kv_tokens": result.gpu_kv_tokens,
                 },
             )
             if action is not None and action.reason == "near_ready_prefetch":
@@ -2459,6 +2476,8 @@ class _SchedulerActor:
         payload: dict[str, object] = {
             "status": report.status,
             "duration_sec": report.duration_sec,
+            "started_at": report.started_at,
+            "finished_at": report.finished_at,
         }
         if isinstance(report, AgentTaskRuntimeReport):
             if grant is None or self.core.predictions is None:
@@ -2467,7 +2486,7 @@ class _SchedulerActor:
             payload.update(
                 {
                     "input_tokens": report.input_tokens,
-                    "granted_max_new_tokens": report.granted_max_new_tokens,
+                    "max_new_tokens": report.max_new_tokens,
                     "output_tokens": report.output_tokens,
                     "hit_token_limit": report.hit_token_limit,
                     "finish_reason": report.finish_reason,
@@ -2675,27 +2694,22 @@ class _SchedulerActor:
             task = self.core.tasks[pending.task_id]
             if (
                 task.state != NodeTaskState.FAILED
-                or task.error_type != "TokenBudgetInfeasible"
+                or task.error_type != "RequestInfeasible"
             ):
                 continue
             node = self.core._nodes[task.node_id]
             if not isinstance(node, AgentNodeConfig):
                 raise RuntimeError("infeasible acquire belongs to a function task")
             self._record_trace(
-                "token_budget_infeasible",
+                "request_infeasible",
                 ts=now,
                 session_id=task.session_id,
                 task_id=task.task_id,
                 node_id=task.node_id,
                 payload={
-                    "action": TokenBudgetAction.INFEASIBLE.value,
                     "reason": task.error_message,
                     "input_tokens": pending.input_tokens,
-                    "min_max_new_tokens": node.token_budget.min_max_new_tokens,
-                    "default_max_new_tokens": (
-                        node.token_budget.default_max_new_tokens
-                    ),
-                    "max_max_new_tokens": node.token_budget.max_max_new_tokens,
+                    "max_new_tokens": node.execution.max_new_tokens,
                 },
             )
 
@@ -2839,18 +2853,14 @@ class _SchedulerActor:
                 },
             )
             self._record_trace(
-                "token_budget_selected",
+                "placement_selected",
                 session_id=task.session_id,
                 task_id=task.task_id,
                 node_id=task.node_id,
                 acquire_id=acquire_id,
                 payload={
-                    "action": grant.token_budget_action.value,
                     "input_tokens": grant.input_tokens,
-                    "granted_max_new_tokens": grant.granted_max_new_tokens,
-                    "min_max_new_tokens": grant.min_max_new_tokens,
-                    "default_max_new_tokens": grant.default_max_new_tokens,
-                    "max_max_new_tokens": grant.max_max_new_tokens,
+                    "max_new_tokens": grant.max_new_tokens,
                     "admitted_batch_size": grant.admitted_batch_size,
                     "replica_inflight_at_grant": grant.admitted_batch_size,
                     "prediction_cache_version": predictions.version,

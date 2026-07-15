@@ -67,16 +67,12 @@ def agent_workflow() -> Workflow:
                     "model": {"name": "test-model"},
                     "execution": {
                         "model_path": "/models/test-model",
+                        "max_new_tokens": 16,
                         "serving": {
                             "max_model_len": 1024,
                             "max_num_seqs": 1,
                             "max_num_batched_tokens": 1024,
                         },
-                    },
-                    "token_budget": {
-                        "min_max_new_tokens": 8,
-                        "default_max_new_tokens": 16,
-                        "max_max_new_tokens": 32,
                     },
                     "prompt_template": "{content}",
                 }
@@ -255,7 +251,7 @@ def test_complete_rejects_agent_reports_until_resource_lifecycle_exists() -> Non
         accelerator_id="node/a100:0",
         gpu_kind="a100",
         input_tokens=64,
-        granted_max_new_tokens=16,
+        max_new_tokens=16,
         output_tokens=8,
         hit_token_limit=False,
         started_at=1.0,
@@ -462,7 +458,7 @@ def test_agent_runtime_report_uses_the_plan_contract() -> None:
         "accelerator_id": "node/a100:0",
         "gpu_kind": "a100",
         "input_tokens": 64,
-        "granted_max_new_tokens": 16,
+        "max_new_tokens": 16,
         "output_tokens": 8,
         "hit_token_limit": False,
         "finish_reason": None,

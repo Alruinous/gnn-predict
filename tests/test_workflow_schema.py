@@ -19,7 +19,6 @@ from workflow.types import (
     NodeTaskState,
     NodeWorkerState,
     SessionState,
-    TokenBudgetAction,
     WorkflowDataItem,
     WorkflowModelFeatureKey,
 )
@@ -39,16 +38,12 @@ WORKFLOW_PAYLOAD: dict[str, Any] = {
             "model": {"name": "test-model", "parameters": {}},
             "execution": {
                 "model_path": "/models/test-model",
+                "max_new_tokens": 16,
                 "serving": {
                     "max_model_len": 1024,
                     "max_num_seqs": 3,
                     "max_num_batched_tokens": 1536,
                 },
-            },
-            "token_budget": {
-                "min_max_new_tokens": 8,
-                "default_max_new_tokens": 16,
-                "max_max_new_tokens": 32,
             },
             "prompt_template": "Summarize {content}",
         },
@@ -58,16 +53,12 @@ WORKFLOW_PAYLOAD: dict[str, Any] = {
             "model": {"name": "test-model", "parameters": {}},
             "execution": {
                 "model_path": "/models/test-model",
+                "max_new_tokens": 16,
                 "serving": {
                     "max_model_len": 1024,
                     "max_num_seqs": 3,
                     "max_num_batched_tokens": 1536,
                 },
-            },
-            "token_budget": {
-                "min_max_new_tokens": 8,
-                "default_max_new_tokens": 16,
-                "max_max_new_tokens": 32,
             },
             "prompt_template": "Summarize {content}",
         },
@@ -118,6 +109,7 @@ def test_execution_rejects_incompatible_vllm_capacity_and_dtype() -> None:
         ExecutionConfig.model_validate(
             {
                 "model_path": "/models/test-model",
+                "max_new_tokens": 16,
                 "serving": {
                     "max_model_len": 2048,
                     "max_num_seqs": 3,
@@ -129,6 +121,7 @@ def test_execution_rejects_incompatible_vllm_capacity_and_dtype() -> None:
         ExecutionConfig.model_validate(
             {
                 "model_path": "/models/test-model",
+                "max_new_tokens": 16,
                 "dtype": "bfloat16",
                 "serving": {
                     "max_model_len": 1024,
@@ -251,15 +244,11 @@ def test_workflow_rejects_targeted_terminal_function() -> None:
         Workflow.model_validate(payload)
 
 
-def test_token_budget_requires_ordered_bounds() -> None:
+def test_execution_requires_positive_max_new_tokens() -> None:
     payload = copy.deepcopy(WORKFLOW_PAYLOAD)
-    payload["nodes"][1]["token_budget"] = {
-        "min_max_new_tokens": 32,
-        "default_max_new_tokens": 16,
-        "max_max_new_tokens": 8,
-    }
+    payload["nodes"][1]["execution"]["max_new_tokens"] = 0
 
-    with pytest.raises(ValidationError, match="token budget"):
+    with pytest.raises(ValidationError, match="max_new_tokens"):
         Workflow.model_validate(payload)
 
 
@@ -306,12 +295,6 @@ def test_runtime_state_enums_match_the_managed_lifecycle() -> None:
         "busy",
         "evicting",
         "suspect",
-    ]
-    assert [action.value for action in TokenBudgetAction] == [
-        "fixed",
-        "upscaled",
-        "downscaled",
-        "infeasible",
     ]
 
 

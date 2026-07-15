@@ -47,6 +47,7 @@ class ServingConfig(SchemaModel):
 
 class ExecutionConfig(SchemaModel):
     model_path: NonEmptyStr
+    max_new_tokens: PositiveInt
     dtype: Literal["float16"] = "float16"
     do_sample: bool = False
     temperature: float | None = None
@@ -59,22 +60,6 @@ class ExecutionConfig(SchemaModel):
     def validate_sampling(self) -> Self:
         if self.do_sample and self.temperature is not None and self.temperature <= 0:
             raise ValueError("sampling temperature must be positive")
-        return self
-
-
-class TokenBudgetConfig(SchemaModel):
-    min_max_new_tokens: PositiveInt
-    default_max_new_tokens: PositiveInt
-    max_max_new_tokens: PositiveInt
-
-    @model_validator(mode="after")
-    def validate_bounds(self) -> Self:
-        if not (
-            self.min_max_new_tokens
-            <= self.default_max_new_tokens
-            <= self.max_max_new_tokens
-        ):
-            raise ValueError("token budget bounds must be ordered")
         return self
 
 
@@ -95,7 +80,6 @@ class AgentNodeConfig(NodeConfigBase):
     type: Literal["agent"]
     model: WorkflowModelConfig
     execution: ExecutionConfig
-    token_budget: TokenBudgetConfig
     prompt_template: NonEmptyStr
     system_prompt: NonEmptyStr | None = None
 
@@ -105,6 +89,7 @@ class FunctionNodeConfig(NodeConfigBase):
     function: NonEmptyStr
     parameters: dict[str, JsonValue] = Field(default_factory=dict)
     routing: Literal["broadcast", "targeted"] = "broadcast"
+    max_concurrency: PositiveInt = 1
 
 
 NodeConfig = Annotated[

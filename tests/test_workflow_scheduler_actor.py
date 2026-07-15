@@ -103,6 +103,9 @@ class FakeReplica:
             physical_gpu_id=0,
             duration_sec=0.01,
             idle_vram_mb=900,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
         )
 
     def ping(self) -> str:
@@ -124,6 +127,9 @@ class BlockingMismatchedReplica:
             physical_gpu_id=7,
             duration_sec=0.01,
             idle_vram_mb=900,
+            block_size=16,
+            num_gpu_blocks=100,
+            gpu_kv_tokens=1_600,
         )
 
     def release(self) -> None:
@@ -181,17 +187,13 @@ def agent_workflow() -> Workflow:
                     "model": {"name": "test-model"},
                     "execution": {
                         "model_path": "/models/test-model",
+                        "max_new_tokens": 16,
                         "dtype": "float16",
                         "serving": {
                             "max_model_len": 1024,
                             "max_num_seqs": 1,
                             "max_num_batched_tokens": 1024,
                         },
-                    },
-                    "token_budget": {
-                        "min_max_new_tokens": 8,
-                        "default_max_new_tokens": 16,
-                        "max_max_new_tokens": 16,
                     },
                     "prompt_template": "{content}",
                 }
@@ -298,7 +300,7 @@ def agent_report(
         accelerator_id=grant.accelerator_ids[0],
         gpu_kind=grant.gpu_kind,
         input_tokens=grant.input_tokens,
-        granted_max_new_tokens=grant.granted_max_new_tokens,
+        max_new_tokens=grant.max_new_tokens,
         output_tokens=4 if status == "success" else 0,
         hit_token_limit=False,
         started_at=1.0,
