@@ -33,7 +33,7 @@ SAFE_IMPORT_ROOTS = {
     "string",
     "sys",
 }
-PROCESS_START_METHOD = "fork"
+PROCESS_START_METHOD = "spawn"
 
 
 def load_mbpp_samples(path: str | Path) -> list[TaskSample]:

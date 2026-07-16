@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol, cast
@@ -98,136 +99,248 @@ def prepare_output_layout(output_root: Path, config_path: Path) -> OutputLayout:
 
 def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult:
     run_started_at = time.time()
-    timings: dict[str, TimeWindow] = {}
+    model: nn.Module | None = None
+    try:
+        model, model_build_timing = build_model_for_run(spec, context.device)
+        return execute_variant(
+            spec,
+            context,
+            model,
+            model_build_timing=model_build_timing,
+            run_started_at=run_started_at,
+            model_build_reused=False,
+        )
+    finally:
+        model = None
+        cleanup_workload_boundary(context.device)
+
+
+def run_variants(
+    specs: Sequence[ResolvedVariantSpec],
+    context: RunContext,
+) -> list[VariantResult]:
+    results: list[VariantResult] = []
+    reusable_model: nn.Module | None = None
+    reusable_key: tuple[str, str, str] | None = None
+    reusable_build_timing: TimeWindow | None = None
+    try:
+        for index, spec in enumerate(specs, start=1):
+            context.logger.info(
+                "processing variant %s/%s: %s",
+                index,
+                len(specs),
+                spec.name,
+            )
+            reuse_key = resolve_model_reuse_key(spec)
+            if reuse_key is None:
+                if reusable_model is not None:
+                    reusable_model = None
+                    reusable_key = None
+                    reusable_build_timing = None
+                    cleanup_workload_boundary(context.device)
+                results.append(run_variant(spec, context))
+                continue
+
+            model_build_reused = (
+                reusable_model is not None and reuse_key == reusable_key
+            )
+            if not model_build_reused:
+                if reusable_model is not None:
+                    reusable_model = None
+                    reusable_build_timing = None
+                    cleanup_workload_boundary(context.device)
+                run_started_at = time.time()
+                reusable_model, reusable_build_timing = build_model_for_run(
+                    spec,
+                    context.device,
+                )
+                reusable_key = reuse_key
+            else:
+                run_started_at = time.time()
+
+            assert reusable_model is not None
+            assert reusable_build_timing is not None
+            try:
+                result = execute_variant(
+                    spec,
+                    context,
+                    reusable_model,
+                    model_build_timing=reusable_build_timing,
+                    run_started_at=run_started_at,
+                    model_build_reused=model_build_reused,
+                )
+            finally:
+                cleanup_workload_boundary(context.device)
+            results.append(result)
+        return results
+    finally:
+        reusable_model = None
+        cleanup_workload_boundary(context.device)
+
+
+def resolve_model_reuse_key(
+    spec: ResolvedVariantSpec,
+) -> tuple[str, str, str] | None:
+    if spec.variant_config.run_training or spec.base_model.pretrained or spec.mutations:
+        return None
+    qwen3_config = spec.variant_config.qwen3_config
+    if qwen3_config is not None:
+        return (
+            normalize_model_identifier(spec.base_model.name),
+            "qwen3",
+            qwen3_config.model_dump_json(),
+        )
+    gemma4_config = spec.variant_config.gemma4_config
+    if gemma4_config is not None:
+        return (
+            normalize_model_identifier(spec.base_model.name),
+            "gemma4",
+            gemma4_config.model_dump_json(),
+        )
+    return None
+
+
+def build_model_for_run(
+    spec: ResolvedVariantSpec,
+    device: torch.device,
+) -> tuple[nn.Module, TimeWindow]:
+    model_build_started_at = time.time()
+    model = build_variant_model(spec, device)
+    model = model.to(device)
+    return model, build_time_window(model_build_started_at, time.time())
+
+
+def execute_variant(
+    spec: ResolvedVariantSpec,
+    context: RunContext,
+    model: nn.Module,
+    *,
+    model_build_timing: TimeWindow,
+    run_started_at: float,
+    model_build_reused: bool,
+) -> VariantResult:
+    timings = {"model_build": model_build_timing}
     is_text_model = is_text_model_name(spec.base_model.name)
     is_detection_model = is_detection_model_name(spec.base_model.name)
-    model: nn.Module | None = None
     graph_result: GraphExportResult | None = None
     decode_graph_result: GraphExportResult | None = None
     training_result: TrainingResult | None = None
     inference_result: InferenceResult | None = None
     prefill_result: InferenceResult | None = None
     decode_result: InferenceResult | None = None
-    try:
-        model_build_started_at = time.time()
-        model = build_variant_model(spec)
-        model = model.to(context.device)
-        timings["model_build"] = build_time_window(model_build_started_at, time.time())
 
-        validation_started_at = time.time()
-        validation_metrics = validate_model(
+    validation_started_at = time.time()
+    validation_metrics = validate_model(
+        spec,
+        model,
+        context.device,
+        is_text_model,
+    )
+    timings["validation"] = build_time_window(validation_started_at, time.time())
+
+    if spec.variant_config.export_graph:
+        from gnn_archs.graph_export import (
+            export_causal_lm_decode_graph,
+            export_model_graph,
+        )
+
+        graph_started_at = time.time()
+        graph_result = export_model_graph(
+            spec,
+            model,
+            context,
+            is_text_model=is_text_model,
+        )
+        if (
+            is_causal_lm_model_name(spec.base_model.name)
+            and spec.variant_config.run_decode
+        ):
+            decode_graph_result = export_causal_lm_decode_graph(
+                spec,
+                model,
+                context,
+            )
+        timings["graph_export"] = build_time_window(
+            graph_started_at,
+            time.time(),
+        )
+
+    if spec.variant_config.run_training:
+        training_result = train_model(
+            spec,
+            model,
+            context.device,
+        )
+        timings["training"] = training_result.timings
+
+    if spec.variant_config.run_inference:
+        if training_result is not None:
+            wait_for_inference_cooldown(
+                spec.variant_config.pre_inference_cooldown_seconds,
+                context.device,
+            )
+        inference_result = run_inference(
             spec,
             model,
             context.device,
             is_text_model,
         )
-        timings["validation"] = build_time_window(validation_started_at, time.time())
+        timings["inference"] = inference_result.timings
 
-        if spec.variant_config.export_graph:
-            from gnn_archs.graph_export import (
-                export_causal_lm_decode_graph,
-                export_model_graph,
+    if spec.variant_config.run_prefill:
+        if training_result is not None or inference_result is not None:
+            wait_for_inference_cooldown(
+                spec.variant_config.pre_prefill_cooldown_seconds,
+                context.device,
             )
+        prefill_result = run_prefill(spec, model, context.device)
+        timings["prefill"] = prefill_result.timings
 
-            graph_started_at = time.time()
-            graph_result = export_model_graph(
-                spec,
-                model,
-                context,
+    if spec.variant_config.run_decode:
+        if (
+            training_result is not None
+            or inference_result is not None
+            or prefill_result is not None
+        ):
+            wait_for_inference_cooldown(
+                spec.variant_config.pre_decode_cooldown_seconds,
+                context.device,
+            )
+        decode_result = run_decode(spec, model, context.device)
+        timings["decode"] = decode_result.timings
+
+    timings["full"] = build_time_window(run_started_at, time.time())
+
+    return VariantResult(
+        name=spec.name,
+        base_model_name=spec.base_model.name,
+        base_model_pretrained=spec.base_model.pretrained,
+        source=spec.source,
+        group_total_variants_defined=spec.group_total_variants_defined,
+        variant_config=spec.variant_config.model_dump(mode="json"),
+        mutations=[mutation.model_dump(mode="json") for mutation in spec.mutations],
+        timings=timings,
+        training=training_result,
+        inference=inference_result,
+        prefill=prefill_result,
+        decode=decode_result,
+        graph_export=graph_result,
+        decode_graph_export=decode_graph_result,
+        metadata={
+            "device": str(context.device),
+            "gpu_node": context.gpu_node,
+            "model_kind": resolve_model_kind(
+                spec.base_model.name,
+                is_detection_model=is_detection_model,
                 is_text_model=is_text_model,
-            )
-            if (
-                is_causal_lm_model_name(spec.base_model.name)
-                and spec.variant_config.run_decode
-            ):
-                decode_graph_result = export_causal_lm_decode_graph(
-                    spec,
-                    model,
-                    context,
-                )
-            timings["graph_export"] = build_time_window(
-                graph_started_at,
-                time.time(),
-            )
-
-        if spec.variant_config.run_training:
-            training_result = train_model(
-                spec,
-                model,
-                context.device,
-            )
-            timings["training"] = training_result.timings
-
-        if spec.variant_config.run_inference:
-            if training_result is not None:
-                wait_for_inference_cooldown(
-                    spec.variant_config.pre_inference_cooldown_seconds,
-                    context.device,
-                )
-            inference_result = run_inference(
-                spec,
-                model,
-                context.device,
-                is_text_model,
-            )
-            timings["inference"] = inference_result.timings
-
-        if spec.variant_config.run_prefill:
-            if training_result is not None or inference_result is not None:
-                wait_for_inference_cooldown(
-                    spec.variant_config.pre_prefill_cooldown_seconds,
-                    context.device,
-                )
-            prefill_result = run_prefill(spec, model, context.device)
-            timings["prefill"] = prefill_result.timings
-
-        if spec.variant_config.run_decode:
-            if (
-                training_result is not None
-                or inference_result is not None
-                or prefill_result is not None
-            ):
-                wait_for_inference_cooldown(
-                    spec.variant_config.pre_decode_cooldown_seconds,
-                    context.device,
-                )
-            decode_result = run_decode(spec, model, context.device)
-            timings["decode"] = decode_result.timings
-
-        timings["full"] = build_time_window(run_started_at, time.time())
-
-        return VariantResult(
-            name=spec.name,
-            base_model_name=spec.base_model.name,
-            base_model_pretrained=spec.base_model.pretrained,
-            source=spec.source,
-            group_total_variants_defined=spec.group_total_variants_defined,
-            variant_config=spec.variant_config.model_dump(mode="json"),
-            mutations=[mutation.model_dump(mode="json") for mutation in spec.mutations],
-            timings=timings,
-            training=training_result,
-            inference=inference_result,
-            prefill=prefill_result,
-            decode=decode_result,
-            graph_export=graph_result,
-            decode_graph_export=decode_graph_result,
-            metadata={
-                "device": str(context.device),
-                "gpu_node": context.gpu_node,
-                "model_kind": resolve_model_kind(
-                    spec.base_model.name,
-                    is_detection_model=is_detection_model,
-                    is_text_model=is_text_model,
-                ),
-                "parameter_count": count_parameters(model),
-                "validation_batch_size": validation_metrics["batch_size"],
-                "validation_num_outputs": validation_metrics["num_outputs"],
-                "pretrained_weights_loaded": spec.base_model.pretrained,
-            },
-        )
-    finally:
-        model = None
-        cleanup_workload_boundary(context.device)
+            ),
+            "parameter_count": count_parameters(model),
+            "validation_batch_size": validation_metrics["batch_size"],
+            "validation_num_outputs": validation_metrics["num_outputs"],
+            "pretrained_weights_loaded": spec.base_model.pretrained,
+            "model_build_reused": model_build_reused,
+        },
+    )
 
 
 def resolve_model_kind(
@@ -270,7 +383,10 @@ def wait_for_inference_cooldown(
     time.sleep(cooldown_seconds)
 
 
-def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
+def build_variant_model(
+    spec: ResolvedVariantSpec,
+    device: torch.device | None = None,
+) -> nn.Module:
     if is_detection_model_name(spec.base_model.name):
         assert spec.variant_config.target_output_classes is not None
         from gnn_archs.yolo_builder import build_detection_model
@@ -280,7 +396,7 @@ def build_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
     if is_causal_lm_model_name(spec.base_model.name):
         from gnn_archs.causal_lm_builder import build_causal_lm_variant_model
 
-        return build_causal_lm_variant_model(spec)
+        return build_causal_lm_variant_model(spec, device)
 
     if normalize_model_identifier(spec.base_model.name) == "gpt2":
         assert spec.variant_config.target_output_classes is not None

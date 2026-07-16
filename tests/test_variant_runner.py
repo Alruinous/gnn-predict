@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import json
 import logging
 import weakref
@@ -49,6 +50,7 @@ from gnn_archs.variant_runner import (
     run_inference,
     run_prefill,
     run_variant,
+    run_variants,
     train_model,
 )
 from gnn_model.data.fx_graph import build_graph_data_from_fx
@@ -1122,6 +1124,17 @@ def test_build_variant_model_builds_gemma4_model_from_config() -> None:
     assert next(model.parameters()).dtype is torch.float16
 
 
+def test_config_causal_lm_builds_directly_on_target_device() -> None:
+    variants = [build_qwen_variant(), build_gemma4_variant()]
+
+    for variant in variants:
+        model = build_variant_model(variant, torch.device("meta"))
+
+        assert all(parameter.device.type == "meta" for parameter in model.parameters())
+        assert all(buffer.device.type == "meta" for buffer in model.buffers())
+        assert all(parameter.dtype is torch.float16 for parameter in model.parameters())
+
+
 def test_build_variant_model_dispatches_llama_to_causal_lm_builder(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1187,7 +1200,7 @@ def test_causal_lm_variant_runner_records_family_metadata(
     monkeypatch.setattr(
         variant_runner_module,
         "build_variant_model",
-        lambda spec: build_tiny_llama_model(),
+        lambda spec, device=None: build_tiny_llama_model(),
     )
 
     result = run_variant(variant, context)
@@ -1509,7 +1522,7 @@ def test_run_variant_waits_between_training_and_inference(
     monkeypatch.setattr(
         variant_runner_module,
         "build_variant_model",
-        lambda spec: torch.nn.Identity(),
+        lambda spec, device=None: torch.nn.Identity(),
     )
     monkeypatch.setattr(
         variant_runner_module,
@@ -1951,6 +1964,201 @@ def test_run_variant_cleans_workload_boundary_on_success_and_failure(
     assert cleanup_calls == ["cpu"]
 
 
+def test_run_variants_reuses_only_consecutive_matching_architectures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = build_qwen_variant(variant_name="reuse_first")
+    second = first.model_copy(update={"name": "reuse_second"})
+    qwen3_config = first.variant_config.qwen3_config
+    assert qwen3_config is not None
+    changed = first.model_copy(
+        update={
+            "name": "changed_architecture",
+            "variant_config": first.variant_config.model_copy(
+                update={
+                    "qwen3_config": qwen3_config.model_copy(
+                        update={"intermediate_size": 48}
+                    )
+                }
+            ),
+        }
+    )
+    after_gap = first.model_copy(update={"name": "reuse_after_gap"})
+    context = RunContext(
+        config_path=tmp_path / "reuse_variants.yaml",
+        output_layout=prepare_output_layout(
+            tmp_path / "output",
+            tmp_path / "reuse_variants.yaml",
+        ),
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_variant_reuse"),
+    )
+    build_calls: list[str] = []
+
+    def build_model(
+        spec: ResolvedVariantSpec,
+        _device: torch.device | None = None,
+    ) -> nn.Module:
+        build_calls.append(spec.name)
+        return nn.Linear(1, 1)
+
+    monkeypatch.setattr(variant_runner_module, "build_variant_model", build_model)
+    monkeypatch.setattr(
+        variant_runner_module,
+        "validate_model",
+        lambda *args, **kwargs: {"batch_size": 2, "num_outputs": 1},
+    )
+    monkeypatch.setattr(
+        variant_runner_module,
+        "cleanup_workload_boundary",
+        lambda device: None,
+    )
+
+    results = run_variants([first, second, changed, after_gap], context)
+
+    assert build_calls == [
+        "reuse_first",
+        "changed_architecture",
+        "reuse_after_gap",
+    ]
+    assert [result.name for result in results] == [
+        "reuse_first",
+        "reuse_second",
+        "changed_architecture",
+        "reuse_after_gap",
+    ]
+    assert [
+        result.metadata["model_build_reused"] for result in results
+    ] == [False, True, False, False]
+    assert results[0].timings["model_build"] == results[1].timings["model_build"]
+    build_started_at = results[0].timings["model_build"].started_at_ts
+    first_started_at = results[0].timings["full"].started_at_ts
+    build_ended_at = results[1].timings["model_build"].ended_at_ts
+    reused_started_at = results[1].timings["full"].started_at_ts
+    assert build_started_at is not None
+    assert first_started_at is not None
+    assert build_ended_at is not None
+    assert reused_started_at is not None
+    assert first_started_at <= build_started_at
+    assert reused_started_at >= build_ended_at
+
+
+def test_run_variants_builds_training_variants_independently(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = build_qwen_variant(variant_name="training_first")
+    first = first.model_copy(
+        update={
+            "variant_config": first.variant_config.model_copy(
+                update={"run_training": True}
+            )
+        }
+    )
+    second = first.model_copy(update={"name": "training_second"})
+    context = RunContext(
+        config_path=tmp_path / "training_variants.yaml",
+        output_layout=prepare_output_layout(
+            tmp_path / "output",
+            tmp_path / "training_variants.yaml",
+        ),
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_training_variant_isolation"),
+    )
+    build_calls: list[str] = []
+
+    def build_model(
+        spec: ResolvedVariantSpec,
+        _device: torch.device | None = None,
+    ) -> nn.Module:
+        build_calls.append(spec.name)
+        return nn.Linear(1, 1)
+
+    monkeypatch.setattr(variant_runner_module, "build_variant_model", build_model)
+    monkeypatch.setattr(
+        variant_runner_module,
+        "validate_model",
+        lambda *args, **kwargs: {"batch_size": 2, "num_outputs": 1},
+    )
+    monkeypatch.setattr(
+        variant_runner_module,
+        "train_model",
+        lambda *args, **kwargs: TrainingResult(timings=TimeWindow()),
+    )
+    monkeypatch.setattr(
+        variant_runner_module,
+        "cleanup_workload_boundary",
+        lambda device: None,
+    )
+
+    results = run_variants([first, second], context)
+
+    assert build_calls == ["training_first", "training_second"]
+    assert all(result.training is not None for result in results)
+    assert all(result.metadata["model_build_reused"] is False for result in results)
+
+
+def test_run_variants_releases_reused_model_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = build_qwen_variant(variant_name="failure_first")
+    second = first.model_copy(update={"name": "failure_second"})
+    context = RunContext(
+        config_path=tmp_path / "failure_variants.yaml",
+        output_layout=prepare_output_layout(
+            tmp_path / "output",
+            tmp_path / "failure_variants.yaml",
+        ),
+        device=torch.device("cpu"),
+        gpu_node="cpu-test",
+        logger=logging.getLogger("test_reuse_failure_cleanup"),
+    )
+    model_reference: weakref.ReferenceType[nn.Module] | None = None
+    validation_calls = 0
+    cleanup_calls: list[str] = []
+    cleanup_workload_boundary = variant_runner_module.cleanup_workload_boundary
+
+    def build_model(
+        _spec: ResolvedVariantSpec,
+        _device: torch.device | None = None,
+    ) -> nn.Module:
+        nonlocal model_reference
+        model = nn.Linear(1, 1)
+        model_reference = weakref.ref(model)
+        return model
+
+    def validate(*args: object, **kwargs: object) -> dict[str, int]:
+        nonlocal validation_calls
+        validation_calls += 1
+        if validation_calls == 2:
+            raise RuntimeError("reuse validation failure")
+        return {"batch_size": 2, "num_outputs": 1}
+
+    def cleanup(device: torch.device) -> None:
+        cleanup_calls.append(str(device))
+        cleanup_workload_boundary(device)
+
+    monkeypatch.setattr(variant_runner_module, "build_variant_model", build_model)
+    monkeypatch.setattr(variant_runner_module, "validate_model", validate)
+    monkeypatch.setattr(
+        variant_runner_module,
+        "cleanup_workload_boundary",
+        cleanup,
+    )
+
+    with pytest.raises(RuntimeError, match="reuse validation failure"):
+        run_variants([first, second], context)
+
+    gc.collect()
+    assert model_reference is not None
+    assert model_reference() is None
+    assert cleanup_calls == ["cpu", "cpu", "cpu"]
+
+
 def test_run_variant_releases_model_and_export_program(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1977,7 +2185,10 @@ def test_run_variant_releases_model_and_export_program(
     export_reference: weakref.ReferenceType[ExportedProgram] | None = None
     capture_inference_graph = graph_export_module.capture_inference_graph
 
-    def build_model(_: ResolvedVariantSpec) -> nn.Module:
+    def build_model(
+        _: ResolvedVariantSpec,
+        _device: torch.device | None = None,
+    ) -> nn.Module:
         nonlocal model_reference
         model = nn.Sequential(nn.Flatten(), nn.Linear(3 * 8 * 8, 4))
         model_reference = weakref.ref(model)

@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         build_time_window,
         format_timestamp,
         prepare_output_layout,
-        run_variant,
+        run_variants,
         summarize_variant_results,
     )
 
@@ -91,15 +91,7 @@ def main(argv: list[str] | None = None) -> int:
             gpu_node=args.gpu_node,
             logger=logger,
         )
-        variant_results = []
-        for index, variant in enumerate(variants, start=1):
-            logger.info(
-                "processing variant %s/%s: %s",
-                index,
-                len(variants),
-                variant.name,
-            )
-            variant_results.append(run_variant(variant, context))
+        variant_results = run_variants(variants, context)
         document = ResultDocument(
             config_path=str(config_path),
             gpu_node=args.gpu_node,

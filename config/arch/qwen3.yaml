@@ -542,244 +542,244 @@ base_model_groups:
         overrides:
           decode_max_output_length: 512
 
-# A100-only: 10.592B and 12.442B interpolation between official 8B and 14B.
-- base_model:
-    name: qwen3
-    pretrained: false
-  variant_config_grid:
-    base_variant_config_template:
-      example_input_shape:
-      - 1
-      - 128
-      run_training: false
-      run_inference: false
-      run_prefill: false
-      run_decode: true
-      pre_inference_cooldown_seconds: 5.0
-      pre_prefill_cooldown_seconds: 5.0
-      pre_decode_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
-      prefill_measurement_min_seconds: 40.0
-      decode_measurement_min_seconds: 40.0
-      decode_max_output_length: 16
-      export_graph: true
-      batch_size: 1
-      training_measurement_min_seconds: 40.0
-      use_fake_text_dataset: true
-      qwen3_config:
-        vocab_size: 151936
-        hidden_size: 4352
-        intermediate_size: 14336
-        num_hidden_layers: 40
-        num_attention_heads: 32
-        num_key_value_heads: 8
-        head_dim: 128
-        max_position_embeddings: 40960
-        tie_word_embeddings: false
-        rope_parameters:
-          rope_theta: 1000000.0
-          rope_type: default
-    axes:
-    - name: arch
-      values:
-      - name: interp_10_6b_h4352_l40_a100
-        overrides:
-          qwen3_config.vocab_size: 151936
-          qwen3_config.hidden_size: 4352
-          qwen3_config.intermediate_size: 14336
-          qwen3_config.num_hidden_layers: 40
-          qwen3_config.num_attention_heads: 32
-          qwen3_config.num_key_value_heads: 8
-          qwen3_config.head_dim: 128
-          qwen3_config.max_position_embeddings: 40960
-          qwen3_config.tie_word_embeddings: false
-      - name: interp_12_4b_h4608_l40_a100
-        overrides:
-          qwen3_config.vocab_size: 151936
-          qwen3_config.hidden_size: 4608
-          qwen3_config.intermediate_size: 15872
-          qwen3_config.num_hidden_layers: 40
-          qwen3_config.num_attention_heads: 40
-          qwen3_config.num_key_value_heads: 8
-          qwen3_config.head_dim: 128
-          qwen3_config.max_position_embeddings: 40960
-          qwen3_config.tie_word_embeddings: false
-    - name: shape
-      values:
-      - name: bs1_s64
-        overrides:
-          example_input_shape:
-          - 1
-          - 64
-          batch_size: 1
-      - name: bs1_s128
-        overrides:
-          example_input_shape:
-          - 1
-          - 128
-          batch_size: 1
-      - name: bs1_s256
-        overrides:
-          example_input_shape:
-          - 1
-          - 256
-          batch_size: 1
-      - name: bs1_s512
-        overrides:
-          example_input_shape:
-          - 1
-          - 512
-          batch_size: 1
-      - name: bs2_s64
-        overrides:
-          example_input_shape:
-          - 2
-          - 64
-          batch_size: 2
-      - name: bs2_s128
-        overrides:
-          example_input_shape:
-          - 2
-          - 128
-          batch_size: 2
-      - name: bs2_s256
-        overrides:
-          example_input_shape:
-          - 2
-          - 256
-          batch_size: 2
-      - name: bs4_s64
-        overrides:
-          example_input_shape:
-          - 4
-          - 64
-          batch_size: 4
-    - name: output
-      values:
-      - name: o16
-        overrides:
-          decode_max_output_length: 16
-      - name: o32
-        overrides:
-          decode_max_output_length: 32
-      - name: o64
-        overrides:
-          decode_max_output_length: 64
-      - name: o128
-        overrides:
-          decode_max_output_length: 128
-      - name: o256
-        overrides:
-          decode_max_output_length: 256
-      - name: o512
-        overrides:
-          decode_max_output_length: 512
-# A100-only: official 14B conservative decode coverage.
-- base_model:
-    name: qwen3
-    pretrained: false
-  variant_config_grid:
-    base_variant_config_template:
-      example_input_shape:
-      - 1
-      - 128
-      run_training: false
-      run_inference: false
-      run_prefill: false
-      run_decode: true
-      pre_inference_cooldown_seconds: 5.0
-      pre_prefill_cooldown_seconds: 5.0
-      pre_decode_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
-      prefill_measurement_min_seconds: 40.0
-      decode_measurement_min_seconds: 40.0
-      decode_max_output_length: 16
-      export_graph: true
-      batch_size: 1
-      training_measurement_min_seconds: 40.0
-      use_fake_text_dataset: true
-      qwen3_config:
-        vocab_size: 151936
-        hidden_size: 5120
-        intermediate_size: 17408
-        num_hidden_layers: 40
-        num_attention_heads: 40
-        num_key_value_heads: 8
-        head_dim: 128
-        max_position_embeddings: 40960
-        tie_word_embeddings: false
-        rope_parameters:
-          rope_theta: 1000000.0
-          rope_type: default
-    axes:
-    - name: arch
-      values:
-      - name: official_14b_a100
-        overrides:
-          qwen3_config.vocab_size: 151936
-          qwen3_config.hidden_size: 5120
-          qwen3_config.intermediate_size: 17408
-          qwen3_config.num_hidden_layers: 40
-          qwen3_config.num_attention_heads: 40
-          qwen3_config.num_key_value_heads: 8
-          qwen3_config.head_dim: 128
-          qwen3_config.max_position_embeddings: 40960
-          qwen3_config.tie_word_embeddings: false
-    - name: shape
-      values:
-      - name: bs1_s64
-        overrides:
-          example_input_shape:
-          - 1
-          - 64
-          batch_size: 1
-      - name: bs1_s128
-        overrides:
-          example_input_shape:
-          - 1
-          - 128
-          batch_size: 1
-      - name: bs1_s256
-        overrides:
-          example_input_shape:
-          - 1
-          - 256
-          batch_size: 1
-      - name: bs1_s512
-        overrides:
-          example_input_shape:
-          - 1
-          - 512
-          batch_size: 1
-      - name: bs2_s64
-        overrides:
-          example_input_shape:
-          - 2
-          - 64
-          batch_size: 2
-      - name: bs2_s128
-        overrides:
-          example_input_shape:
-          - 2
-          - 128
-          batch_size: 2
-    - name: output
-      values:
-      - name: o16
-        overrides:
-          decode_max_output_length: 16
-      - name: o32
-        overrides:
-          decode_max_output_length: 32
-      - name: o64
-        overrides:
-          decode_max_output_length: 64
-      - name: o128
-        overrides:
-          decode_max_output_length: 128
-      - name: o256
-        overrides:
-          decode_max_output_length: 256
-      - name: o512
-        overrides:
-          decode_max_output_length: 512
+# # A100-only: 10.592B and 12.442B interpolation between official 8B and 14B.
+# - base_model:
+#     name: qwen3
+#     pretrained: false
+#   variant_config_grid:
+#     base_variant_config_template:
+#       example_input_shape:
+#       - 1
+#       - 128
+#       run_training: false
+#       run_inference: false
+#       run_prefill: false
+#       run_decode: true
+#       pre_inference_cooldown_seconds: 5.0
+#       pre_prefill_cooldown_seconds: 5.0
+#       pre_decode_cooldown_seconds: 5.0
+#       inference_measurement_min_seconds: 40.0
+#       prefill_measurement_min_seconds: 40.0
+#       decode_measurement_min_seconds: 40.0
+#       decode_max_output_length: 16
+#       export_graph: true
+#       batch_size: 1
+#       training_measurement_min_seconds: 40.0
+#       use_fake_text_dataset: true
+#       qwen3_config:
+#         vocab_size: 151936
+#         hidden_size: 4352
+#         intermediate_size: 14336
+#         num_hidden_layers: 40
+#         num_attention_heads: 32
+#         num_key_value_heads: 8
+#         head_dim: 128
+#         max_position_embeddings: 40960
+#         tie_word_embeddings: false
+#         rope_parameters:
+#           rope_theta: 1000000.0
+#           rope_type: default
+#     axes:
+#     - name: arch
+#       values:
+#       - name: interp_10_6b_h4352_l40_a100
+#         overrides:
+#           qwen3_config.vocab_size: 151936
+#           qwen3_config.hidden_size: 4352
+#           qwen3_config.intermediate_size: 14336
+#           qwen3_config.num_hidden_layers: 40
+#           qwen3_config.num_attention_heads: 32
+#           qwen3_config.num_key_value_heads: 8
+#           qwen3_config.head_dim: 128
+#           qwen3_config.max_position_embeddings: 40960
+#           qwen3_config.tie_word_embeddings: false
+#       - name: interp_12_4b_h4608_l40_a100
+#         overrides:
+#           qwen3_config.vocab_size: 151936
+#           qwen3_config.hidden_size: 4608
+#           qwen3_config.intermediate_size: 15872
+#           qwen3_config.num_hidden_layers: 40
+#           qwen3_config.num_attention_heads: 40
+#           qwen3_config.num_key_value_heads: 8
+#           qwen3_config.head_dim: 128
+#           qwen3_config.max_position_embeddings: 40960
+#           qwen3_config.tie_word_embeddings: false
+#     - name: shape
+#       values:
+#       - name: bs1_s64
+#         overrides:
+#           example_input_shape:
+#           - 1
+#           - 64
+#           batch_size: 1
+#       - name: bs1_s128
+#         overrides:
+#           example_input_shape:
+#           - 1
+#           - 128
+#           batch_size: 1
+#       - name: bs1_s256
+#         overrides:
+#           example_input_shape:
+#           - 1
+#           - 256
+#           batch_size: 1
+#       - name: bs1_s512
+#         overrides:
+#           example_input_shape:
+#           - 1
+#           - 512
+#           batch_size: 1
+#       - name: bs2_s64
+#         overrides:
+#           example_input_shape:
+#           - 2
+#           - 64
+#           batch_size: 2
+#       - name: bs2_s128
+#         overrides:
+#           example_input_shape:
+#           - 2
+#           - 128
+#           batch_size: 2
+#       - name: bs2_s256
+#         overrides:
+#           example_input_shape:
+#           - 2
+#           - 256
+#           batch_size: 2
+#       - name: bs4_s64
+#         overrides:
+#           example_input_shape:
+#           - 4
+#           - 64
+#           batch_size: 4
+#     - name: output
+#       values:
+#       - name: o16
+#         overrides:
+#           decode_max_output_length: 16
+#       - name: o32
+#         overrides:
+#           decode_max_output_length: 32
+#       - name: o64
+#         overrides:
+#           decode_max_output_length: 64
+#       - name: o128
+#         overrides:
+#           decode_max_output_length: 128
+#       - name: o256
+#         overrides:
+#           decode_max_output_length: 256
+#       - name: o512
+#         overrides:
+#           decode_max_output_length: 512
+# # A100-only: official 14B conservative decode coverage.
+# - base_model:
+#     name: qwen3
+#     pretrained: false
+#   variant_config_grid:
+#     base_variant_config_template:
+#       example_input_shape:
+#       - 1
+#       - 128
+#       run_training: false
+#       run_inference: false
+#       run_prefill: false
+#       run_decode: true
+#       pre_inference_cooldown_seconds: 5.0
+#       pre_prefill_cooldown_seconds: 5.0
+#       pre_decode_cooldown_seconds: 5.0
+#       inference_measurement_min_seconds: 40.0
+#       prefill_measurement_min_seconds: 40.0
+#       decode_measurement_min_seconds: 40.0
+#       decode_max_output_length: 16
+#       export_graph: true
+#       batch_size: 1
+#       training_measurement_min_seconds: 40.0
+#       use_fake_text_dataset: true
+#       qwen3_config:
+#         vocab_size: 151936
+#         hidden_size: 5120
+#         intermediate_size: 17408
+#         num_hidden_layers: 40
+#         num_attention_heads: 40
+#         num_key_value_heads: 8
+#         head_dim: 128
+#         max_position_embeddings: 40960
+#         tie_word_embeddings: false
+#         rope_parameters:
+#           rope_theta: 1000000.0
+#           rope_type: default
+#     axes:
+#     - name: arch
+#       values:
+#       - name: official_14b_a100
+#         overrides:
+#           qwen3_config.vocab_size: 151936
+#           qwen3_config.hidden_size: 5120
+#           qwen3_config.intermediate_size: 17408
+#           qwen3_config.num_hidden_layers: 40
+#           qwen3_config.num_attention_heads: 40
+#           qwen3_config.num_key_value_heads: 8
+#           qwen3_config.head_dim: 128
+#           qwen3_config.max_position_embeddings: 40960
+#           qwen3_config.tie_word_embeddings: false
+#     - name: shape
+#       values:
+#       - name: bs1_s64
+#         overrides:
+#           example_input_shape:
+#           - 1
+#           - 64
+#           batch_size: 1
+#       - name: bs1_s128
+#         overrides:
+#           example_input_shape:
+#           - 1
+#           - 128
+#           batch_size: 1
+#       - name: bs1_s256
+#         overrides:
+#           example_input_shape:
+#           - 1
+#           - 256
+#           batch_size: 1
+#       - name: bs1_s512
+#         overrides:
+#           example_input_shape:
+#           - 1
+#           - 512
+#           batch_size: 1
+#       - name: bs2_s64
+#         overrides:
+#           example_input_shape:
+#           - 2
+#           - 64
+#           batch_size: 2
+#       - name: bs2_s128
+#         overrides:
+#           example_input_shape:
+#           - 2
+#           - 128
+#           batch_size: 2
+#     - name: output
+#       values:
+#       - name: o16
+#         overrides:
+#           decode_max_output_length: 16
+#       - name: o32
+#         overrides:
+#           decode_max_output_length: 32
+#       - name: o64
+#         overrides:
+#           decode_max_output_length: 64
+#       - name: o128
+#         overrides:
+#           decode_max_output_length: 128
+#       - name: o256
+#         overrides:
+#           decode_max_output_length: 256
+#       - name: o512
+#         overrides:
+#           decode_max_output_length: 512

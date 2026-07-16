@@ -36,6 +36,11 @@ nodes:
       dtype: float16
       max_new_tokens: 256
       do_sample: false
+      serving:
+        max_model_len: 12288
+        max_num_seqs: 3
+        max_num_batched_tokens: 24576
+        gpu_memory_utilization: 0.98
       use_chat_template: true
       enable_thinking: false
       model_name: Qwen3-0.6B
@@ -76,6 +81,11 @@ nodes:
       dtype: float16
       max_new_tokens: 256
       do_sample: false
+      serving:
+        max_model_len: 12288
+        max_num_seqs: 3
+        max_num_batched_tokens: 24576
+        gpu_memory_utilization: 0.98
       use_chat_template: true
       enable_thinking: false
       model_name: Qwen3-0.6B
@@ -116,6 +126,11 @@ nodes:
       dtype: float16
       max_new_tokens: 256
       do_sample: false
+      serving:
+        max_model_len: 12288
+        max_num_seqs: 3
+        max_num_batched_tokens: 24576
+        gpu_memory_utilization: 0.98
       use_chat_template: true
       enable_thinking: false
       model_name: Qwen3-0.6B
@@ -156,6 +171,11 @@ nodes:
       dtype: float16
       max_new_tokens: 256
       do_sample: false
+      serving:
+        max_model_len: 12288
+        max_num_seqs: 3
+        max_num_batched_tokens: 24576
+        gpu_memory_utilization: 0.98
       use_chat_template: true
       enable_thinking: false
       model_name: Qwen3-0.6B
@@ -196,6 +216,11 @@ nodes:
       dtype: float16
       max_new_tokens: 256
       do_sample: false
+      serving:
+        max_model_len: 12288
+        max_num_seqs: 3
+        max_num_batched_tokens: 24576
+        gpu_memory_utilization: 0.98
       use_chat_template: true
       enable_thinking: false
       model_name: Qwen3-0.6B
@@ -236,6 +261,11 @@ nodes:
       dtype: float16
       max_new_tokens: 256
       do_sample: false
+      serving:
+        max_model_len: 12288
+        max_num_seqs: 3
+        max_num_batched_tokens: 24576
+        gpu_memory_utilization: 0.98
       use_chat_template: true
       enable_thinking: false
       model_name: Qwen3-0.6B
@@ -276,6 +306,11 @@ nodes:
       dtype: float16
       max_new_tokens: 512
       do_sample: false
+      serving:
+        max_model_len: 12288
+        max_num_seqs: 3
+        max_num_batched_tokens: 24576
+        gpu_memory_utilization: 0.98
       use_chat_template: true
       enable_thinking: false
       model_name: Qwen3-1.7B

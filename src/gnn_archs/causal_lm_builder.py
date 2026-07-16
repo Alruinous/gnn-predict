@@ -10,7 +10,6 @@ import torch.nn as nn
 from transformers import (
     AutoModelForCausalLM,
     DynamicCache,
-    Gemma4ForCausalLM,
     Gemma4TextConfig,
     Qwen3Config,
 )
@@ -160,12 +159,15 @@ def iter_causal_lm_configs(model: nn.Module) -> tuple[Any, ...]:
     return config, text_config
 
 
-def build_causal_lm_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
+def build_causal_lm_variant_model(
+    spec: ResolvedVariantSpec,
+    device: torch.device | None = None,
+) -> nn.Module:
     validate_causal_lm_variant_spec(spec)
     if spec.variant_config.qwen3_config is not None:
-        return build_qwen3_config_model(spec)
+        return build_qwen3_config_model(spec, device)
     if spec.variant_config.gemma4_config is not None:
-        return build_gemma4_config_model(spec)
+        return build_gemma4_config_model(spec, device)
 
     model_path = resolve_causal_lm_model_path(spec.base_model.name)
     family = get_causal_lm_family(spec.base_model.name)
@@ -181,7 +183,10 @@ def build_causal_lm_variant_model(spec: ResolvedVariantSpec) -> nn.Module:
     )
 
 
-def build_qwen3_config_model(spec: ResolvedVariantSpec) -> nn.Module:
+def build_qwen3_config_model(
+    spec: ResolvedVariantSpec,
+    device: torch.device | None = None,
+) -> nn.Module:
     qwen3_config = spec.variant_config.qwen3_config
     if qwen3_config is None:
         raise ValueError("qwen variants require variant_config.qwen3_config")
@@ -194,10 +199,13 @@ def build_qwen3_config_model(spec: ResolvedVariantSpec) -> nn.Module:
         **qwen3_config.model_dump(mode="python"),
     )
     validate_qwen3_runtime_config(spec, config)
-    return AutoModelForCausalLM.from_config(config, dtype=torch.float16)
+    return build_config_causal_lm_model(config, device)
 
 
-def build_gemma4_config_model(spec: ResolvedVariantSpec) -> nn.Module:
+def build_gemma4_config_model(
+    spec: ResolvedVariantSpec,
+    device: torch.device | None = None,
+) -> nn.Module:
     gemma4_config = spec.variant_config.gemma4_config
     if gemma4_config is None:
         raise ValueError("gemma4 variants require variant_config.gemma4_config")
@@ -214,7 +222,17 @@ def build_gemma4_config_model(spec: ResolvedVariantSpec) -> nn.Module:
         **config_values,
     )
     validate_gemma4_runtime_config(spec, config)
-    return Gemma4ForCausalLM(config).to(dtype=torch.float16)
+    return build_config_causal_lm_model(config, device)
+
+
+def build_config_causal_lm_model(
+    config: Qwen3Config | Gemma4TextConfig,
+    device: torch.device | None,
+) -> nn.Module:
+    if device is None:
+        return AutoModelForCausalLM.from_config(config, dtype=torch.float16)
+    with device:
+        return AutoModelForCausalLM.from_config(config, dtype=torch.float16)
 
 
 def build_gemma4_layer_types(num_hidden_layers: int) -> list[str]:

@@ -192,9 +192,9 @@ targets:
 
   qwen3:
     enabled: true
-    result_json: res/qwen3/results/qwen3_v100_1783502362_results.json
+    result_json: res/qwen3/results/qwen3_v100_1784114497_results.json
     node_name: dell-68
-    pod_name: sg-wangjh-260708-f57f0-default0-0
+    pod_name: sg-wangjh-260715-cb384-default0-0
     gpu_id: "0"
     output_csv: "csv/v100_llm/qwen3_monitor.csv"
 

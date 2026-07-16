@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+import pytest
 
 from dataset.mbpp import evaluate_mbpp, load_mbpp_samples
 
@@ -174,3 +178,24 @@ def test_evaluate_mbpp_reports_no_code() -> None:
 
     assert not result.passed
     assert result.error_type == "no_code"
+
+
+def test_evaluate_mbpp_supports_eight_concurrent_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+
+    def evaluate(index: int) -> bool:
+        result = evaluate_mbpp(
+            f"def identity_{index}(value):\n    return value",
+            [],
+            [f"assert identity_{index}({index}) == {index}"],
+        )
+        return result.passed
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        passed = list(executor.map(evaluate, range(8)))
+
+    assert passed == [True] * 8
+    assert list(tmp_path.iterdir()) == []
