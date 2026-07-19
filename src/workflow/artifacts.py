@@ -23,7 +23,7 @@ from pydantic import (
 from common.validate import NonEmptyStr
 from workflow.types import WorkflowModelFeatureKey
 
-GpuKind = Literal["v100", "a100"]
+GpuKind = NonEmptyStr
 SchedulerPolicy = Literal["fifo", "history", "cache"]
 OpenUnitInterval = Annotated[float, Field(gt=0, le=1)]
 

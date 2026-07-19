@@ -47,7 +47,7 @@ GEMMA_CONFIG_VARIANT_COUNTS = {
     "gemma_variants.yaml": 22,
 }
 GEMMA4_CONFIG_VARIANT_COUNTS = {
-    "gemma4.yaml": 615,
+    "gemma4.yaml": 639,
 }
 CAUSAL_LM_FULL_FLOW_SHAPES = {
     (1, 128),
@@ -348,7 +348,7 @@ def test_gemma4_arch_configs_expand_to_expected_counts(
         if variant.variant_config.gemma4_config is not None
     )
     assert len(full_flow_variants) == 73
-    assert len(decode_only_variants) == 530
+    assert len(decode_only_variants) == 554
     assert len(prefill_only_variants) == 12
     assert all(not variant.variant_config.run_training for variant in variants)
     assert all(

@@ -200,8 +200,8 @@ targets:
 
   gemma4:
     enabled: true
-    result_json: res/gemma4/results/gemma4_a100_1783340639_results.json
+    result_json: res/gemma4/results/gemma4_a100_1784209560_results.json
     node_name: inspur-gpu-04
-    pod_name: sg-wangjh-260706-9ce8d-default0-0
+    pod_name: sg-wangjh-260716-0e9e9-default0-0
     gpu_id: "2"
     output_csv: "csv/a100_llm/gemma4_monitor.csv"

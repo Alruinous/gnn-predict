@@ -486,10 +486,7 @@ class SchedulerCore:
         return tuple(cancelled)
 
     def record_runtime_report(self, report: AgentTaskRuntimeReport) -> None:
-        if report.gpu_kind not in ("v100", "a100"):
-            raise ValueError(f"unsupported GPU kind: {report.gpu_kind}")
-        gpu_kind = cast(GpuKind, report.gpu_kind)
-        key = (report.node_id, report.model_key, gpu_kind)
+        key = (report.node_id, report.model_key, report.gpu_kind)
         history = self.history.setdefault(key, RuntimeHistoryRecord())
         history.add(report, self.scheduler_config.history_ema_alpha)
         if report.status == "success":

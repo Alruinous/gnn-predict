@@ -208,8 +208,8 @@ targets:
 
   gemma4:
     enabled: true
-    result_json: res/gemma4/results/gemma4_v100_1783321306_results.json
+    result_json: res/gemma4/results/gemma4_v100_1784199037_results.json
     node_name: dell-68
-    pod_name: sg-wangjh-260706-3ce50-default0-0
+    pod_name: sg-wangjh-260716-b6aff-default0-0
     gpu_id: "2"
     output_csv: "csv/v100_llm/gemma4_monitor.csv"

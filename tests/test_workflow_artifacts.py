@@ -188,6 +188,19 @@ def test_accelerator_identity_and_scheduler_defaults_are_deterministic() -> None
     assert config.policy == "cache"
 
 
+def test_prediction_and_accelerator_contracts_accept_generic_gpu_kinds() -> None:
+    key = prediction_key(gpu_name="p100")
+    accelerator = AcceleratorConfig(
+        hostname="gpu-node-0",
+        gpu_kind="p100",
+        local_index=0,
+        total_mem_mb=16_000,
+    )
+
+    assert key.gpu_name == "p100"
+    assert accelerator.accelerator_id == "gpu-node-0/p100:0"
+
+
 def test_scheduler_config_allows_no_accelerators() -> None:
     assert SchedulerConfig().accelerators == ()
 

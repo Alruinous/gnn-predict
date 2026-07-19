@@ -107,7 +107,7 @@ class TraceEvent(BaseModel):
 class WorkflowModelFeatureKey(BaseModel):
     model_name: NonEmptyStr
     phase: Literal["prefill", "decode"]
-    gpu_name: Literal["v100", "a100"]
+    gpu_name: NonEmptyStr
     batch_size: PositiveInt
     sequence_length: PositiveInt
     decode_output_length: int  # 0 for prefill, decode_max_output_length for decode

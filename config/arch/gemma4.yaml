@@ -1,4 +1,7 @@
+# Comment A100-only groups before V100 runs because --gpu_node does not filter variants.
+# Gemma4 h5120_l40 is omitted because the measured PT2 peak/weight ratio predicts over 40GB.
 base_model_groups:
+# V100/A100: compact full-flow variants.
 - base_model:
     name: gemma4
     pretrained: false
@@ -91,6 +94,7 @@ base_model_groups:
           - 4
           - 128
           batch_size: 4
+# V100/A100: h1280_l22 full-flow variants.
 - base_model:
     name: gemma4
     pretrained: false
@@ -173,6 +177,7 @@ base_model_groups:
           - 4
           - 128
           batch_size: 4
+# V100/A100: base token-decode coverage.
 - base_model:
     name: gemma4
     pretrained: false
@@ -371,7 +376,7 @@ base_model_groups:
       - name: o1536
         overrides:
           decode_max_output_length: 1536
-# A100 full-flow variant.
+# V100/A100: 3.586B full-flow boundary variant.
 - base_model:
     name: gemma4
     pretrained: false
@@ -424,7 +429,7 @@ base_model_groups:
           - 1
           - 128
           batch_size: 1
-# A100 expansion: Gemma4 full-flow variants.
+# V100/A100: expanded full-flow variants.
 - base_model:
     name: gemma4
     pretrained: false
@@ -564,7 +569,7 @@ base_model_groups:
           - 2
           - 256
           batch_size: 2
-# A100 expansion: Gemma4 large prefill-only variants.
+# V100/A100: large prefill-only variants.
 - base_model:
     name: gemma4
     pretrained: false
@@ -683,7 +688,7 @@ base_model_groups:
           - 2
           - 256
           batch_size: 2
-# A100 expansion: Gemma4 memory-heavy decode variants.
+# V100/A100: memory-heavy decode variants.
 - base_model:
     name: gemma4
     pretrained: false
@@ -813,7 +818,7 @@ base_model_groups:
       - name: o512
         overrides:
           decode_max_output_length: 512
-# A100 expansion: Gemma4 wider token-decode batch variants.
+# V100/A100: wider token-decode batch variants.
 - base_model:
     name: gemma4
     pretrained: false
@@ -949,7 +954,7 @@ base_model_groups:
       - name: o512
         overrides:
           decode_max_output_length: 512
-# A100 expansion: Gemma4 long token-decode context.
+# V100/A100: long token-decode context.
 - base_model:
     name: gemma4
     pretrained: false
@@ -1028,3 +1033,181 @@ base_model_groups:
       - name: o1536
         overrides:
           decode_max_output_length: 1536
+
+# V100/A100: 4.548B to 14.303B conservative decode boundary coverage.
+- base_model:
+    name: gemma4
+    pretrained: false
+  variant_config_grid:
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 128
+      run_training: false
+      run_inference: false
+      run_prefill: false
+      run_decode: true
+      pre_inference_cooldown_seconds: 5.0
+      pre_prefill_cooldown_seconds: 5.0
+      pre_decode_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      prefill_measurement_min_seconds: 40.0
+      decode_measurement_min_seconds: 40.0
+      decode_max_output_length: 16
+      export_graph: true
+      batch_size: 1
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      gemma4_config:
+        vocab_size: 262144
+        hidden_size: 2048
+        intermediate_size: 8192
+        num_hidden_layers: 30
+        num_attention_heads: 8
+        num_key_value_heads: 4
+        head_dim: 256
+        max_position_embeddings: 131072
+        tie_word_embeddings: true
+        sliding_window: 512
+    axes:
+    - name: arch
+      values:
+      - name: h2048_l30
+        overrides:
+          gemma4_config.hidden_size: 2048
+          gemma4_config.intermediate_size: 8192
+          gemma4_config.num_hidden_layers: 30
+          gemma4_config.num_attention_heads: 8
+          gemma4_config.num_key_value_heads: 4
+      - name: h2560_l32
+        overrides:
+          gemma4_config.hidden_size: 2560
+          gemma4_config.intermediate_size: 10240
+          gemma4_config.num_hidden_layers: 32
+          gemma4_config.num_attention_heads: 10
+          gemma4_config.num_key_value_heads: 5
+      - name: h3072_l36
+        overrides:
+          gemma4_config.hidden_size: 3072
+          gemma4_config.intermediate_size: 12288
+          gemma4_config.num_hidden_layers: 36
+          gemma4_config.num_attention_heads: 12
+          gemma4_config.num_key_value_heads: 6
+      - name: h3584_l36
+        overrides:
+          gemma4_config.hidden_size: 3584
+          gemma4_config.intermediate_size: 14336
+          gemma4_config.num_hidden_layers: 36
+          gemma4_config.num_attention_heads: 14
+          gemma4_config.num_key_value_heads: 7
+      - name: h3840_l38
+        overrides:
+          gemma4_config.hidden_size: 3840
+          gemma4_config.intermediate_size: 15360
+          gemma4_config.num_hidden_layers: 38
+          gemma4_config.num_attention_heads: 15
+          gemma4_config.num_key_value_heads: 5
+      - name: h4096_l40
+        overrides:
+          gemma4_config.hidden_size: 4096
+          gemma4_config.intermediate_size: 16384
+          gemma4_config.num_hidden_layers: 40
+          gemma4_config.num_attention_heads: 16
+          gemma4_config.num_key_value_heads: 8
+    - name: shape
+      values:
+      - name: bs1_s64
+        overrides:
+          example_input_shape:
+          - 1
+          - 64
+          batch_size: 1
+      - name: bs1_s128
+        overrides:
+          example_input_shape:
+          - 1
+          - 128
+          batch_size: 1
+    - name: output
+      values:
+      - name: o16
+        overrides:
+          decode_max_output_length: 16
+      - name: o32
+        overrides:
+          decode_max_output_length: 32
+
+# A100-only: 15.564B and 17.221B conservative decode coverage.
+- base_model:
+    name: gemma4
+    pretrained: false
+  variant_config_grid:
+    base_variant_config_template:
+      example_input_shape:
+      - 1
+      - 128
+      run_training: false
+      run_inference: false
+      run_prefill: false
+      run_decode: true
+      pre_inference_cooldown_seconds: 5.0
+      pre_prefill_cooldown_seconds: 5.0
+      pre_decode_cooldown_seconds: 5.0
+      inference_measurement_min_seconds: 40.0
+      prefill_measurement_min_seconds: 40.0
+      decode_measurement_min_seconds: 40.0
+      decode_max_output_length: 16
+      export_graph: true
+      batch_size: 1
+      training_measurement_min_seconds: 40.0
+      use_fake_text_dataset: true
+      gemma4_config:
+        vocab_size: 262144
+        hidden_size: 4352
+        intermediate_size: 17408
+        num_hidden_layers: 40
+        num_attention_heads: 16
+        num_key_value_heads: 8
+        head_dim: 256
+        max_position_embeddings: 131072
+        tie_word_embeddings: true
+        sliding_window: 512
+    axes:
+    - name: arch
+      values:
+      - name: h4352_l40_a100
+        overrides:
+          gemma4_config.hidden_size: 4352
+          gemma4_config.intermediate_size: 17408
+          gemma4_config.num_hidden_layers: 40
+          gemma4_config.num_attention_heads: 16
+          gemma4_config.num_key_value_heads: 8
+      - name: h4608_l40_a100
+        overrides:
+          gemma4_config.hidden_size: 4608
+          gemma4_config.intermediate_size: 18432
+          gemma4_config.num_hidden_layers: 40
+          gemma4_config.num_attention_heads: 18
+          gemma4_config.num_key_value_heads: 9
+    - name: shape
+      values:
+      - name: bs1_s64
+        overrides:
+          example_input_shape:
+          - 1
+          - 64
+          batch_size: 1
+      - name: bs1_s128
+        overrides:
+          example_input_shape:
+          - 1
+          - 128
+          batch_size: 1
+    - name: output
+      values:
+      - name: o16
+        overrides:
+          decode_max_output_length: 16
+      - name: o32
+        overrides:
+          decode_max_output_length: 32
