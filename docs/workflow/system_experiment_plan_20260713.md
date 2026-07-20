@@ -2,12 +2,12 @@
 
 ## 文档定位
 
-本文是 `src/workflow` 系统实验的持续维护入口。后续已经确认的实验设计、实现状态、
-复现约束和未决问题都更新到本文，不再只保留在对话中。
+本文记录 `src/workflow` 已完成系统实验的设计、实现状态和复现约束。正式矩阵与结果
+均已冻结；后续系统版本或新增实验应建立新的方案，不回写本轮预注册设计。
 
 本文自 2026-07-14 起采用精简后的系统验证口径。修订版正式产物使用新的 experiment ID
 `system_20260713_v2`，不得与旧 `system_20260713` 目录中的 60-session 工程试跑混合。
-当前 runner 仍硬编码旧样本和旧矩阵；代码同步完成前，本文不能直接作为运行命令使用。
+修订版 runner、正式矩阵和结果产物均已完成并冻结。
 
 - 实验方案：`docs/workflow/system_experiment_plan_20260713.md`
 - 实验结果：`docs/workflow/system_experiment_results_20260713.md`
@@ -21,8 +21,8 @@
 - **待实现**：方案已经确认，但当前代码尚不支持。
 - **待讨论**：不能据此实现，需继续确认原理或取舍。
 
-结果文档与本文分离。本文记录实验为什么这样设计，结果文档只记录命令、运行环境、
-原始数据索引、统计表和图，不预设“实验成立”或固定收益阈值。
+结果文档与本文分离。本文记录实验为什么这样设计；结果文档记录运行环境、原始数据
+索引、统计结果、图和受证据约束的解释，不改变预注册矩阵或事后筛选结果。
 
 ## 实验目标
 
@@ -342,10 +342,15 @@ MBPP 720 个。相对旧方案的 24,000 个正式 session 减少 92.5%。已有
 
 **已确认**：本轮缓存是外部提供的测试输入，不是 GNN 输出，也不作为 empirical profile。
 
-- `WF-FIFO` 不使用缓存中的 ETA 做排序或预取。
-- `WF-History` 只用于 MBPP 2-GPU 正式对比，只使用当前 trial 已观测到的加载和执行历史，
-  且在 trial 间清空。
-- `WF-Cache` 只读取冻结的 synthetic cache，不用当前 trial 结果修正缓存值。
+- 三种 WF 策略都读取冻结 cache，用于固定请求可行性、GPU 选择、显存门禁和精确
+  batch 准入。
+- `WF-FIFO` 按 acquire 到达顺序处理，不用缓存耗时建立运行完成 ETA，也不生成
+  near-ready prefetch。
+- `WF-History` 只用于 MBPP 2-GPU 正式对比；已有观测时使用当前 trial 的加载和执行
+  历史估计 ETA、预取和 reload cost，并在 trial 间清空。缺少加载历史时不做 near-ready
+  prefetch，ready 请求仍使用冻结 cache 完成放置。
+- `WF-Cache` 使用冻结 cache 的加载和执行耗时做 ETA、预取和 workflow-aware 驱逐，
+  不用当前 trial 结果修正缓存值。
 - cache 覆盖正式 workflow 需要的 model、GPU、batch、input 和 output buckets，并随实验
   固化生成方式、完整文件和 hash。
 - cache 值只驱动调度决策，不作为预测准确率结果，也不与实际运行值计算预测误差。
@@ -483,7 +488,7 @@ budget、降低 `max_new_tokens`、减少 QMSum chunk 数、跳过 MBPP repair �
 GPU telemetry 周期固定为 0.2 秒。每张 GPU 在模型加载前同步采集第一条样本，能耗和显存
 派生结果同时保留原始值与基于该样本的非负空载扣除值。完整原始采样不被派生分析覆盖。
 
-代码完成修订版同步后，统一入口为：
+修订版实验的统一入口为：
 
 ```bash
 PYTHONPATH=src uv run python -m experiment.workflow prepare
@@ -524,4 +529,4 @@ PYTHONPATH=src uv run python -m experiment.workflow analyze
 - [x] 实现 60 分钟 trial timeout、单次基础设施重跑、确定性交错顺序和 24 小时 campaign 上限。
 - [x] 使用 `system_20260713_v2` 新目录引用 QMSum calibration，生成 10 条 arrival traces。
 - [x] 将旧 `system_20260713` 正式 trial 归档为工程试跑，不纳入修订版分析。
-- [ ] 运行 75 个正式 trial，完成对齐汇总和结果文档。
+- [x] 运行 75 个正式 trial，完成对齐汇总和结果文档。

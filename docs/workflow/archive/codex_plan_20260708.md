@@ -1,6 +1,9 @@
-# Workflow Runtime Implementation Plan
+# [Historical Archive] Workflow Runtime Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` to implement this plan task-by-task. This document is written incrementally from confirmed design decisions.
+> This document is the approved design snapshot from 2026-07-08. It is superseded by
+> [`docs/workflow/implementation.md`](../implementation.md). Its single-task worker,
+> Hugging Face backend, ONNX pipeline, separate deployment profile, and dynamic token
+> budget describe an earlier implementation stage and are not current runtime contracts.
 
 **Goal:** Implement the `dev.md` workflow runtime as a general Ray actor + Ray Queue system for agent workflow execution, model lifecycle management, prediction-aware scheduling, token-budget control, and traceable evaluation.
 

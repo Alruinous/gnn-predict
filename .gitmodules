@@ -1,0 +1,3 @@
+[submodule "paper/hpca2027-sagepilot"]
+	path = paper/hpca2027-sagepilot
+	url = https://github.com/Jinghao-coding/hpca2027-sagepilot

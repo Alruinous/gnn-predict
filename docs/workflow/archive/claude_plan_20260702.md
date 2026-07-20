@@ -1,4 +1,9 @@
-# src/workflow 运行时骨架修复与补全（Phase 1）
+# [历史归档] src/workflow 运行时骨架修复与补全（Phase 1）
+
+> 本文是 2026-07-02 的设计快照，已由
+> [`docs/workflow/implementation.md`](../implementation.md) 取代。文中的“当前”、静态
+> eager-load、无调度器、NVML 轮询、ONNX 和在线 GNN 均只用于追溯当时的设计过程，
+> 不代表现行实现。
 
 ## Context
 
@@ -119,7 +124,7 @@
 
 ## Context
 
-Phase 1 骨架（`docs/workflow/claude_plan_20260702.md`）已全部实现并通过测试：队列连通、fan-in、有界队列、重试、终端结果、agent_factory 测试缝、4 个测试文件。当前 `src/workflow/` 仅有静态 eager-load 模式——每个 NodeWorker 独占加载模型、无资源池/预测/驱逐/prefetch。
+Phase 1 骨架（`docs/workflow/archive/claude_plan_20260702.md`）已全部实现并通过测试：队列连通、fan-in、有界队列、重试、终端结果、agent_factory 测试缝、4 个测试文件。当前 `src/workflow/` 仅有静态 eager-load 模式——每个 NodeWorker 独占加载模型、无资源池/预测/驱逐/prefetch。
 
 本阶段实现论文核心系统（`docs/draft/workflow.tex` Algorithm 1 + claims 节）：面向 workflow DAG，用 GNN 预测器（`output/gnn_llm_only_full_retrain_20260702` checkpoint）预测各节点推理耗时、显存峰值、部署耗时，由 controller 侧调度器集中决定模型实例的**加载 / 预取 / 复用 / 驱逐**与加速卡放置（本机 4× V100-SXM2-32GB）。
 
