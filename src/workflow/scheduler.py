@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import os
 import time
 from collections import deque
-from collections.abc import Callable, Coroutine, Mapping
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from math import ceil, inf
@@ -18,11 +17,12 @@ from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 from common.validate import NonEmptyStr
+from workflow.actor_support import await_value, dispatch
 from workflow.artifacts import (
     AcceleratorConfig,
     GpuKind,
-    PredictionCache,
-    PredictionEntry,
+    ResourceContract,
+    ResourceContractCache,
     SchedulerConfig,
 )
 from workflow.policy import (
@@ -36,7 +36,7 @@ from workflow.replica import (
     ModelReplicaActor,
     ReplicaLoadResult,
 )
-from workflow.schema import AgentNodeConfig, Workflow
+from workflow.schema import AgentNodeConfig, NodeConfig, Workflow
 from workflow.types import (
     ModelReplicaState,
     NodeTaskState,
@@ -257,6 +257,7 @@ class RunningTaskEstimate(StrictFrozenModel):
 
 class SessionRecord(MutableRecord):
     session_id: NonEmptyStr
+    workflow_name: NonEmptyStr
     state: SessionState = SessionState.ACTIVE
     task_ids: dict[str, str] = Field(default_factory=dict)
 
@@ -320,9 +321,9 @@ class SchedulerCore:
         workflow: Workflow,
         *,
         scheduler_config: SchedulerConfig | None = None,
-        predictions: PredictionCache | None = None,
+        predictions: ResourceContractCache | None = None,
+        priority_weight: float = 1.0,
     ) -> None:
-        self.workflow = workflow
         self.scheduler_config = scheduler_config or SchedulerConfig()
         self.predictions = predictions
         self.sessions: dict[str, SessionRecord] = {}
@@ -337,27 +338,73 @@ class SchedulerCore:
         }
         self.replicas: dict[str, ModelReplicaRecord] = {}
         self.oom_penalties: dict[WorkflowModelFeatureKey, float] = {}
-        self.history: dict[tuple[str, str, GpuKind], RuntimeHistoryRecord] = {}
+        # Keyed by (workflow_name, node_id, model_key, gpu_kind): task duration
+        # depends on a node's own prompt/output-length distribution, which two
+        # workflows can share a node name and model_key without sharing.
+        self.history: dict[tuple[str, str, str, GpuKind], RuntimeHistoryRecord] = {}
         self.duration_history: dict[
-            tuple[str, str, GpuKind, int], DurationHistoryRecord
+            tuple[str, str, str, GpuKind, int], DurationHistoryRecord
         ] = {}
+        # Keyed by (model_key, gpu_kind) only: load time does not depend on
+        # which workflow requested the model.
         self.load_history: dict[tuple[str, GpuKind], DurationHistoryRecord] = {}
         self.running_estimates: dict[tuple[str, str], RunningTaskEstimate] = {}
-        self._nodes = workflow.node_map()
+        self._workflows: dict[str, Workflow] = {}
+        self._nodes: dict[str, dict[str, NodeConfig]] = {}
+        self._node_order: dict[str, dict[str, int]] = {}
+        self._workflow_weights: dict[str, float] = {}
+        # Keyed by (model_key, gpu_kind) only: a replica is shareable across
+        # workflows whenever their deployment configs are byte-identical.
         self._replica_pairs: dict[tuple[str, GpuKind], str] = {}
-        self._node_order = {
+        self._actions: list[CancelSessionAction] = []
+        self._next_request_seq = 0
+        self.register_workflow(workflow, priority_weight=priority_weight)
+
+    def register_workflow(
+        self,
+        workflow: Workflow,
+        *,
+        priority_weight: float = 1.0,
+    ) -> None:
+        if workflow.workflow_name in self._workflows:
+            raise ValueError(f"workflow already registered: {workflow.workflow_name}")
+        if priority_weight <= 0:
+            raise ValueError("priority_weight must be positive")
+        self._workflows[workflow.workflow_name] = workflow
+        self._nodes[workflow.workflow_name] = workflow.node_map()
+        self._node_order[workflow.workflow_name] = {
             node_id: index
             for index, node_id in enumerate(workflow.graph.topological_order)
         }
-        self._actions: list[CancelSessionAction] = []
-        self._next_request_seq = 0
+        self._workflow_weights[workflow.workflow_name] = priority_weight
 
-    def register_session(self, session_id: str) -> None:
+    def deregister_workflow(self, workflow_name: str) -> None:
+        if workflow_name not in self._workflows:
+            raise KeyError(f"unknown workflow: {workflow_name}")
+        if any(
+            session.workflow_name == workflow_name
+            and session.state == SessionState.ACTIVE
+            for session in self.sessions.values()
+        ):
+            raise ValueError(f"workflow has active sessions: {workflow_name}")
+        del self._workflows[workflow_name]
+        del self._nodes[workflow_name]
+        del self._node_order[workflow_name]
+        del self._workflow_weights[workflow_name]
+
+    def _workflow(self, workflow_name: str) -> Workflow:
+        try:
+            return self._workflows[workflow_name]
+        except KeyError:
+            raise KeyError(f"unknown workflow: {workflow_name}") from None
+
+    def register_session(self, session_id: str, workflow_name: str) -> None:
         if session_id in self.sessions:
             raise ValueError(f"session already registered: {session_id}")
 
-        session = SessionRecord(session_id=session_id)
-        for node in self.workflow.nodes:
+        workflow = self._workflow(workflow_name)
+        session = SessionRecord(session_id=session_id, workflow_name=workflow_name)
+        for node in workflow.nodes:
             task_id = str(uuid4())
             task = NodeTaskRecord(
                 task_id=task_id,
@@ -378,7 +425,8 @@ class SchedulerCore:
         session = self._session(session_id)
         if session.state != SessionState.ACTIVE:
             raise SessionInactiveError(f"session is not active: {session_id}")
-        if node_id not in self._nodes:
+        nodes = self._nodes[session.workflow_name]
+        if node_id not in nodes:
             raise KeyError(f"unknown node: {node_id}")
 
         task = self.tasks[session.task_ids[node_id]]
@@ -388,7 +436,7 @@ class SchedulerCore:
             raise ValueError(f"node dependencies are not completed: {node_id}")
 
         task.input_item_ids = input_item_ids
-        node = self._nodes[node_id]
+        node = nodes[node_id]
         task.state = (
             NodeTaskState.ACQUIRING
             if isinstance(node, AgentNodeConfig)
@@ -460,10 +508,13 @@ class SchedulerCore:
             NodeTaskState.ACQUIRING,
             NodeTaskState.EMITTING,
         }
+        topological_order = self._workflow(
+            session.workflow_name
+        ).graph.topological_order
         failed_task = next(
             (
                 self.tasks[session.task_ids[node_id]]
-                for node_id in self.workflow.graph.topological_order
+                for node_id in topological_order
                 if self.tasks[session.task_ids[node_id]].state in cancellable
             ),
             None,
@@ -485,8 +536,12 @@ class SchedulerCore:
             cancelled.append(session_id)
         return tuple(cancelled)
 
-    def record_runtime_report(self, report: AgentTaskRuntimeReport) -> None:
-        key = (report.node_id, report.model_key, report.gpu_kind)
+    def record_runtime_report(
+        self,
+        report: AgentTaskRuntimeReport,
+        workflow_name: str,
+    ) -> None:
+        key = (workflow_name, report.node_id, report.model_key, report.gpu_kind)
         history = self.history.setdefault(key, RuntimeHistoryRecord())
         history.add(report, self.scheduler_config.history_ema_alpha)
         if report.status == "success":
@@ -827,12 +882,13 @@ class SchedulerCore:
             raise ValueError(f"task is not emitting: {task_id}")
         if output_report.task_id != task_id:
             raise ValueError("output report does not match task")
+        graph = self._workflow(self.sessions[task.session_id].workflow_name).graph
         if output_report.output_items:
             if [item.item_id for item in output_report.output_items] != (
                 output_report.output_item_ids
             ):
                 raise ValueError("output item reports do not match output ids")
-            successors = set(self.workflow.graph.adjacency[task.node_id])
+            successors = set(graph.adjacency[task.node_id])
             if any(
                 item.session_id != task.session_id
                 or item.source_node != task.node_id
@@ -840,7 +896,7 @@ class SchedulerCore:
                 for item in output_report.output_items
             ):
                 raise ValueError("output item report does not match task routing")
-        is_terminal = task.node_id == self.workflow.graph.terminal_node
+        is_terminal = task.node_id == graph.terminal_node
         if is_terminal and not output_report.persisted_terminal_result:
             raise ValueError("terminal result was not persisted")
 
@@ -876,20 +932,36 @@ class SchedulerCore:
         self._actions = []
         return actions
 
-    def drain_complete(self) -> bool:
+    def drain_complete(self, workflow_name: str | None = None) -> bool:
+        sessions = (
+            self.sessions.values()
+            if workflow_name is None
+            else [
+                session
+                for session in self.sessions.values()
+                if session.workflow_name == workflow_name
+            ]
+        )
         if any(
             session.state not in {SessionState.COMPLETED, SessionState.FAILED}
-            for session in self.sessions.values()
+            for session in sessions
         ):
             return False
-        if self.pending_acquires:
+        session_ids = {session.session_id for session in sessions}
+        if any(
+            self.tasks[pending.task_id].session_id in session_ids
+            for pending in self.pending_acquires.values()
+        ):
             return False
         active_states = {
             NodeTaskState.ACQUIRING,
             NodeTaskState.RUNNING,
             NodeTaskState.EMITTING,
         }
-        return not any(task.state in active_states for task in self.tasks.values())
+        return not any(
+            task.state in active_states and task.session_id in session_ids
+            for task in self.tasks.values()
+        )
 
     def _session(self, session_id: str) -> SessionRecord:
         try:
@@ -908,10 +980,11 @@ class SchedulerCore:
         session: SessionRecord,
         node_id: str,
     ) -> bool:
+        dependencies = self._workflow(session.workflow_name).graph.dependencies
         return all(
             self.tasks[session.task_ids[dependency]].state
             in {NodeTaskState.EMITTING, NodeTaskState.COMPLETED}
-            for dependency in self.workflow.graph.dependencies[node_id]
+            for dependency in dependencies[node_id]
         )
 
     @staticmethod
@@ -934,6 +1007,46 @@ class SchedulerCore:
         if identity != expected:
             raise ValueError("runtime report does not match task")
 
+    def _pending_node_order(self, pending: PendingAcquire) -> int:
+        task = self.tasks[pending.task_id]
+        workflow_name = self.sessions[task.session_id].workflow_name
+        return self._node_order[workflow_name][task.node_id]
+
+    def _pending_workflow_name(self, pending: PendingAcquire) -> str:
+        task = self.tasks[pending.task_id]
+        return self.sessions[task.session_id].workflow_name
+
+    def _intra_workflow_key(self, pending: PendingAcquire) -> tuple[int, int] | int:
+        if self.scheduler_config.policy == "fifo":
+            return pending.request_seq
+        return (self._pending_node_order(pending), pending.request_seq)
+
+    def _interleave_by_workflow(
+        self,
+        pending_values: Sequence[PendingAcquire],
+    ) -> list[PendingAcquire]:
+        # Weighted fair queueing across workflows: each workflow's own pending
+        # acquires keep today's single-workflow ordering rule internally (via
+        # _intra_workflow_key), then a workflow's k-th ranked item is assigned
+        # a virtual rank of k / weight before merging across workflows. Equal
+        # weights (the default) reduce this to plain global request order, so
+        # a single registered workflow's ordering is unchanged.
+        grouped: dict[str, list[PendingAcquire]] = {}
+        for pending in pending_values:
+            grouped.setdefault(self._pending_workflow_name(pending), []).append(pending)
+        for group in grouped.values():
+            group.sort(key=self._intra_workflow_key)
+
+        ranked: list[tuple[float, int, str, PendingAcquire]] = []
+        for workflow_name, group in grouped.items():
+            weight = self._workflow_weights.get(workflow_name, 1.0)
+            for rank, pending in enumerate(group, start=1):
+                ranked.append(
+                    (rank / weight, pending.request_seq, workflow_name, pending)
+                )
+        ranked.sort(key=lambda item: (item[0], item[1], item[2]))
+        return [item[3] for item in ranked]
+
     def _ready_decisions(self) -> dict[str, PlacementDecision]:
         if not self.pending_acquires:
             return {}
@@ -942,26 +1055,17 @@ class SchedulerCore:
             raise RuntimeError("agent scheduling requires a prediction cache")
 
         pending_values = tuple(self.pending_acquires.values())
-        ordered = sorted(
-            pending_values,
-            key=(
-                (lambda pending: pending.request_seq)
-                if self.scheduler_config.policy == "fifo"
-                else lambda pending: (
-                    self._node_order[self.tasks[pending.task_id].node_id],
-                    pending.request_seq,
-                )
-            ),
-        )
+        ordered = self._interleave_by_workflow(pending_values)
         decisions: dict[str, PlacementDecision] = {}
         for snapshot in ordered:
             pending = self.pending_acquires.get(snapshot.acquire_id)
             if pending is None:
                 continue
             task = self.tasks[pending.task_id]
-            if self.sessions[task.session_id].state != SessionState.ACTIVE:
+            session = self.sessions[task.session_id]
+            if session.state != SessionState.ACTIVE:
                 continue
-            node = self._nodes[task.node_id]
+            node = self._nodes[session.workflow_name][task.node_id]
             if not isinstance(node, AgentNodeConfig):
                 raise RuntimeError("pending acquire belongs to a function task")
             decision = self._placement_decision(
@@ -982,7 +1086,7 @@ class SchedulerCore:
         self,
         node: AgentNodeConfig,
         input_tokens: int,
-        predictions: PredictionCache,
+        predictions: ResourceContractCache,
     ) -> PlacementDecision:
         return select_placement(
             node=node,
@@ -1003,14 +1107,16 @@ class SchedulerCore:
         for session in self.sessions.values():
             if session.state != SessionState.ACTIVE:
                 continue
-            for node_id in self.workflow.graph.topological_order:
-                node = self._nodes[node_id]
+            workflow = self._workflow(session.workflow_name)
+            nodes = self._nodes[session.workflow_name]
+            for node_id in workflow.graph.topological_order:
+                node = nodes[node_id]
                 task = self.tasks[session.task_ids[node_id]]
                 if not isinstance(node, AgentNodeConfig):
                     continue
                 if task.state != NodeTaskState.PENDING:
                     continue
-                dependencies = self.workflow.graph.dependencies[node_id]
+                dependencies = workflow.graph.dependencies[node_id]
                 if not dependencies:
                     continue
                 estimates: list[float] = []
@@ -1031,7 +1137,9 @@ class SchedulerCore:
                     estimates.append(estimate.finish_at)
                 if not eligible or not estimates:
                     continue
-                input_tokens = self._estimate_near_input_tokens(node, dependencies)
+                input_tokens = self._estimate_near_input_tokens(
+                    session.workflow_name, node, dependencies
+                )
                 decision = self._placement_decision(node, input_tokens, predictions)
                 if not decision.feasible:
                     continue
@@ -1068,13 +1176,16 @@ class SchedulerCore:
             near,
             key=lambda candidate: (
                 candidate.upstream_eta,
-                self._node_order[candidate.node_id],
+                self._node_order[self.sessions[candidate.session_id].workflow_name][
+                    candidate.node_id
+                ],
                 candidate.session_id,
             ),
         )
 
     def _estimate_near_input_tokens(
         self,
+        workflow_name: str,
         node: AgentNodeConfig,
         dependencies: tuple[str, ...],
     ) -> int:
@@ -1083,8 +1194,15 @@ class SchedulerCore:
             samples = (
                 [
                     history.output_tokens_p90
-                    for (history_node_id, _, _), history in self.history.items()
-                    if history_node_id == dependency and history.samples
+                    for (
+                        history_workflow_name,
+                        history_node_id,
+                        _,
+                        _,
+                    ), history in self.history.items()
+                    if history_workflow_name == workflow_name
+                    and history_node_id == dependency
+                    and history.samples
                 ]
                 if self.scheduler_config.policy == "history"
                 else []
@@ -1104,7 +1222,8 @@ class SchedulerCore:
         if gpu_kind is None:
             raise RuntimeError("feasible placement has no GPU kind")
         task = self.tasks[pending.task_id]
-        node = self._nodes[task.node_id]
+        workflow_name = self.sessions[task.session_id].workflow_name
+        node = self._nodes[workflow_name][task.node_id]
         if not isinstance(node, AgentNodeConfig):
             raise RuntimeError("pending acquire belongs to a function task")
         model_key = ModelDeploymentConfig.from_node(node).model_key
@@ -1146,7 +1265,8 @@ class SchedulerCore:
         if gpu_kind is None:
             raise RuntimeError("feasible placement has no GPU kind")
         task = self.tasks[pending.task_id]
-        node = self._nodes[task.node_id]
+        workflow_name = self.sessions[task.session_id].workflow_name
+        node = self._nodes[workflow_name][task.node_id]
         if not isinstance(node, AgentNodeConfig):
             raise RuntimeError("pending acquire belongs to a function task")
         deployment = ModelDeploymentConfig.from_node(node)
@@ -1251,7 +1371,8 @@ class SchedulerCore:
             if gpu_kind is None:
                 raise RuntimeError("feasible placement has no GPU kind")
             task = self.tasks[pending.task_id]
-            node = self._nodes[task.node_id]
+            workflow_name = self.sessions[task.session_id].workflow_name
+            node = self._nodes[workflow_name][task.node_id]
             if not isinstance(node, AgentNodeConfig):
                 raise RuntimeError("pending acquire belongs to a function task")
             pairs.add((ModelDeploymentConfig.from_node(node).model_key, gpu_kind))
@@ -1381,8 +1502,14 @@ class SchedulerCore:
         now: float,
         near: list[NearReadyTask],
     ) -> float | None:
+        # A high-weight workflow's demand shrinks the effective distance (more
+        # protected from eviction); a low-weight workflow's demand shrinks it
+        # less. Equal weights (the default) leave raw distances unchanged.
         distances = [
             max(0.0, candidate.upstream_eta - now)
+            / self._workflow_weights.get(
+                self.sessions[candidate.session_id].workflow_name, 1.0
+            )
             for candidate in near
             if candidate.deployment.model_key == replica.model_key
             and candidate.decision.gpu_kind == replica.gpu_kind
@@ -1392,9 +1519,10 @@ class SchedulerCore:
         for session in self.sessions.values():
             if session.state != SessionState.ACTIVE:
                 continue
+            nodes = self._nodes[session.workflow_name]
             for node_id, task_id in session.task_ids.items():
                 task = self.tasks[task_id]
-                node = self._nodes[node_id]
+                node = nodes[node_id]
                 if task.state != NodeTaskState.PENDING:
                     continue
                 if not isinstance(node, AgentNodeConfig):
@@ -1426,7 +1554,7 @@ class SchedulerCore:
         self,
         pending: PendingAcquire,
         decision: PlacementDecision,
-        prediction: PredictionEntry,
+        prediction: ResourceContract,
         replica: ModelReplicaRecord,
         now: float,
     ) -> None:
@@ -1442,7 +1570,8 @@ class SchedulerCore:
         if prediction.key.batch_size != admitted_batch_size:
             raise RuntimeError("batch prediction does not match replica occupancy")
         task = self.tasks[pending.task_id]
-        node = self._nodes[task.node_id]
+        workflow_name = self.sessions[task.session_id].workflow_name
+        node = self._nodes[workflow_name][task.node_id]
         if not isinstance(node, AgentNodeConfig):
             raise RuntimeError("pending acquire belongs to a function task")
         grant = GrantInfo(
@@ -1468,7 +1597,13 @@ class SchedulerCore:
             duration = prediction.predicted_run_sec
         elif self.scheduler_config.policy == "history":
             history = self.duration_history.get(
-                (task.node_id, replica.model_key, gpu_kind, admitted_batch_size)
+                (
+                    workflow_name,
+                    task.node_id,
+                    replica.model_key,
+                    gpu_kind,
+                    admitted_batch_size,
+                )
             )
             if history is not None:
                 duration = history.duration_sec_ema
@@ -1486,7 +1621,7 @@ class SchedulerCore:
         self,
         decision: PlacementDecision,
         replica: ModelReplicaRecord,
-    ) -> PredictionEntry | None:
+    ) -> ResourceContract | None:
         if replica.state not in (ModelReplicaState.IDLE, ModelReplicaState.BUSY):
             return None
         batch_size = len(replica.active_acquire_ids) + 1
@@ -1525,7 +1660,7 @@ class SchedulerCore:
             return None
         accelerator = self.accelerators[replica.accelerator_ids[0]].config
         effective_vram_mb = (
-            prediction.predicted_peak_vram_mb
+            prediction.peak_vram_mb_upper_bound
             + self.scheduler_config.eps_mem_mb
             + self.oom_penalties.get(prediction.key, 0.0)
         )
@@ -1553,7 +1688,7 @@ class SchedulerCore:
 
         self._release_grant(grant, report)
         self.running_estimates.pop((task.session_id, task.node_id), None)
-        self.record_runtime_report(report)
+        self.record_runtime_report(report, self.sessions[task.session_id].workflow_name)
         task.runtime_report = report
         task.execution_attempts += 1
         session = self.sessions[task.session_id]
@@ -1571,7 +1706,7 @@ class SchedulerCore:
                 task.state = NodeTaskState.ACQUIRING
                 return CompleteDecision(emit_output=False, retry_acquire=True)
         elif report.status == "failed":
-            node = self._nodes[task.node_id]
+            node = self._nodes[session.workflow_name][task.node_id]
             if not isinstance(node, AgentNodeConfig):
                 raise RuntimeError("agent task has a function node config")
             if task.execution_attempts < node.retry.max_attempts:
@@ -1762,16 +1897,18 @@ class _SchedulerActor:
         *,
         workflow: Workflow,
         scheduler_config: SchedulerConfig,
-        predictions: PredictionCache | None,
+        predictions: ResourceContractCache | None,
         trace_writer: object,
         replica_factory: object | None = None,
         ray_node_ids: Mapping[str, str] | None = None,
         run_id: str = "workflow-run",
+        priority_weight: float = 1.0,
     ) -> None:
         self.core = SchedulerCore(
             workflow,
             scheduler_config=scheduler_config,
             predictions=predictions,
+            priority_weight=priority_weight,
         )
         self.run_id = run_id
         self._config = scheduler_config
@@ -1779,7 +1916,7 @@ class _SchedulerActor:
         self._replica_factory = replica_factory
         self._ray_node_ids = dict(ray_node_ids or {})
         self._commands: asyncio.Queue[_SchedulerCommand] = asyncio.Queue()
-        self._workers: dict[str, object] = {}
+        self._workers: dict[str, dict[str, object]] = {workflow.workflow_name: {}}
         self._replica_handles: dict[str, object] = {}
         self._load_actions: dict[str, LoadReplicaAction] = {}
         self._watcher_tasks: set[asyncio.Task[None]] = set()
@@ -1860,18 +1997,35 @@ class _SchedulerActor:
     async def register_session(
         self,
         session_id: str,
+        workflow_name: str,
         submitted_at: float,
         require_latency: bool = False,
     ) -> None:
         await self._submit(
             "register_session",
             session_id,
+            workflow_name,
             submitted_at,
             require_latency,
         )
 
-    async def register_workers(self, workers: Mapping[str, object]) -> None:
-        await self._submit("register_workers", dict(workers))
+    async def register_workflow(
+        self,
+        workflow: Workflow,
+        *,
+        priority_weight: float = 1.0,
+    ) -> None:
+        await self._submit("register_workflow", workflow, priority_weight)
+
+    async def deregister_workflow(self, workflow_name: str) -> None:
+        await self._submit("deregister_workflow", workflow_name)
+
+    async def register_workers(
+        self,
+        workflow_name: str,
+        workers: Mapping[str, object],
+    ) -> None:
+        await self._submit("register_workers", workflow_name, dict(workers))
 
     async def begin_node(
         self,
@@ -2007,10 +2161,18 @@ class _SchedulerActor:
         replica = self.core.replicas.get(replica_id)
         return replica.state if replica is not None else None
 
-    async def drain_complete(self) -> bool:
+    async def drain_complete(self, workflow_name: str | None = None) -> bool:
+        latency_required = self._latency_required
+        if workflow_name is not None:
+            workflow_sessions = {
+                session.session_id
+                for session in self.core.sessions.values()
+                if session.workflow_name == workflow_name
+            }
+            latency_required = latency_required & workflow_sessions
         return (
-            self.core.drain_complete()
-            and self._latency_required <= self._session_latencies.keys()
+            self.core.drain_complete(workflow_name)
+            and latency_required <= self._session_latencies.keys()
             and self._commands.empty()
             and self._trace_is_idle()
         )
@@ -2119,9 +2281,10 @@ class _SchedulerActor:
         args = command.args
         if name == "register_session":
             session_id = cast(str, args[0])
-            submitted_at = cast(float, args[1])
-            require_latency = cast(bool, args[2])
-            self.core.register_session(session_id)
+            workflow_name = cast(str, args[1])
+            submitted_at = cast(float, args[2])
+            require_latency = cast(bool, args[3])
+            self.core.register_session(session_id, workflow_name)
             self._terminal_events[session_id] = asyncio.Event()
             if require_latency:
                 self._latency_required.add(session_id)
@@ -2129,6 +2292,30 @@ class _SchedulerActor:
                 "session_submitted",
                 ts=submitted_at,
                 session_id=session_id,
+            )
+            return None
+        if name == "register_workflow":
+            workflow = cast(Workflow, args[0])
+            priority_weight = cast(float, args[1])
+            self.core.register_workflow(workflow, priority_weight=priority_weight)
+            self._workers.setdefault(workflow.workflow_name, {})
+            self._record_trace(
+                "workflow_registered",
+                workflow_name=workflow.workflow_name,
+                payload={
+                    "workflow_name": workflow.workflow_name,
+                    "priority_weight": priority_weight,
+                },
+            )
+            return None
+        if name == "deregister_workflow":
+            workflow_name = cast(str, args[0])
+            self.core.deregister_workflow(workflow_name)
+            self._workers.pop(workflow_name, None)
+            self._record_trace(
+                "workflow_deregistered",
+                workflow_name=workflow_name,
+                payload={"workflow_name": workflow_name},
             )
             return None
         if name == "record_session_latency":
@@ -2173,7 +2360,11 @@ class _SchedulerActor:
             self._apply_input_trace(report)
             return None
         if name == "register_workers":
-            self._workers = dict(cast(dict[str, object], args[0]))
+            workflow_name = cast(str, args[0])
+            workers = cast(dict[str, object], args[1])
+            if workflow_name not in self._workers:
+                raise KeyError(f"unknown workflow: {workflow_name}")
+            self._workers[workflow_name] = dict(workers)
             return None
         if name == "begin_node":
             session_id = cast(str, args[0])
@@ -2424,12 +2615,13 @@ class _SchedulerActor:
         source_node: str | None,
         target_node: str,
     ) -> None:
-        self.core._session(session_id)
+        session = self.core._session(session_id)
+        graph = self.core._workflow(session.workflow_name).graph
         if source_node is None:
-            if target_node != self.core.workflow.graph.entry_node:
+            if target_node != graph.entry_node:
                 raise ValueError("external item must target the workflow entry")
             return
-        if target_node not in self.core.workflow.graph.adjacency[source_node]:
+        if target_node not in graph.adjacency[source_node]:
             raise ValueError("item trace does not match a workflow edge")
 
     def _apply_load_failure(
@@ -2694,7 +2886,8 @@ class _SchedulerActor:
                 or task.error_type != "RequestInfeasible"
             ):
                 continue
-            node = self.core._nodes[task.node_id]
+            workflow_name = self.core.sessions[task.session_id].workflow_name
+            node = self.core._nodes[workflow_name][task.node_id]
             if not isinstance(node, AgentNodeConfig):
                 raise RuntimeError("infeasible acquire belongs to a function task")
             self._record_trace(
@@ -2919,7 +3112,7 @@ class _SchedulerActor:
         try:
             handle = self._create_replica(action)
             self._replica_handles[action.replica_id] = handle
-            load_ref = _call_remote(handle, "load")
+            load_ref = dispatch(handle, "load")
         except Exception as error:
             self._enqueue_internal_nowait(
                 "load_failed",
@@ -3011,7 +3204,7 @@ class _SchedulerActor:
         load_ref: object,
     ) -> None:
         try:
-            value = await _await_value(load_ref)
+            value = await await_value(load_ref)
             if not isinstance(value, ReplicaLoadResult):
                 raise TypeError("replica load returned an invalid result")
         except Exception as error:
@@ -3046,10 +3239,10 @@ class _SchedulerActor:
         self._start_watcher(self._watch_eviction(action.replica_id, handle))
 
     async def _watch_eviction(self, replica_id: str, handle: object) -> None:
-        shutdown_ref = _call_remote(handle, "shutdown")
+        shutdown_ref = dispatch(handle, "shutdown")
         with suppress(Exception):
             await asyncio.wait_for(
-                _await_value(shutdown_ref),
+                await_value(shutdown_ref),
                 timeout=self._config.eviction_timeout_sec,
             )
         try:
@@ -3069,11 +3262,12 @@ class _SchedulerActor:
 
     def _dispatch_cancel_actions(self) -> None:
         for action in self.core.take_actions():
+            workflow_name = self.core.sessions[action.session_id].workflow_name
             refs: list[object] = []
             try:
                 refs.extend(
-                    _call_remote(worker, "cancel_session", action.session_id)
-                    for worker in self._workers.values()
+                    dispatch(worker, "cancel_session", action.session_id)
+                    for worker in self._workers.get(workflow_name, {}).values()
                 )
             except Exception as error:
                 self._enqueue_internal_nowait(
@@ -3093,7 +3287,7 @@ class _SchedulerActor:
     ) -> None:
         try:
             for ref in refs:
-                await _await_value(ref)
+                await await_value(ref)
         except Exception as error:
             await self._enqueue_internal(
                 "worker_cancel_failed",
@@ -3123,6 +3317,12 @@ class _SchedulerActor:
         payload = fields.get("payload")
         if payload is not None:
             _validate_trace_payload(payload)
+        if "workflow_name" not in fields:
+            session_id = fields.get("session_id")
+            if isinstance(session_id, str):
+                session = self.core.sessions.get(session_id)
+                if session is not None:
+                    fields["workflow_name"] = session.workflow_name
         event = TraceEvent.model_validate(
             {
                 "run_id": self.run_id,
@@ -3143,7 +3343,7 @@ class _SchedulerActor:
         expected = events[-1].event_seq
         self._trace_inflight = True
         try:
-            ref = _call_remote(self._trace_writer, "append_batch", events)
+            ref = dispatch(self._trace_writer, "append_batch", events)
         except Exception as error:
             self._enqueue_internal_nowait("trace_failed", str(error))
             return
@@ -3151,7 +3351,7 @@ class _SchedulerActor:
 
     async def _watch_trace(self, ref: object, expected: int) -> None:
         try:
-            acknowledged = await _await_value(ref)
+            acknowledged = await await_value(ref)
             if not isinstance(acknowledged, int):
                 raise TypeError("trace writer returned an invalid acknowledgement")
         except Exception as error:
@@ -3229,37 +3429,16 @@ class _SchedulerActor:
                 del self._replica_handles[replica_id]
 
     async def _shutdown_and_kill(self, handle: object) -> None:
-        shutdown_ref = _call_remote(handle, "shutdown")
+        shutdown_ref = dispatch(handle, "shutdown")
         with suppress(Exception):
             await asyncio.wait_for(
-                _await_value(shutdown_ref),
+                await_value(shutdown_ref),
                 timeout=self._config.eviction_timeout_sec,
             )
         await asyncio.wait_for(
             asyncio.to_thread(ray.kill, cast(Any, handle), no_restart=True),
             timeout=self._config.eviction_timeout_sec,
         )
-
-
-def _call_remote(
-    target: object,
-    method_name: str,
-    *args: object,
-    **kwargs: object,
-) -> object:
-    method = getattr(target, method_name)
-    remote = getattr(method, "remote", None)
-    if callable(remote):
-        return remote(*args, **kwargs)
-    if callable(method):
-        return method(*args, **kwargs)
-    raise TypeError(f"method is not callable: {method_name}")
-
-
-async def _await_value(value: object) -> object:
-    if inspect.isawaitable(value):
-        return await value
-    return value
 
 
 def _validate_trace_payload(value: object) -> None:

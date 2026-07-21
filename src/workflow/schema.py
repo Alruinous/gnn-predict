@@ -119,6 +119,7 @@ class WorkflowGraph(SchemaModel):
 
 
 class Workflow(SchemaModel):
+    workflow_name: NonEmptyStr
     nodes: tuple[NodeConfig, ...]
     edges: tuple[EdgeConfig, ...]
     _graph: WorkflowGraph = PrivateAttr()

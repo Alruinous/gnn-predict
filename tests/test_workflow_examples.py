@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from workflow.artifacts import GpuKind, load_prediction_cache
+from workflow.artifacts import GpuKind, load_resource_contract_cache
 from workflow.schema import AgentNodeConfig, FunctionNodeConfig, Workflow
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +20,7 @@ def load_workflow(path: Path) -> Workflow:
 
 def test_runtime_examples_validate() -> None:
     workflow = load_workflow(EXAMPLE_DIR / "runtime.yaml")
-    predictions = load_prediction_cache(EXAMPLE_DIR / "predictions.yaml")
+    predictions = load_resource_contract_cache(EXAMPLE_DIR / "predictions.yaml")
 
     assert workflow.graph.entry_node == "prepare"
     assert workflow.graph.terminal_node == "summarize"
@@ -32,9 +32,26 @@ def test_runtime_examples_validate() -> None:
     }
 
 
+def test_multimodal_fanout_example_validates() -> None:
+    workflow = load_workflow(EXAMPLE_DIR / "workflow.yaml")
+
+    assert workflow.graph.entry_node == "prepare"
+    assert workflow.graph.terminal_node == "summarizer"
+    assert workflow.graph.adjacency["planner"] == (
+        "scene_classifier",
+        "object_detector",
+        "text_intent_classifier",
+    )
+    assert workflow.graph.dependencies["evidence_writer"] == (
+        "scene_classifier",
+        "object_detector",
+        "text_intent_classifier",
+    )
+
+
 def test_runtime_prediction_cache_covers_agent_resource_keys() -> None:
     workflow = load_workflow(EXAMPLE_DIR / "runtime.yaml")
-    predictions = load_prediction_cache(EXAMPLE_DIR / "predictions.yaml")
+    predictions = load_resource_contract_cache(EXAMPLE_DIR / "predictions.yaml")
     nodes = workflow.node_map()
     prepare = nodes["prepare"]
     summarize = nodes["summarize"]

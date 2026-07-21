@@ -86,6 +86,7 @@ class WorkflowStatus(BaseModel):
 
 class TraceEvent(BaseModel):
     run_id: str
+    workflow_name: str | None = None
     event_id: str = Field(default_factory=lambda: str(uuid4()))
     event_seq: NonNegativeInt
     event_type: str

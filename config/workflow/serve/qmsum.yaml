@@ -1,0 +1,326 @@
+workflow_name: qmsum
+nodes:
+- name: split
+  task: null
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: function
+  function: split_qmsum
+  parameters: {}
+  routing: targeted
+  max_concurrency: 1
+- name: chunk_0
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Summarize transcript details relevant to the query.
+
+    Preserve decisions, reasons, participants, and concrete outcomes.
+
+    Return only the partial answer summary.
+
+
+    Query:
+
+    {query}
+
+
+    Transcript chunk:
+
+    {previous_output}'
+  system_prompt: null
+- name: chunk_1
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Summarize transcript details relevant to the query.
+
+    Preserve decisions, reasons, participants, and concrete outcomes.
+
+    Return only the partial answer summary.
+
+
+    Query:
+
+    {query}
+
+
+    Transcript chunk:
+
+    {previous_output}'
+  system_prompt: null
+- name: chunk_2
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Summarize transcript details relevant to the query.
+
+    Preserve decisions, reasons, participants, and concrete outcomes.
+
+    Return only the partial answer summary.
+
+
+    Query:
+
+    {query}
+
+
+    Transcript chunk:
+
+    {previous_output}'
+  system_prompt: null
+- name: chunk_3
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Summarize transcript details relevant to the query.
+
+    Preserve decisions, reasons, participants, and concrete outcomes.
+
+    Return only the partial answer summary.
+
+
+    Query:
+
+    {query}
+
+
+    Transcript chunk:
+
+    {previous_output}'
+  system_prompt: null
+- name: chunk_4
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Summarize transcript details relevant to the query.
+
+    Preserve decisions, reasons, participants, and concrete outcomes.
+
+    Return only the partial answer summary.
+
+
+    Query:
+
+    {query}
+
+
+    Transcript chunk:
+
+    {previous_output}'
+  system_prompt: null
+- name: chunk_5
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Summarize transcript details relevant to the query.
+
+    Preserve decisions, reasons, participants, and concrete outcomes.
+
+    Return only the partial answer summary.
+
+
+    Query:
+
+    {query}
+
+
+    Transcript chunk:
+
+    {previous_output}'
+  system_prompt: null
+- name: merge
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-8B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-8B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 4096
+      max_num_seqs: 3
+      max_num_batched_tokens: 12288
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Merge the partial answers into one final answer to the query.
+
+    Remove duplication, preserve query-relevant facts, and keep the answer grounded.
+
+    Return only the final answer.
+
+
+    Query:
+
+    {query}
+
+
+    Partial answers:
+
+    {node_outputs_json}'
+  system_prompt: null
+edges:
+- source: split
+  target: chunk_0
+- source: split
+  target: chunk_1
+- source: split
+  target: chunk_2
+- source: split
+  target: chunk_3
+- source: split
+  target: chunk_4
+- source: split
+  target: chunk_5
+- source: chunk_0
+  target: merge
+- source: chunk_1
+  target: merge
+- source: chunk_2
+  target: merge
+- source: chunk_3
+  target: merge
+- source: chunk_4
+  target: merge
+- source: chunk_5
+  target: merge

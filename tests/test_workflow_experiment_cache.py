@@ -6,7 +6,7 @@ from experiment.workflow.cache import (
     build_synthetic_prediction_cache,
     write_synthetic_prediction_cache,
 )
-from workflow.artifacts import load_prediction_cache
+from workflow.artifacts import load_resource_contract_cache
 
 
 def test_synthetic_cache_is_deterministic_and_covers_formal_models(
@@ -25,7 +25,7 @@ def test_synthetic_cache_is_deterministic_and_covers_formal_models(
 
     path = tmp_path / "synthetic_prediction_cache.json"
     digest = write_synthetic_prediction_cache(path)
-    loaded = load_prediction_cache(path)
+    loaded = load_resource_contract_cache(path)
     assert loaded == first
     assert len(digest) == 64
 

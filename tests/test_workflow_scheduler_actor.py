@@ -14,8 +14,10 @@ from ray.exceptions import RayActorError, RayTaskError
 import workflow.scheduler as scheduler_module
 from workflow.artifacts import (
     AcceleratorConfig,
-    PredictionCache,
-    PredictionEntry,
+    ResourceContract,
+    ResourceContractCache,
+    ResourceContractSource,
+    ResourceEvidence,
     SchedulerConfig,
 )
 from workflow.replica import (
@@ -165,6 +167,7 @@ def mismatched_replica_factory(action: LoadReplicaAction) -> object:
 def function_workflow() -> Workflow:
     return Workflow.model_validate(
         {
+            "workflow_name": "function-workflow",
             "nodes": [
                 {
                     "name": "function",
@@ -180,6 +183,7 @@ def function_workflow() -> Workflow:
 def agent_workflow() -> Workflow:
     return Workflow.model_validate(
         {
+            "workflow_name": "agent-workflow",
             "nodes": [
                 {
                     "name": "agent",
@@ -218,11 +222,11 @@ def scheduler_config(*, max_tick_interval_sec: float = 0.5) -> SchedulerConfig:
     )
 
 
-def predictions() -> PredictionCache:
-    return PredictionCache(
+def predictions() -> ResourceContractCache:
+    return ResourceContractCache(
         version=1,
         entries=(
-            PredictionEntry(
+            ResourceContract(
                 key=WorkflowModelFeatureKey(
                     model_name="test-model",
                     phase="decode",
@@ -231,11 +235,16 @@ def predictions() -> PredictionCache:
                     sequence_length=128,
                     decode_output_length=8,
                 ),
+                source=ResourceContractSource.SYNTHETIC_FIXTURE,
                 predicted_load_sec=5.0,
                 predicted_run_sec=0.1,
                 predicted_peak_vram_mb=1_000,
+                peak_vram_mb_upper_bound=1_000,
+                peak_vram_mb_evidence=ResourceEvidence(
+                    method="point_estimate_only", sample_count=1
+                ),
             ),
-            PredictionEntry(
+            ResourceContract(
                 key=WorkflowModelFeatureKey(
                     model_name="test-model",
                     phase="decode",
@@ -244,9 +253,14 @@ def predictions() -> PredictionCache:
                     sequence_length=128,
                     decode_output_length=16,
                 ),
+                source=ResourceContractSource.SYNTHETIC_FIXTURE,
                 predicted_load_sec=5.0,
                 predicted_run_sec=0.2,
                 predicted_peak_vram_mb=1_200,
+                peak_vram_mb_upper_bound=1_200,
+                peak_vram_mb_evidence=ResourceEvidence(
+                    method="point_estimate_only", sample_count=1
+                ),
             ),
         ),
     )
@@ -356,7 +370,7 @@ def test_mutations_wait_for_run_loop_and_commands_wake_it_early(
         trace_writer,
         config=SchedulerConfig(max_tick_interval_sec=10.0),
     )
-    register_ref = actor.register_session.remote("s1", 1.0)
+    register_ref = actor.register_session.remote("s1", "function-workflow", 1.0)
     ready, _ = ray.wait([register_ref], timeout=0.1)
     assert ready == []
     ray.get(actor.get_run_failure.remote(), timeout=15)
@@ -403,8 +417,11 @@ def test_session_failure_dispatches_cancellation_to_registered_workers(
     worker = cast(Any, FakeWorker).remote()
     actor = scheduler_actor(trace_writer)
     run_ref = actor.run.remote()
-    ray.get(actor.register_workers.remote({"function": worker}), timeout=5)
-    ray.get(actor.register_session.remote("failed", 1.0), timeout=5)
+    ray.get(
+        actor.register_workers.remote("function-workflow", {"function": worker}),
+        timeout=5,
+    )
+    ray.get(actor.register_session.remote("failed", "function-workflow", 1.0), timeout=5)
     task_id = ray.get(
         actor.begin_node.remote("failed", "function", ["item-1"]), timeout=5
     )
@@ -430,7 +447,7 @@ def test_load_action_watcher_grants_without_a_second_request(
         with_resources=True,
     )
     run_ref = actor.run.remote()
-    ray.get(actor.register_session.remote("s1", 1.0), timeout=5)
+    ray.get(actor.register_session.remote("s1", "agent-workflow", 1.0), timeout=5)
     task_id = ray.get(actor.begin_node.remote("s1", "agent", ["item-1"]), timeout=5)
     acquire_id = ray.get(actor.request_acquire.remote(task_id, 64, 2.0), timeout=5)
 
@@ -453,7 +470,7 @@ def test_eviction_watcher_removes_replica_and_releases_backend(
         with_resources=True,
     )
     run_ref = actor.run.remote()
-    ray.get(actor.register_session.remote("s1", 1.0), timeout=5)
+    ray.get(actor.register_session.remote("s1", "agent-workflow", 1.0), timeout=5)
     task_id = ray.get(actor.begin_node.remote("s1", "agent", ["item-1"]), timeout=5)
     acquire_id = ray.get(actor.request_acquire.remote(task_id, 64, 2.0), timeout=5)
     grant = wait_for_grant(actor, acquire_id)
@@ -486,7 +503,7 @@ def test_drain_waits_for_trace_acknowledgement(
     trace_writer = cast(Any, BlockingTraceWriter).remote()
     actor = scheduler_actor(trace_writer)
     run_ref = actor.run.remote()
-    ray.get(actor.register_session.remote("s1", 1.0), timeout=5)
+    ray.get(actor.register_session.remote("s1", "function-workflow", 1.0), timeout=5)
     task_id = ray.get(actor.begin_node.remote("s1", "function", ["item-1"]), timeout=5)
     ray.get(actor.fail_node.remote(task_id, "RuntimeError", "failed"), timeout=5)
 
@@ -520,7 +537,7 @@ def test_load_completion_failure_rolls_back_and_kills_replica(
     run_ref = actor.run.remote()
     backend: Any | None = None
     try:
-        ray.get(actor.register_session.remote("s1", 1.0), timeout=5)
+        ray.get(actor.register_session.remote("s1", "agent-workflow", 1.0), timeout=5)
         task_id = ray.get(actor.begin_node.remote("s1", "agent", ["item-1"]), timeout=5)
         ray.get(actor.request_acquire.remote(task_id, 64, 2.0), timeout=5)
         assert wait_until(
@@ -563,7 +580,7 @@ def test_fatal_command_rejects_later_command_in_same_batch() -> None:
         actor._commands.put_nowait(
             scheduler_module._SchedulerCommand(
                 name="register_session",
-                args=("late", 1.0),
+                args=("late", "function-workflow", 1.0),
                 kwargs={},
                 future=future,
             )
@@ -684,7 +701,7 @@ def test_retryable_oom_records_retry_and_suspect_not_task_failure(
     )
     run_ref = actor.run.remote()
     try:
-        ray.get(actor.register_session.remote("s1", 1.0), timeout=5)
+        ray.get(actor.register_session.remote("s1", "agent-workflow", 1.0), timeout=5)
         task_id = ray.get(actor.begin_node.remote("s1", "agent", ["item-1"]), timeout=5)
         acquire_id = ray.get(actor.request_acquire.remote(task_id, 64, 2.0), timeout=5)
         grant = wait_for_grant(actor, acquire_id)
@@ -721,7 +738,10 @@ def test_stop_rejects_later_mutation_while_final_trace_is_pending(
     ray.get(actor.stop_loop.remote(), timeout=5)
     try:
         with pytest.raises(RayTaskError):
-            ray.get(actor.register_session.remote("late", 1.0), timeout=5)
+            ray.get(
+                actor.register_session.remote("late", "function-workflow", 1.0),
+                timeout=5,
+            )
     finally:
         ray.get(trace_writer.release.remote(), timeout=5)
         ray.get(run_ref, timeout=5)

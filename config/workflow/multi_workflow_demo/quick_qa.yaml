@@ -1,0 +1,24 @@
+workflow_name: multi-demo-quick-qa
+nodes:
+  - name: prepare
+    type: function
+    function: prepare_input
+    routing: broadcast
+  - name: answer
+    type: agent
+    model:
+      name: Qwen3-4B
+    execution:
+      model_path: /data/Models/Qwen/Qwen3-4B
+      max_new_tokens: 128
+      dtype: float16
+      do_sample: false
+      serving:
+        max_model_len: 1024
+        max_num_seqs: 1
+        max_num_batched_tokens: 1024
+        gpu_memory_utilization: 0.98
+    prompt_template: "Answer briefly: {content}"
+edges:
+  - source: prepare
+    target: answer

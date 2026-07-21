@@ -102,6 +102,7 @@ def qmsum_functions() -> dict[str, Callable[..., object]]:
 
 def build_qmsum_workflow(
     *,
+    workflow_name: str = "qmsum",
     max_num_seqs: int = 3,
     queue_capacity: int = 16,
     qwen3_4b_path: str = QWEN3_4B_PATH,
@@ -158,7 +159,9 @@ def build_qmsum_workflow(
         {"source": f"chunk_{index}", "target": "merge"}
         for index in range(QMSUM_CHUNK_COUNT)
     )
-    return Workflow.model_validate({"nodes": nodes, "edges": edges})
+    return Workflow.model_validate(
+        {"workflow_name": workflow_name, "nodes": nodes, "edges": edges}
+    )
 
 
 def _qmsum_metadata(sample: TaskSample) -> dict[str, JsonValue]:

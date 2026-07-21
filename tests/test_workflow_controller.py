@@ -13,12 +13,14 @@ from ray.exceptions import RayActorError
 
 from workflow.artifacts import AcceleratorConfig, SchedulerConfig
 from workflow.controller import WorkflowController, prepare_queues
+from workflow.fleet import _WorkflowBinding
 from workflow.schema import Workflow
 
 
 def function_workflow() -> Workflow:
     return Workflow.model_validate(
         {
+            "workflow_name": "function-workflow",
             "nodes": [
                 {
                     "name": "split",
@@ -156,14 +158,20 @@ entries:
       batch_size: 1
       sequence_length: 128
       decode_output_length: 8
+    source: synthetic_fixture
     predicted_load_sec: 5.0
     predicted_run_sec: 1.0
     predicted_peak_vram_mb: 1024.0
+    peak_vram_mb_upper_bound: 1024.0
+    peak_vram_mb_evidence:
+      method: point_estimate_only
+      sample_count: 1
 """.lstrip(),
         encoding="utf-8",
     )
     workflow = Workflow.model_validate(
         {
+            "workflow_name": "agent-bucket-workflow",
             "nodes": [
                 {
                     "name": "agent",
@@ -222,14 +230,20 @@ entries:
       batch_size: 1
       sequence_length: 128
       decode_output_length: 32
+    source: synthetic_fixture
     predicted_load_sec: 5.0
     predicted_run_sec: 1.0
     predicted_peak_vram_mb: 1024.0
+    peak_vram_mb_upper_bound: 1024.0
+    peak_vram_mb_evidence:
+      method: point_estimate_only
+      sample_count: 1
 """.lstrip(),
         encoding="utf-8",
     )
     workflow = Workflow.model_validate(
         {
+            "workflow_name": "agent-batch-coverage-workflow",
             "nodes": [
                 {
                     "name": "agent",
@@ -290,14 +304,20 @@ entries:
       batch_size: 1
       sequence_length: 64
       decode_output_length: 16
+    source: synthetic_fixture
     predicted_load_sec: 5.0
     predicted_run_sec: 1.0
     predicted_peak_vram_mb: 1024.0
+    peak_vram_mb_upper_bound: 1024.0
+    peak_vram_mb_evidence:
+      method: point_estimate_only
+      sample_count: 1
 """.lstrip(),
         encoding="utf-8",
     )
     workflow = Workflow.model_validate(
         {
+            "workflow_name": "agent-vllm-executable-workflow",
             "nodes": [
                 {
                     "name": "agent",
@@ -434,12 +454,21 @@ def test_stop_now_cleans_up_after_runtime_ref_has_failed(
     ready, _ = ray.wait([failed_ref], timeout=30)
     assert ready == [failed_ref]
 
-    controller.input_queues = {"split": queue}
-    controller.workers = {"split": worker}
-    controller.scheduler = scheduler
-    controller.scheduler_run_ref = failed_ref
+    binding = _WorkflowBinding(
+        workflow=controller.workflow,
+        functions=controller.functions,
+        output_dir=controller.output_dir,
+        run_id=controller.run_id,
+        prompt_tokenizer_factory=None,
+    )
+    binding.input_queues = {"split": queue}
+    binding.workers = {"split": worker}
+    binding.admission_open = True
+    controller._fleet._bindings[controller.workflow.workflow_name] = binding
+    controller._fleet.scheduler = scheduler
+    controller._fleet.scheduler_run_ref = failed_ref
+    controller._fleet._started = True
     controller._started = True
-    controller._admission_open = True
     try:
         started = time.monotonic()
         controller.stop_now(timeout_sec=0.2)

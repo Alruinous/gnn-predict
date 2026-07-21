@@ -54,7 +54,7 @@ from experiment.workflow.sample import (
     Sha256Digest,
     load_sample_manifest,
 )
-from workflow.artifacts import load_prediction_cache
+from workflow.artifacts import load_resource_contract_cache
 
 Repetition = Literal[1, 2, 3, 4, 5]
 GpuCount = Literal[1, 2, 3]
@@ -533,7 +533,7 @@ def validate_prepared_experiment(config: ExperimentConfig) -> PreparedExperiment
         selection_references[scenario] = _reference_for_existing(root, selection_path)
 
     cache_path = root / CACHE_PATH
-    cache = load_prediction_cache(cache_path)
+    cache = load_resource_contract_cache(cache_path)
     if cache != build_synthetic_prediction_cache():
         raise ValueError("prepared synthetic prediction cache does not match")
     cache_reference = _reference_for_existing(root, cache_path)
@@ -918,12 +918,9 @@ def _capacity_reuse_manifest(
         source_experiment_id=PARENT_EXPERIMENT_ID,
         source_capacity=ExternalArtifactReference(
             repository_path=(
-                PARENT_EXPERIMENT_ROOT
-                / "calibration/qmsum__wf-cache__g2/capacity.json"
+                PARENT_EXPERIMENT_ROOT / "calibration/qmsum__wf-cache__g2/capacity.json"
             ).as_posix(),
-            sha256=(
-                "90873c291b6f8c4f4f5b68c77b1fd7e6751d0c923b421d707f5c10edddd21069"
-            ),
+            sha256=("90873c291b6f8c4f4f5b68c77b1fd7e6751d0c923b421d707f5c10edddd21069"),
         ),
         reused_capacity=capacity_reference,
     )
@@ -944,9 +941,7 @@ def _prepare_formal_arrivals(
         _output_root(config),
         capacity_reference.relative_path,
     )
-    capacity = CapacitySummary.model_validate(
-        read_json(capacity_path)
-    )
+    capacity = CapacitySummary.model_validate(read_json(capacity_path))
     seen: set[str] = set()
     for trial in build_trial_matrix():
         if trial.workload != "open-loop":

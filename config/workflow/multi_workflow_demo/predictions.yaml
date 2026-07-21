@@ -1,0 +1,40 @@
+version: 1
+environment:
+  source: multi_workflow_demo
+  purpose: v100_a100_heterogeneous_pool_reference
+
+entries:
+  - key:
+      model_name: Qwen3-4B
+      phase: decode
+      gpu_name: v100
+      batch_size: 1
+      sequence_length: 1024
+      decode_output_length: 128
+    source: synthetic_fixture
+    predicted_load_sec: 18.0
+    predicted_run_sec: 3.5
+    predicted_peak_vram_mb: 10600
+    peak_vram_mb_upper_bound: 11660
+    peak_vram_mb_evidence:
+      method: fixed_margin_fallback
+      sample_count: 1
+      margin_fraction: 0.10
+    predicted_power_watts: 190
+  - key:
+      model_name: Qwen3-32B
+      phase: decode
+      gpu_name: a100
+      batch_size: 1
+      sequence_length: 4096
+      decode_output_length: 512
+    source: synthetic_fixture
+    predicted_load_sec: 45.0
+    predicted_run_sec: 12.0
+    predicted_peak_vram_mb: 68000
+    peak_vram_mb_upper_bound: 74800
+    peak_vram_mb_evidence:
+      method: fixed_margin_fallback
+      sample_count: 1
+      margin_fraction: 0.10
+    predicted_power_watts: 320

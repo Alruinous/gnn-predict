@@ -14,8 +14,10 @@ from langchain_core.messages import AIMessage
 import workflow.scheduler as scheduler_module
 from workflow.artifacts import (
     AcceleratorConfig,
-    PredictionCache,
-    PredictionEntry,
+    ResourceContract,
+    ResourceContractCache,
+    ResourceContractSource,
+    ResourceEvidence,
     SchedulerConfig,
 )
 from workflow.controller import WorkflowController
@@ -41,6 +43,7 @@ def state(text: str) -> AgentState:
 def fanout_fanin_workflow() -> Workflow:
     return Workflow.model_validate(
         {
+            "workflow_name": "fanout-fanin-workflow",
             "nodes": [
                 {
                     "name": "split",
@@ -104,7 +107,7 @@ def read_trace(path: Path) -> list[TraceEvent]:
 def trace_actor(
     workflow: Workflow,
     *,
-    predictions: PredictionCache | None = None,
+    predictions: ResourceContractCache | None = None,
     replica_factory: object | None = None,
 ) -> Any:
     return scheduler_module._SchedulerActor(
@@ -159,6 +162,7 @@ def scheduler_config() -> SchedulerConfig:
 def agent_workflow() -> Workflow:
     return Workflow.model_validate(
         {
+            "workflow_name": "agent-workflow",
             "nodes": [
                 {
                     "name": "agent",
@@ -185,6 +189,7 @@ def agent_workflow() -> Workflow:
 def prefetch_workflow() -> Workflow:
     return Workflow.model_validate(
         {
+            "workflow_name": "prefetch-workflow",
             "nodes": [
                 {
                     "name": "upstream",
@@ -213,11 +218,11 @@ def prefetch_workflow() -> Workflow:
     )
 
 
-def predictions() -> PredictionCache:
-    return PredictionCache(
+def predictions() -> ResourceContractCache:
+    return ResourceContractCache(
         version=7,
         entries=(
-            PredictionEntry(
+            ResourceContract(
                 key=WorkflowModelFeatureKey(
                     model_name="test-model",
                     phase="decode",
@@ -226,9 +231,14 @@ def predictions() -> PredictionCache:
                     sequence_length=128,
                     decode_output_length=8,
                 ),
+                source=ResourceContractSource.SYNTHETIC_FIXTURE,
                 predicted_load_sec=5.0,
                 predicted_run_sec=2.5,
                 predicted_peak_vram_mb=1_024,
+                peak_vram_mb_upper_bound=1_024,
+                peak_vram_mb_evidence=ResourceEvidence(
+                    method="point_estimate_only", sample_count=1
+                ),
                 predicted_power_watts=80,
                 predictor_metadata={"checkpoint": "trace-test"},
             ),
@@ -241,7 +251,7 @@ def events(actor: Any, event_type: str) -> list[TraceEvent]:
 
 
 def prepare_grant(actor: Any) -> tuple[str, GrantInfo]:
-    actor.core.register_session("agent-session")
+    actor.core.register_session("agent-session", "agent-workflow")
     task_id = actor.core.begin_node("agent-session", "agent", ["agent-input"])
     acquire_id = actor.core.request_acquire(task_id, 64, created_at=10.0)
     actions = actor.core.tick_once(now=10.0)
@@ -268,7 +278,7 @@ def prepare_grant(actor: Any) -> tuple[str, GrantInfo]:
 
 
 def make_near_ready(actor: Any, session_id: str) -> None:
-    actor.core.register_session(session_id)
+    actor.core.register_session(session_id, "prefetch-workflow")
     actor.core.begin_node(session_id, "upstream", [f"input-{session_id}"])
     actor.core.record_running_upstream(
         session_id,
@@ -362,7 +372,7 @@ def test_scheduler_trace_records_tick_and_load_decision_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     actor = trace_actor(agent_workflow(), predictions=predictions())
-    actor.core.register_session("session-1")
+    actor.core.register_session("session-1", "agent-workflow")
     task_id = actor.core.begin_node("session-1", "agent", ["item-1"])
     actor.core.request_acquire(task_id, 64, created_at=40.0)
     monkeypatch.setattr(scheduler_module.time, "time", lambda: 50.0)
@@ -385,7 +395,7 @@ def test_request_infeasible_trace_preserves_fixed_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     actor = trace_actor(agent_workflow(), predictions=predictions())
-    actor.core.register_session("session-1")
+    actor.core.register_session("session-1", "agent-workflow")
     task_id = actor.core.begin_node("session-1", "agent", ["item-1"])
     actor.core.request_acquire(task_id, 1_000, created_at=40.0)
     monkeypatch.setattr(scheduler_module.time, "time", lambda: 50.0)

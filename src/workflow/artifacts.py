@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 from typing import Annotated, Literal, Self
@@ -85,11 +86,32 @@ class SchedulerConfig(ArtifactModel):
         return self
 
 
-class PredictionEntry(ArtifactModel):
+class ResourceContractSource(StrEnum):
+    """Where a contract's numbers came from — never affects scheduling, trace-only."""
+
+    EMPIRICAL_PROFILE = "empirical_profile"
+    SYNTHETIC_FIXTURE = "synthetic_fixture"
+    GNN_PREDICTED = "gnn_predicted"
+
+
+class ResourceEvidence(ArtifactModel):
+    method: Literal[
+        "repeated_sample_margin", "fixed_margin_fallback", "point_estimate_only"
+    ]
+    sample_count: PositiveInt
+    margin_fraction: NonNegativeFloat | None = None
+
+
+class ResourceContract(ArtifactModel):
     key: WorkflowModelFeatureKey
+    source: ResourceContractSource
     predicted_load_sec: PositiveFloat
     predicted_run_sec: PositiveFloat
     predicted_peak_vram_mb: PositiveFloat
+    peak_vram_mb_upper_bound: PositiveFloat
+    peak_vram_mb_evidence: ResourceEvidence
+    run_sec_upper_bound: PositiveFloat | None = None
+    run_sec_evidence: ResourceEvidence | None = None
     predicted_power_watts: NonNegativeFloat | None = None
     predictor_metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
@@ -103,18 +125,31 @@ class PredictionEntry(ArtifactModel):
                 raise ValueError(f"unknown prediction key fields: {names}")
         return value
 
+    @model_validator(mode="after")
+    def validate_bounds(self) -> Self:
+        if self.peak_vram_mb_upper_bound < self.predicted_peak_vram_mb:
+            raise ValueError(
+                "peak_vram_mb_upper_bound must be >= predicted_peak_vram_mb"
+            )
+        if (
+            self.run_sec_upper_bound is not None
+            and self.run_sec_upper_bound < self.predicted_run_sec
+        ):
+            raise ValueError("run_sec_upper_bound must be >= predicted_run_sec")
+        return self
 
-class PredictionCache(ArtifactModel):
+
+class ResourceContractCache(ArtifactModel):
     version: PositiveInt
     environment: dict[str, JsonValue] = Field(default_factory=dict)
-    entries: tuple[PredictionEntry, ...]
-    _index: Mapping[WorkflowModelFeatureKey, PredictionEntry] = PrivateAttr(
+    entries: tuple[ResourceContract, ...]
+    _index: Mapping[WorkflowModelFeatureKey, ResourceContract] = PrivateAttr(
         default_factory=dict
     )
 
     @model_validator(mode="after")
     def build_index(self) -> Self:
-        index: dict[WorkflowModelFeatureKey, PredictionEntry] = {}
+        index: dict[WorkflowModelFeatureKey, ResourceContract] = {}
         for entry in self.entries:
             if entry.key in index:
                 raise ValueError(f"duplicate prediction key: {entry.key.model_dump()}")
@@ -122,7 +157,7 @@ class PredictionCache(ArtifactModel):
         self._index = MappingProxyType(index)
         return self
 
-    def lookup(self, key: WorkflowModelFeatureKey) -> PredictionEntry:
+    def lookup(self, key: WorkflowModelFeatureKey) -> ResourceContract:
         return self._index[key]
 
     def lookup_decode(
@@ -133,7 +168,7 @@ class PredictionCache(ArtifactModel):
         batch_size: int = 1,
         sequence_length: int,
         decode_output_length: int,
-    ) -> PredictionEntry:
+    ) -> ResourceContract:
         key = WorkflowModelFeatureKey(
             model_name=model_name,
             phase="decode",
@@ -210,6 +245,6 @@ class PredictionCache(ArtifactModel):
         return tuple(missing)
 
 
-def load_prediction_cache(path: str | Path) -> PredictionCache:
+def load_resource_contract_cache(path: str | Path) -> ResourceContractCache:
     with Path(path).open(encoding="utf-8") as stream:
-        return PredictionCache.model_validate(yaml.safe_load(stream))
+        return ResourceContractCache.model_validate(yaml.safe_load(stream))

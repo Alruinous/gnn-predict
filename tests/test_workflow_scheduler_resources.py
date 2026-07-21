@@ -7,8 +7,10 @@ import pytest
 import workflow.scheduler as scheduler_module
 from workflow.artifacts import (
     AcceleratorConfig,
-    PredictionCache,
-    PredictionEntry,
+    ResourceContract,
+    ResourceContractCache,
+    ResourceContractSource,
+    ResourceEvidence,
     SchedulerConfig,
 )
 from workflow.replica import ReplicaLoadResult
@@ -39,6 +41,7 @@ def agent_workflow(
 ) -> Workflow:
     return Workflow.model_validate(
         {
+            "workflow_name": "agent-workflow",
             "nodes": [
                 {
                     "name": "agent",
@@ -81,6 +84,7 @@ def branched_agent_workflow() -> Workflow:
     }
     return Workflow.model_validate(
         {
+            "workflow_name": "branched-agent-workflow",
             "nodes": [
                 {"name": "start", "type": "function", "function": "start"},
                 {"name": "left", **agent},
@@ -104,8 +108,8 @@ def prediction_entry(
     output_tokens: int,
     peak_vram_mb: float,
     run_sec: float,
-) -> PredictionEntry:
-    return PredictionEntry(
+) -> ResourceContract:
+    return ResourceContract(
         key=WorkflowModelFeatureKey(
             model_name="test-model",
             phase="decode",
@@ -114,9 +118,14 @@ def prediction_entry(
             sequence_length=sequence_length,
             decode_output_length=output_tokens,
         ),
+        source=ResourceContractSource.SYNTHETIC_FIXTURE,
         predicted_load_sec=5.0,
         predicted_run_sec=run_sec,
         predicted_peak_vram_mb=peak_vram_mb,
+        peak_vram_mb_upper_bound=peak_vram_mb,
+        peak_vram_mb_evidence=ResourceEvidence(
+            method="point_estimate_only", sample_count=1
+        ),
     )
 
 
@@ -145,7 +154,7 @@ def resource_core(
             ),
         )
     )
-    entries: list[PredictionEntry] = []
+    entries: list[ResourceContract] = []
     for batch_size in range(1, max_num_seqs + 1):
         for sequence_length in (1024, 2048):
             entries.extend(
@@ -170,7 +179,7 @@ def resource_core(
                     ),
                 )
             )
-    predictions = PredictionCache(version=1, entries=tuple(entries))
+    predictions = ResourceContractCache(version=1, entries=tuple(entries))
     return SchedulerCore(
         workflow
         or agent_workflow(
@@ -214,7 +223,7 @@ def request_agent(
     now: float = 1.0,
     input_tokens: int = 1100,
 ) -> tuple[str, str]:
-    core.register_session(session_id)
+    core.register_session(session_id, "agent-workflow")
     task_id = core.begin_node(session_id, "agent", [f"input-{session_id}"])
     acquire_id = core.request_acquire(
         task_id,
@@ -329,8 +338,8 @@ def test_ready_acquires_use_request_insertion_fifo(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     core = resource_core()
-    core.register_session("s1")
-    core.register_session("s2")
+    core.register_session("s1", "agent-workflow")
+    core.register_session("s2", "agent-workflow")
     first_task = core.begin_node("s1", "agent", ["input-s1"])
     second_task = core.begin_node("s2", "agent", ["input-s2"])
     acquire_ids = iter(("z-first", "a-second", "replica"))
@@ -469,10 +478,15 @@ def test_busy_replica_releases_out_of_order_and_refills_capacity() -> None:
 def test_joint_batch_infeasibility_waits_until_replica_is_idle() -> None:
     core = resource_core(max_num_seqs=2)
     assert core.predictions is not None
-    core.predictions = PredictionCache(
+    core.predictions = ResourceContractCache(
         version=core.predictions.version,
         entries=tuple(
-            entry.model_copy(update={"predicted_peak_vram_mb": 20_000.0})
+            entry.model_copy(
+                update={
+                    "predicted_peak_vram_mb": 20_000.0,
+                    "peak_vram_mb_upper_bound": 20_000.0,
+                }
+            )
             if entry.key.gpu_name == "v100" and entry.key.batch_size == 2
             else entry
             for entry in core.predictions.entries
@@ -496,10 +510,43 @@ def test_joint_batch_infeasibility_waits_until_replica_is_idle() -> None:
     assert second.admitted_batch_size == 1
 
 
+def test_joint_batch_admission_is_gated_by_upper_bound_not_point_estimate() -> None:
+    # yhat alone would still fit the v100 (16_000MB); only the calibrated
+    # upper bound U pushes the joint batch-2 request over capacity.
+    core = resource_core(max_num_seqs=2)
+    assert core.predictions is not None
+    core.predictions = ResourceContractCache(
+        version=core.predictions.version,
+        entries=tuple(
+            entry.model_copy(update={"peak_vram_mb_upper_bound": 20_000.0})
+            if entry.key.gpu_name == "v100" and entry.key.batch_size == 2
+            else entry
+            for entry in core.predictions.entries
+        ),
+    )
+    _, first_acquire = request_agent(core, "s1")
+    first, action = load_and_grant(core, first_acquire)
+    _, second_acquire = request_agent(core, "s2", now=4.0)
+
+    assert core.tick_once(now=5.0) == []
+    assert core.poll_grant(second_acquire) is None
+
+    core.complete(
+        first.task_id,
+        agent_report(core, first),
+        acquire_id=first.acquire_id,
+    )
+    assert core.tick_once(now=6.0) == []
+    second = core.poll_grant(second_acquire)
+    assert second is not None
+    assert second.replica_id == action.replica_id
+    assert second.admitted_batch_size == 1
+
+
 def test_missing_higher_batch_prediction_waits_until_replica_is_idle() -> None:
     core = resource_core(max_num_seqs=2)
     assert core.predictions is not None
-    core.predictions = PredictionCache(
+    core.predictions = ResourceContractCache(
         version=core.predictions.version,
         entries=tuple(
             entry for entry in core.predictions.entries if entry.key.batch_size == 1
@@ -818,7 +865,7 @@ def test_resource_ledger_rejects_overlapping_accelerator_ownership() -> None:
 
 def test_infeasible_request_cancels_same_session_snapshot_siblings() -> None:
     core = resource_core(workflow=branched_agent_workflow())
-    core.register_session("s1")
+    core.register_session("s1", "branched-agent-workflow")
     finish_start(core, "s1")
     left_id = core.begin_node("s1", "left", ["left-input"])
     right_id = core.begin_node("s1", "right", ["right-input"])
@@ -958,7 +1005,7 @@ def test_agent_completion_validates_grant_task_identity() -> None:
 
 def test_infeasible_prediction_fails_the_session_explicitly() -> None:
     core = resource_core()
-    core.register_session("s1")
+    core.register_session("s1", "agent-workflow")
     task_id = core.begin_node("s1", "agent", ["input-s1"])
     acquire_id = core.request_acquire(
         task_id,

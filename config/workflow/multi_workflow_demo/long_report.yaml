@@ -1,0 +1,24 @@
+workflow_name: multi-demo-long-report
+nodes:
+  - name: prepare
+    type: function
+    function: prepare_input
+    routing: broadcast
+  - name: write
+    type: agent
+    model:
+      name: Qwen3-32B
+    execution:
+      model_path: /data/Models/Qwen/Qwen3-32B
+      max_new_tokens: 512
+      dtype: float16
+      do_sample: false
+      serving:
+        max_model_len: 4096
+        max_num_seqs: 1
+        max_num_batched_tokens: 4096
+        gpu_memory_utilization: 0.98
+    prompt_template: "Write a detailed report: {content}"
+edges:
+  - source: prepare
+    target: write

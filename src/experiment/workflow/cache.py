@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from experiment.workflow.artifacts import file_sha256, write_json_exclusive
-from workflow.artifacts import PredictionCache, PredictionEntry
+from workflow.artifacts import (
+    ResourceContract,
+    ResourceContractCache,
+    ResourceContractSource,
+    ResourceEvidence,
+)
 from workflow.types import WorkflowModelFeatureKey
 
 CACHE_GENERATOR_VERSION = 1
@@ -56,22 +62,25 @@ SYNTHETIC_PROFILES = (
 )
 
 
-def build_synthetic_prediction_cache() -> PredictionCache:
-    entries = tuple(
-        _synthetic_entry(profile, batch_size, sequence_length, output_length)
+def _synthetic_entries(gpu_kind: str) -> tuple[ResourceContract, ...]:
+    return tuple(
+        _synthetic_entry(profile, batch_size, sequence_length, output_length, gpu_kind)
         for profile in SYNTHETIC_PROFILES
         for batch_size in (1, 2, 3)
         for sequence_length in profile.sequence_lengths
         for output_length in profile.output_lengths
     )
-    return PredictionCache(
+
+
+def build_synthetic_prediction_cache() -> ResourceContractCache:
+    return ResourceContractCache(
         version=CACHE_GENERATOR_VERSION,
         environment={
             "source": "frozen_synthetic",
             "gpu_kind": "v100",
             "purpose": "workflow_scheduler_mechanism_test",
         },
-        entries=entries,
+        entries=_synthetic_entries("v100"),
     )
 
 
@@ -81,29 +90,62 @@ def write_synthetic_prediction_cache(path: Path) -> str:
     return file_sha256(path)
 
 
+def build_serve_prediction_cache(
+    gpu_kinds: Sequence[str] = ("v100", "a100"),
+) -> ResourceContractCache:
+    if not gpu_kinds:
+        raise ValueError("serve prediction cache requires at least one gpu_kind")
+    entries = tuple(entry for kind in gpu_kinds for entry in _synthetic_entries(kind))
+    return ResourceContractCache(
+        version=CACHE_GENERATOR_VERSION,
+        environment={
+            "source": "frozen_synthetic",
+            "gpu_kinds": list(gpu_kinds),
+            "purpose": "master_serve_smoke",
+        },
+        entries=entries,
+    )
+
+
+def write_serve_prediction_cache(
+    path: Path,
+    gpu_kinds: Sequence[str] = ("v100", "a100"),
+) -> str:
+    cache = build_serve_prediction_cache(gpu_kinds)
+    write_json_exclusive(path, cache)
+    return file_sha256(path)
+
+
 def _synthetic_entry(
     profile: SyntheticModelProfile,
     batch_size: int,
     sequence_length: int,
     output_length: int,
-) -> PredictionEntry:
+    gpu_kind: str = "v100",
+) -> ResourceContract:
     batch_factor = 1.0 + 0.65 * (batch_size - 1)
-    return PredictionEntry(
+    peak_vram_mb = profile.base_vram_mb + 16.0 * (batch_size - 1)
+    return ResourceContract(
         key=WorkflowModelFeatureKey(
             model_name=profile.model_name,
             phase="decode",
-            gpu_name="v100",
+            gpu_name=gpu_kind,
             batch_size=batch_size,
             sequence_length=sequence_length,
             decode_output_length=output_length,
         ),
+        source=ResourceContractSource.SYNTHETIC_FIXTURE,
         predicted_load_sec=profile.load_sec,
         predicted_run_sec=batch_factor
         * (
             sequence_length * profile.seconds_per_input_token
             + output_length * profile.seconds_per_output_token
         ),
-        predicted_peak_vram_mb=profile.base_vram_mb + 16.0 * (batch_size - 1),
+        predicted_peak_vram_mb=peak_vram_mb,
+        peak_vram_mb_upper_bound=peak_vram_mb,
+        peak_vram_mb_evidence=ResourceEvidence(
+            method="point_estimate_only", sample_count=1
+        ),
         predicted_power_watts=profile.power_watts,
         predictor_metadata={
             "source": "frozen_synthetic",

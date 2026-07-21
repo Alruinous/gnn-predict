@@ -1,0 +1,6 @@
+# SchedulerConfig for the QMSum + MBPP master.
+# accelerators are auto-discovered from live Ray GPU nodes (--min-gpus / --gpu-mem).
+# vllm_python_executable is supplied at launch via --vllm-python (serve_master.sh).
+# Change `policy` to fifo | history | cache and resubmit with a fresh --run-id to compare.
+policy: cache
+acquire_timeout_sec: 1800.0

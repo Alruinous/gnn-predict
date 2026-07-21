@@ -6,12 +6,12 @@ import pytest
 import torch
 from transformers import Qwen3Config, Qwen3ForCausalLM
 
-from workflow.cache_config import (
+from gnn_model.data.causal_lm_cache_config import (
     WorkflowPhase,
     expand_graph_cache_specs,
     load_graph_cache_config,
 )
-from workflow.model import build_model_graph_feature
+from gnn_model.data.causal_lm_graph import build_model_graph_feature
 
 ROOT = Path(__file__).resolve().parents[1]
 

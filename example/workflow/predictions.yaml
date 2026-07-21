@@ -3,215 +3,316 @@ environment:
   storage_kind: shared_model_dir
   model_root: /data/Models
   prediction_scope: gpu_kind
-
 entries:
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: v100
-      batch_size: 1
-      sequence_length: 2048
-      decode_output_length: 128
-    predicted_load_sec: 19.7
-    predicted_run_sec: 6.2
-    predicted_peak_vram_mb: 10600
-    predicted_power_watts: 190
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: v100
-      batch_size: 1
-      sequence_length: 2048
-      decode_output_length: 512
-    predicted_load_sec: 19.7
-    predicted_run_sec: 8.4
-    predicted_peak_vram_mb: 11800
-    predicted_power_watts: 210
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: v100
-      batch_size: 1
-      sequence_length: 2048
-      decode_output_length: 1024
-    predicted_load_sec: 19.7
-    predicted_run_sec: 11.6
-    predicted_peak_vram_mb: 13900
-    predicted_power_watts: 225
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: a100
-      batch_size: 1
-      sequence_length: 2048
-      decode_output_length: 128
-    predicted_load_sec: 8.8
-    predicted_run_sec: 3.8
-    predicted_peak_vram_mb: 10700
-    predicted_power_watts: 250
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: a100
-      batch_size: 1
-      sequence_length: 2048
-      decode_output_length: 512
-    predicted_load_sec: 8.8
-    predicted_run_sec: 5.1
-    predicted_peak_vram_mb: 11900
-    predicted_power_watts: 275
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: a100
-      batch_size: 1
-      sequence_length: 2048
-      decode_output_length: 1024
-    predicted_load_sec: 8.8
-    predicted_run_sec: 7.0
-    predicted_peak_vram_mb: 14000
-    predicted_power_watts: 300
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: v100
-      batch_size: 2
-      sequence_length: 2048
-      decode_output_length: 128
-    predicted_load_sec: 19.7
-    predicted_run_sec: 9.5
-    predicted_peak_vram_mb: 12500
-    predicted_power_watts: 230
-    predictor_metadata: {source: example_synthetic}
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: v100
-      batch_size: 2
-      sequence_length: 2048
-      decode_output_length: 512
-    predicted_load_sec: 19.7
-    predicted_run_sec: 13.0
-    predicted_peak_vram_mb: 15000
-    predicted_power_watts: 240
-    predictor_metadata: {source: example_synthetic}
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: v100
-      batch_size: 2
-      sequence_length: 2048
-      decode_output_length: 1024
-    predicted_load_sec: 19.7
-    predicted_run_sec: 18.0
-    predicted_peak_vram_mb: 19500
-    predicted_power_watts: 250
-    predictor_metadata: {source: example_synthetic}
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: v100
-      batch_size: 3
-      sequence_length: 2048
-      decode_output_length: 128
-    predicted_load_sec: 19.7
-    predicted_run_sec: 12.0
-    predicted_peak_vram_mb: 14000
-    predicted_power_watts: 235
-    predictor_metadata: {source: example_synthetic}
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: v100
-      batch_size: 3
-      sequence_length: 2048
-      decode_output_length: 512
-    predicted_load_sec: 19.7
-    predicted_run_sec: 17.0
-    predicted_peak_vram_mb: 18000
-    predicted_power_watts: 250
-    predictor_metadata: {source: example_synthetic}
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: v100
-      batch_size: 3
-      sequence_length: 2048
-      decode_output_length: 1024
-    predicted_load_sec: 19.7
-    predicted_run_sec: 24.0
-    predicted_peak_vram_mb: 25000
-    predicted_power_watts: 265
-    predictor_metadata: {source: example_synthetic}
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: a100
-      batch_size: 2
-      sequence_length: 2048
-      decode_output_length: 128
-    predicted_load_sec: 8.8
-    predicted_run_sec: 5.5
-    predicted_peak_vram_mb: 12500
-    predicted_power_watts: 285
-    predictor_metadata: {source: example_synthetic}
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: a100
-      batch_size: 2
-      sequence_length: 2048
-      decode_output_length: 512
-    predicted_load_sec: 8.8
-    predicted_run_sec: 7.5
-    predicted_peak_vram_mb: 15000
-    predicted_power_watts: 305
-    predictor_metadata: {source: example_synthetic}
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: a100
-      batch_size: 2
-      sequence_length: 2048
-      decode_output_length: 1024
-    predicted_load_sec: 8.8
-    predicted_run_sec: 10.5
-    predicted_peak_vram_mb: 19500
-    predicted_power_watts: 325
-    predictor_metadata: {source: example_synthetic}
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: a100
-      batch_size: 3
-      sequence_length: 2048
-      decode_output_length: 128
-    predicted_load_sec: 8.8
-    predicted_run_sec: 7.0
-    predicted_peak_vram_mb: 14000
-    predicted_power_watts: 300
-    predictor_metadata: {source: example_synthetic}
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: a100
-      batch_size: 3
-      sequence_length: 2048
-      decode_output_length: 512
-    predicted_load_sec: 8.8
-    predicted_run_sec: 9.5
-    predicted_peak_vram_mb: 18000
-    predicted_power_watts: 325
-    predictor_metadata: {source: example_synthetic}
-  - key:
-      model_name: Qwen3-4B
-      phase: decode
-      gpu_name: a100
-      batch_size: 3
-      sequence_length: 2048
-      decode_output_length: 1024
-    predicted_load_sec: 8.8
-    predicted_run_sec: 13.0
-    predicted_peak_vram_mb: 25000
-    predicted_power_watts: 350
-    predictor_metadata: {source: example_synthetic}
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: v100
+    batch_size: 1
+    sequence_length: 2048
+    decode_output_length: 128
+  source: synthetic_fixture
+  predicted_load_sec: 19.7
+  predicted_run_sec: 6.2
+  predicted_peak_vram_mb: 10600
+  peak_vram_mb_upper_bound: 10600
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 190
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: v100
+    batch_size: 1
+    sequence_length: 2048
+    decode_output_length: 512
+  source: synthetic_fixture
+  predicted_load_sec: 19.7
+  predicted_run_sec: 8.4
+  predicted_peak_vram_mb: 11800
+  peak_vram_mb_upper_bound: 11800
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 210
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: v100
+    batch_size: 1
+    sequence_length: 2048
+    decode_output_length: 1024
+  source: synthetic_fixture
+  predicted_load_sec: 19.7
+  predicted_run_sec: 11.6
+  predicted_peak_vram_mb: 13900
+  peak_vram_mb_upper_bound: 13900
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 225
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: a100
+    batch_size: 1
+    sequence_length: 2048
+    decode_output_length: 128
+  source: synthetic_fixture
+  predicted_load_sec: 8.8
+  predicted_run_sec: 3.8
+  predicted_peak_vram_mb: 10700
+  peak_vram_mb_upper_bound: 10700
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 250
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: a100
+    batch_size: 1
+    sequence_length: 2048
+    decode_output_length: 512
+  source: synthetic_fixture
+  predicted_load_sec: 8.8
+  predicted_run_sec: 5.1
+  predicted_peak_vram_mb: 11900
+  peak_vram_mb_upper_bound: 11900
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 275
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: a100
+    batch_size: 1
+    sequence_length: 2048
+    decode_output_length: 1024
+  source: synthetic_fixture
+  predicted_load_sec: 8.8
+  predicted_run_sec: 7.0
+  predicted_peak_vram_mb: 14000
+  peak_vram_mb_upper_bound: 14000
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 300
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: v100
+    batch_size: 2
+    sequence_length: 2048
+    decode_output_length: 128
+  source: synthetic_fixture
+  predicted_load_sec: 19.7
+  predicted_run_sec: 9.5
+  predicted_peak_vram_mb: 12500
+  peak_vram_mb_upper_bound: 12500
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 230
+  predictor_metadata:
+    source: example_synthetic
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: v100
+    batch_size: 2
+    sequence_length: 2048
+    decode_output_length: 512
+  source: synthetic_fixture
+  predicted_load_sec: 19.7
+  predicted_run_sec: 13.0
+  predicted_peak_vram_mb: 15000
+  peak_vram_mb_upper_bound: 15000
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 240
+  predictor_metadata:
+    source: example_synthetic
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: v100
+    batch_size: 2
+    sequence_length: 2048
+    decode_output_length: 1024
+  source: synthetic_fixture
+  predicted_load_sec: 19.7
+  predicted_run_sec: 18.0
+  predicted_peak_vram_mb: 19500
+  peak_vram_mb_upper_bound: 19500
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 250
+  predictor_metadata:
+    source: example_synthetic
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: v100
+    batch_size: 3
+    sequence_length: 2048
+    decode_output_length: 128
+  source: synthetic_fixture
+  predicted_load_sec: 19.7
+  predicted_run_sec: 12.0
+  predicted_peak_vram_mb: 14000
+  peak_vram_mb_upper_bound: 14000
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 235
+  predictor_metadata:
+    source: example_synthetic
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: v100
+    batch_size: 3
+    sequence_length: 2048
+    decode_output_length: 512
+  source: synthetic_fixture
+  predicted_load_sec: 19.7
+  predicted_run_sec: 17.0
+  predicted_peak_vram_mb: 18000
+  peak_vram_mb_upper_bound: 18000
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 250
+  predictor_metadata:
+    source: example_synthetic
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: v100
+    batch_size: 3
+    sequence_length: 2048
+    decode_output_length: 1024
+  source: synthetic_fixture
+  predicted_load_sec: 19.7
+  predicted_run_sec: 24.0
+  predicted_peak_vram_mb: 25000
+  peak_vram_mb_upper_bound: 25000
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 265
+  predictor_metadata:
+    source: example_synthetic
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: a100
+    batch_size: 2
+    sequence_length: 2048
+    decode_output_length: 128
+  source: synthetic_fixture
+  predicted_load_sec: 8.8
+  predicted_run_sec: 5.5
+  predicted_peak_vram_mb: 12500
+  peak_vram_mb_upper_bound: 12500
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 285
+  predictor_metadata:
+    source: example_synthetic
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: a100
+    batch_size: 2
+    sequence_length: 2048
+    decode_output_length: 512
+  source: synthetic_fixture
+  predicted_load_sec: 8.8
+  predicted_run_sec: 7.5
+  predicted_peak_vram_mb: 15000
+  peak_vram_mb_upper_bound: 15000
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 305
+  predictor_metadata:
+    source: example_synthetic
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: a100
+    batch_size: 2
+    sequence_length: 2048
+    decode_output_length: 1024
+  source: synthetic_fixture
+  predicted_load_sec: 8.8
+  predicted_run_sec: 10.5
+  predicted_peak_vram_mb: 19500
+  peak_vram_mb_upper_bound: 19500
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 325
+  predictor_metadata:
+    source: example_synthetic
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: a100
+    batch_size: 3
+    sequence_length: 2048
+    decode_output_length: 128
+  source: synthetic_fixture
+  predicted_load_sec: 8.8
+  predicted_run_sec: 7.0
+  predicted_peak_vram_mb: 14000
+  peak_vram_mb_upper_bound: 14000
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 300
+  predictor_metadata:
+    source: example_synthetic
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: a100
+    batch_size: 3
+    sequence_length: 2048
+    decode_output_length: 512
+  source: synthetic_fixture
+  predicted_load_sec: 8.8
+  predicted_run_sec: 9.5
+  predicted_peak_vram_mb: 18000
+  peak_vram_mb_upper_bound: 18000
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 325
+  predictor_metadata:
+    source: example_synthetic
+- key:
+    model_name: Qwen3-4B
+    phase: decode
+    gpu_name: a100
+    batch_size: 3
+    sequence_length: 2048
+    decode_output_length: 1024
+  source: synthetic_fixture
+  predicted_load_sec: 8.8
+  predicted_run_sec: 13.0
+  predicted_peak_vram_mb: 25000
+  peak_vram_mb_upper_bound: 25000
+  peak_vram_mb_evidence:
+    method: point_estimate_only
+    sample_count: 1
+  predicted_power_watts: 350
+  predictor_metadata:
+    source: example_synthetic

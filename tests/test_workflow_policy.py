@@ -5,8 +5,10 @@ import math
 from workflow.artifacts import (
     AcceleratorConfig,
     GpuKind,
-    PredictionCache,
-    PredictionEntry,
+    ResourceContract,
+    ResourceContractCache,
+    ResourceContractSource,
+    ResourceEvidence,
 )
 from workflow.policy import (
     EvictionCandidate,
@@ -65,8 +67,10 @@ def entry(
     output_length: int,
     peak_vram_mb: float,
     run_sec: float,
-) -> PredictionEntry:
-    return PredictionEntry(
+    *,
+    peak_vram_mb_upper_bound: float | None = None,
+) -> ResourceContract:
+    return ResourceContract(
         key=WorkflowModelFeatureKey(
             model_name="test-model",
             phase="decode",
@@ -75,13 +79,20 @@ def entry(
             sequence_length=sequence_length,
             decode_output_length=output_length,
         ),
+        source=ResourceContractSource.SYNTHETIC_FIXTURE,
         predicted_load_sec=5.0,
         predicted_run_sec=run_sec,
         predicted_peak_vram_mb=peak_vram_mb,
+        peak_vram_mb_upper_bound=(
+            peak_vram_mb if peak_vram_mb_upper_bound is None else peak_vram_mb_upper_bound
+        ),
+        peak_vram_mb_evidence=ResourceEvidence(
+            method="point_estimate_only", sample_count=1
+        ),
     )
 
 
-def prediction_cache() -> PredictionCache:
+def prediction_cache() -> ResourceContractCache:
     entries = (
         entry("v100", 1024, 512, 9_000, 2.0),
         entry("v100", 2048, 128, 11_000, 3.0),
@@ -91,7 +102,7 @@ def prediction_cache() -> PredictionCache:
         entry("a100", 2048, 512, 15_000, 3.0),
         entry("a100", 2048, 1024, 25_000, 3.5),
     )
-    return PredictionCache(version=1, entries=entries)
+    return ResourceContractCache(version=1, entries=entries)
 
 
 def test_placement_uses_the_smallest_bucket_covering_the_fixed_limit() -> None:
@@ -151,7 +162,54 @@ def test_placement_oom_penalty_never_downscales_the_fixed_limit() -> None:
 
     assert decision.feasible is False
     assert decision.reason == "request_infeasible"
-    assert decision.max_new_tokens is None
+
+
+def test_placement_feasibility_uses_upper_bound_not_point_estimate() -> None:
+    # ŷ=10_000 alone would fit a 10_600MB accelerator, but the calibrated
+    # upper bound U=15_000 must be the hard OOM safety gate.
+    cache = ResourceContractCache(
+        version=1,
+        entries=(
+            entry(
+                "v100", 2048, 512, 10_000, 4.0, peak_vram_mb_upper_bound=15_000
+            ),
+        ),
+    )
+
+    decision = select_placement(
+        node=agent_node(),
+        input_tokens=1100,
+        accelerators=[accelerator("v100", 10_600)],
+        predictions=cache,
+        oom_penalties={},
+        eps_mem_mb=512,
+    )
+
+    assert decision.feasible is False
+    assert decision.reason == "request_infeasible"
+
+
+def test_placement_feasibility_accepts_once_the_upper_bound_fits() -> None:
+    cache = ResourceContractCache(
+        version=1,
+        entries=(
+            entry(
+                "v100", 2048, 512, 10_000, 4.0, peak_vram_mb_upper_bound=15_000
+            ),
+        ),
+    )
+
+    decision = select_placement(
+        node=agent_node(),
+        input_tokens=1100,
+        accelerators=[accelerator("v100", 15_600)],
+        predictions=cache,
+        oom_penalties={},
+        eps_mem_mb=512,
+    )
+
+    assert decision.feasible is True
+    assert decision.effective_vram_mb == 15_512
 
 
 def test_placement_does_not_clamp_an_uncovered_input() -> None:
@@ -184,7 +242,7 @@ def test_placement_rejects_a_request_outside_the_serving_context() -> None:
 
 
 def test_placement_uses_runtime_then_id_for_stable_ties() -> None:
-    cache = PredictionCache(
+    cache = ResourceContractCache(
         version=1,
         entries=(
             entry("v100", 2048, 1024, 12_000, 4.0),

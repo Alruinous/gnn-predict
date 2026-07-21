@@ -20,15 +20,15 @@ import yaml  # noqa: E402
 from torch import nn  # noqa: E402
 
 from common.log import get_logger  # noqa: E402
-from gnn_model.data.fx_graph import build_graph_data_from_fx  # noqa: E402
-from workflow.cache_config import (  # noqa: E402
+from gnn_model.data.causal_lm_cache_config import (  # noqa: E402
     GraphCacheExportSpec,
     GraphCacheKey,
     WorkflowPhase,
     expand_graph_cache_specs,
     load_graph_cache_config,
 )
-from workflow.model import export_phase_cached_graph  # noqa: E402
+from gnn_model.data.causal_lm_graph import export_phase_cached_graph  # noqa: E402
+from gnn_model.data.fx_graph import build_graph_data_from_fx  # noqa: E402
 from workflow.types import WorkflowModelFeatureKey  # noqa: E402
 
 logger = get_logger("convert_cache")

@@ -147,6 +147,7 @@ def test_langgraph_session_driver_is_concurrent_and_bounded() -> None:
 def test_langgraph_trace_normalizes_edges_and_fanin(tmp_path: Path) -> None:
     workflow = Workflow.model_validate(
         {
+            "workflow_name": "langgraph-trace-workflow",
             "nodes": [
                 {
                     "name": "split",
@@ -209,6 +210,7 @@ def test_static_pool_records_load_completion_without_waiting_for_first_request(
 ) -> None:
     workflow = Workflow.model_validate(
         {
+            "workflow_name": "static-pool-workflow",
             "nodes": [
                 {
                     "name": "agent",

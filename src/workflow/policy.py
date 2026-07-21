@@ -16,8 +16,8 @@ from common.validate import NonEmptyStr
 from workflow.artifacts import (
     AcceleratorConfig,
     GpuKind,
-    PredictionCache,
-    PredictionEntry,
+    ResourceContract,
+    ResourceContractCache,
 )
 from workflow.schema import AgentNodeConfig
 from workflow.types import (
@@ -62,7 +62,7 @@ class EvictionCandidate(PolicyModel):
 @dataclass(frozen=True, slots=True)
 class _FeasibleCandidate:
     accelerator: AcceleratorConfig
-    prediction: PredictionEntry
+    prediction: ResourceContract
     effective_vram_mb: float
 
 
@@ -71,7 +71,7 @@ def select_placement(
     node: AgentNodeConfig,
     input_tokens: int,
     accelerators: Sequence[AcceleratorConfig],
-    predictions: PredictionCache,
+    predictions: ResourceContractCache,
     oom_penalties: Mapping[WorkflowModelFeatureKey, float],
     eps_mem_mb: float,
     batch_size: int = 1,
@@ -164,7 +164,7 @@ def _feasible_placement(
     model_name: str,
     sequence_length: int,
     output_length: int | None,
-    predictions: PredictionCache,
+    predictions: ResourceContractCache,
     oom_penalties: Mapping[WorkflowModelFeatureKey, float],
     eps_mem_mb: float,
     batch_size: int,
@@ -179,7 +179,7 @@ def _feasible_placement(
         decode_output_length=output_length,
     )
     effective_vram_mb = (
-        prediction.predicted_peak_vram_mb
+        prediction.peak_vram_mb_upper_bound
         + eps_mem_mb
         + oom_penalties.get(prediction.key, 0.0)
     )
@@ -223,7 +223,7 @@ def select_eviction_victim(
 
 
 def _covering_sequence_length(
-    predictions: PredictionCache,
+    predictions: ResourceContractCache,
     model_name: str,
     gpu_kind: GpuKind,
     input_tokens: int,

@@ -6,7 +6,10 @@
 ## 现行实现
 
 - [当前实现说明](implementation.md)：`src/workflow` 的 schema、并发、调度、模型副本和
-  预测缓存边界。继续扩展系统时先读此文档。
+  资源契约边界。继续扩展系统时先读此文档。
+- [多 workflow 调度器与资源契约重构方案](system_plan_20260720.md)：`WorkflowFleet`、
+  跨 workflow 公平性和资源契约（`ResourceContract`）设计决策的定稿记录，是
+  `implementation.md` 里"多 workflow 编排"和"资源契约与调度策略"两节的背景依据。
 - [Phase 1 系统目标](../dev/workflow_system_phase1.md)：需求、研究边界和首阶段约束。
 - [系统实验方案](system_experiment_plan_20260713.md)：已冻结并完成的正式实验设计。
 - [系统实验结果](system_experiment_results_20260713.md)：75 次正式 trial 的冻结结果。

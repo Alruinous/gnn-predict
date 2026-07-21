@@ -8,10 +8,12 @@ from pydantic import ValidationError
 from workflow.artifacts import (
     AcceleratorConfig,
     GpuKind,
-    PredictionCache,
-    PredictionEntry,
+    ResourceContract,
+    ResourceContractCache,
+    ResourceContractSource,
+    ResourceEvidence,
     SchedulerConfig,
-    load_prediction_cache,
+    load_resource_contract_cache,
 )
 from workflow.types import WorkflowModelFeatureKey
 
@@ -36,19 +38,24 @@ def prediction_key(
 
 def prediction_entry(
     key: WorkflowModelFeatureKey | None = None,
-) -> PredictionEntry:
-    return PredictionEntry(
+) -> ResourceContract:
+    return ResourceContract(
         key=key or prediction_key(),
+        source=ResourceContractSource.SYNTHETIC_FIXTURE,
         predicted_load_sec=5.0,
         predicted_run_sec=3.5,
         predicted_peak_vram_mb=12_000,
+        peak_vram_mb_upper_bound=12_000,
+        peak_vram_mb_evidence=ResourceEvidence(
+            method="point_estimate_only", sample_count=1
+        ),
     )
 
 
 def test_prediction_cache_indexes_the_existing_feature_key() -> None:
     key = prediction_key()
     entry = prediction_entry(key)
-    cache = PredictionCache(
+    cache = ResourceContractCache(
         version=1,
         environment={"source": "gnn"},
         entries=(entry,),
@@ -72,13 +79,13 @@ def test_prediction_cache_rejects_duplicate_keys() -> None:
     entry = prediction_entry()
 
     with pytest.raises(ValidationError, match="duplicate prediction key"):
-        PredictionCache(version=1, entries=(entry, entry))
+        ResourceContractCache(version=1, entries=(entry, entry))
 
 
 def test_prediction_cache_reports_missing_contiguous_batch_keys() -> None:
     batch_one = prediction_entry(prediction_key(batch_size=1))
     batch_three = prediction_entry(prediction_key(batch_size=3))
-    cache = PredictionCache(version=1, entries=(batch_one, batch_three))
+    cache = ResourceContractCache(version=1, entries=(batch_one, batch_three))
 
     assert (
         cache.lookup_decode(
@@ -110,15 +117,20 @@ entries:
       batch_size: 1
       sequence_length: 2048
       decode_output_length: 512
+    source: synthetic_fixture
     predicted_load_sec: 5.0
     predicted_run_sec: 3.5
     predicted_peak_vram_mb: 12000
+    peak_vram_mb_upper_bound: 12000
+    peak_vram_mb_evidence:
+      method: point_estimate_only
+      sample_count: 1
 """.strip(),
         encoding="utf-8",
     )
 
     with pytest.raises(ValidationError, match="unknown"):
-        load_prediction_cache(path)
+        load_resource_contract_cache(path)
 
 
 def test_prediction_entry_rejects_unknown_nested_key_fields() -> None:
@@ -137,7 +149,7 @@ def test_prediction_entry_rejects_unknown_nested_key_fields() -> None:
     }
 
     with pytest.raises(ValidationError, match="unknown prediction key fields"):
-        PredictionEntry.model_validate(payload)
+        ResourceContract.model_validate(payload)
 
 
 def test_prediction_loader_rejects_unknown_nested_key_fields(tmp_path: Path) -> None:
@@ -162,7 +174,7 @@ entries:
     )
 
     with pytest.raises(ValidationError, match="unknown prediction key fields"):
-        load_prediction_cache(path)
+        load_resource_contract_cache(path)
 
 
 def test_prediction_entry_requires_load_prediction() -> None:
@@ -170,7 +182,41 @@ def test_prediction_entry_requires_load_prediction() -> None:
     del payload["predicted_load_sec"]
 
     with pytest.raises(ValidationError, match="predicted_load_sec"):
-        PredictionEntry.model_validate(payload)
+        ResourceContract.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "field", ["source", "peak_vram_mb_upper_bound", "peak_vram_mb_evidence"]
+)
+def test_prediction_entry_requires_resource_contract_fields(field: str) -> None:
+    payload = prediction_entry().model_dump(mode="python")
+    del payload[field]
+
+    with pytest.raises(ValidationError, match=field):
+        ResourceContract.model_validate(payload)
+
+
+def test_prediction_entry_run_sec_bound_and_evidence_are_optional() -> None:
+    entry = prediction_entry()
+
+    assert entry.run_sec_upper_bound is None
+    assert entry.run_sec_evidence is None
+
+
+def test_prediction_entry_rejects_upper_bound_below_point_estimate() -> None:
+    payload = prediction_entry().model_dump(mode="python")
+    payload["peak_vram_mb_upper_bound"] = payload["predicted_peak_vram_mb"] - 1.0
+
+    with pytest.raises(ValidationError, match="peak_vram_mb_upper_bound"):
+        ResourceContract.model_validate(payload)
+
+
+def test_prediction_entry_rejects_run_sec_upper_bound_below_point_estimate() -> None:
+    payload = prediction_entry().model_dump(mode="python")
+    payload["run_sec_upper_bound"] = payload["predicted_run_sec"] - 1.0
+
+    with pytest.raises(ValidationError, match="run_sec_upper_bound"):
+        ResourceContract.model_validate(payload)
 
 
 def test_accelerator_identity_and_scheduler_defaults_are_deterministic() -> None:

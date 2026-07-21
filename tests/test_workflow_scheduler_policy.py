@@ -7,8 +7,10 @@ import pytest
 
 from workflow.artifacts import (
     AcceleratorConfig,
-    PredictionCache,
-    PredictionEntry,
+    ResourceContract,
+    ResourceContractCache,
+    ResourceContractSource,
+    ResourceEvidence,
     SchedulerConfig,
 )
 from workflow.replica import ModelDeploymentConfig, ReplicaLoadResult
@@ -30,6 +32,10 @@ from workflow.types import (
     SessionState,
     WorkflowModelFeatureKey,
 )
+
+NEAR_WORKFLOW_NAME = "near-workflow"
+EVICTION_WORKFLOW_NAME = "eviction-workflow"
+MULTI_EVICTION_WORKFLOW_NAME = "multi-eviction-workflow"
 
 
 def agent_node(name: str, model_name: str) -> dict[str, Any]:
@@ -54,6 +60,7 @@ def agent_node(name: str, model_name: str) -> dict[str, Any]:
 def near_workflow() -> Workflow:
     return Workflow.model_validate(
         {
+            "workflow_name": NEAR_WORKFLOW_NAME,
             "nodes": [
                 {"name": "upstream", "type": "function", "function": "upstream"},
                 agent_node("near", "model-near"),
@@ -66,6 +73,7 @@ def near_workflow() -> Workflow:
 def eviction_workflow() -> Workflow:
     return Workflow.model_validate(
         {
+            "workflow_name": EVICTION_WORKFLOW_NAME,
             "nodes": [
                 {"name": "start", "type": "function", "function": "start"},
                 agent_node("resident", "model-resident"),
@@ -85,6 +93,7 @@ def eviction_workflow() -> Workflow:
 def multi_eviction_workflow() -> Workflow:
     return Workflow.model_validate(
         {
+            "workflow_name": MULTI_EVICTION_WORKFLOW_NAME,
             "nodes": [
                 {"name": "root", "type": "function", "function": "root"},
                 {"name": "up_a", "type": "function", "function": "up_a"},
@@ -108,8 +117,8 @@ def multi_eviction_workflow() -> Workflow:
     )
 
 
-def prediction(model_name: str, *, run_sec: float = 4.0) -> PredictionEntry:
-    return PredictionEntry(
+def prediction(model_name: str, *, run_sec: float = 4.0) -> ResourceContract:
+    return ResourceContract(
         key=WorkflowModelFeatureKey(
             model_name=model_name,
             phase="decode",
@@ -118,9 +127,14 @@ def prediction(model_name: str, *, run_sec: float = 4.0) -> PredictionEntry:
             sequence_length=2048,
             decode_output_length=512,
         ),
+        source=ResourceContractSource.SYNTHETIC_FIXTURE,
         predicted_load_sec=5.0,
         predicted_run_sec=run_sec,
         predicted_peak_vram_mb=8_000,
+        peak_vram_mb_upper_bound=8_000,
+        peak_vram_mb_evidence=ResourceEvidence(
+            method="point_estimate_only", sample_count=1
+        ),
     )
 
 
@@ -150,7 +164,7 @@ def policy_core(
             eps_time_sec=0.5,
             history_ema_alpha=0.5,
         ),
-        predictions=PredictionCache(
+        predictions=ResourceContractCache(
             version=1,
             entries=tuple(prediction(model_name) for model_name in model_names),
         ),
@@ -283,7 +297,7 @@ def seed_idle_replica(
     *,
     now: float,
 ) -> GrantInfo:
-    core.register_session(session_id)
+    core.register_session(session_id, MULTI_EVICTION_WORKFLOW_NAME)
     finish_function(core, session_id, "root")
     if node_id == "agent_a":
         finish_function(core, session_id, "up_a")
@@ -302,9 +316,9 @@ def seed_idle_replica(
 def test_runtime_history_is_keyed_bounded_and_aggregated() -> None:
     core = policy_core(near_workflow())
     for index in range(1, 71):
-        core.record_runtime_report(history_report(index))
+        core.record_runtime_report(history_report(index), NEAR_WORKFLOW_NAME)
 
-    history = core.history[("agent", "model-key", "v100")]
+    history = core.history[(NEAR_WORKFLOW_NAME, "agent", "model-key", "v100")]
     assert isinstance(history, RuntimeHistoryRecord)
     assert len(history.samples) == 64
     assert history.output_tokens_p90 == 64
@@ -314,7 +328,7 @@ def test_runtime_history_is_keyed_bounded_and_aggregated() -> None:
 
 def test_near_ready_prefetch_uses_explicit_deadline() -> None:
     core = policy_core(near_workflow())
-    core.register_session("near-session")
+    core.register_session("near-session", NEAR_WORKFLOW_NAME)
     core.begin_node("near-session", "upstream", ["input-near"])
     core.record_running_upstream("near-session", "upstream", finish_at=20.0)
 
@@ -334,7 +348,7 @@ def test_near_ready_prefetch_uses_explicit_deadline() -> None:
 
 def test_fifo_disables_near_ready_prefetch() -> None:
     core = policy_core(near_workflow(), policy="fifo")
-    core.register_session("near-session")
+    core.register_session("near-session", NEAR_WORKFLOW_NAME)
     core.begin_node("near-session", "upstream", ["input-near"])
     core.record_running_upstream("near-session", "upstream", finish_at=20.0)
 
@@ -344,12 +358,12 @@ def test_fifo_disables_near_ready_prefetch() -> None:
 
 def test_history_prefetch_requires_observed_load_history() -> None:
     core = policy_core(near_workflow(), policy="history")
-    core.register_session("near-session")
+    core.register_session("near-session", NEAR_WORKFLOW_NAME)
     core.begin_node("near-session", "upstream", ["input-near"])
     core.record_running_upstream("near-session", "upstream", finish_at=20.0)
 
     assert core.near_ready_tasks() == ()
-    node = core.workflow.node_map()["near"]
+    node = core._workflow(NEAR_WORKFLOW_NAME).node_map()["near"]
     assert isinstance(node, AgentNodeConfig)
     model_key = ModelDeploymentConfig.from_node(node).model_key
     core.load_history[(model_key, "v100")] = DurationHistoryRecord(duration_sec_ema=2.0)
@@ -362,10 +376,10 @@ def test_history_prefetch_requires_observed_load_history() -> None:
 
 def test_cache_prefetch_ignores_observed_load_history() -> None:
     core = policy_core(near_workflow(), policy="cache")
-    core.register_session("near-session")
+    core.register_session("near-session", NEAR_WORKFLOW_NAME)
     core.begin_node("near-session", "upstream", ["input-near"])
     core.record_running_upstream("near-session", "upstream", finish_at=20.0)
-    node = core.workflow.node_map()["near"]
+    node = core._workflow(NEAR_WORKFLOW_NAME).node_map()["near"]
     assert isinstance(node, AgentNodeConfig)
     model_key = ModelDeploymentConfig.from_node(node).model_key
     core.load_history[(model_key, "v100")] = DurationHistoryRecord(duration_sec_ema=2.0)
@@ -379,7 +393,7 @@ def test_cache_prefetch_ignores_observed_load_history() -> None:
 
 def test_fifo_uses_global_request_order_across_nodes() -> None:
     core = policy_core(eviction_workflow(), policy="fifo")
-    core.register_session("s1")
+    core.register_session("s1", EVICTION_WORKFLOW_NAME)
     finish_function(core, "s1", "start")
     request_agent(core, "s1", "waiting", created_at=1.0)
     request_agent(core, "s1", "resident", created_at=2.0)
@@ -394,10 +408,10 @@ def test_fifo_uses_global_request_order_across_nodes() -> None:
 
 def test_ready_work_outranks_near_ready_prefetch() -> None:
     core = policy_core(near_workflow())
-    core.register_session("near-session")
+    core.register_session("near-session", NEAR_WORKFLOW_NAME)
     core.begin_node("near-session", "upstream", ["input-near"])
     core.record_running_upstream("near-session", "upstream", finish_at=20.0)
-    core.register_session("ready-session")
+    core.register_session("ready-session", NEAR_WORKFLOW_NAME)
     finish_function(core, "ready-session", "upstream")
     _, ready_acquire = request_agent(
         core,
@@ -416,7 +430,7 @@ def test_ready_work_outranks_near_ready_prefetch() -> None:
 
 def test_ready_load_evicts_idle_victim_then_recomputes() -> None:
     core = policy_core(eviction_workflow())
-    core.register_session("s1")
+    core.register_session("s1", EVICTION_WORKFLOW_NAME)
     finish_function(core, "s1", "start")
     resident_task, resident_acquire = request_agent(
         core,
@@ -456,7 +470,7 @@ def test_ready_load_evicts_idle_victim_then_recomputes() -> None:
 
 def test_suspect_cleanup_precedes_ready_scheduling() -> None:
     core = policy_core(eviction_workflow(), accelerator_count=2)
-    core.register_session("s1")
+    core.register_session("s1", EVICTION_WORKFLOW_NAME)
     finish_function(core, "s1", "start")
     resident_task, resident_acquire = request_agent(
         core,
@@ -490,7 +504,7 @@ def test_eviction_prefers_no_future_demand_over_near_reuse() -> None:
     core = policy_core(multi_eviction_workflow(), accelerator_count=2)
     grant_a = seed_idle_replica(core, "seed-a", "agent_a", now=3.0)
     grant_b = seed_idle_replica(core, "seed-b", "agent_b", now=7.0)
-    core.register_session("near-a")
+    core.register_session("near-a", MULTI_EVICTION_WORKFLOW_NAME)
     finish_function(core, "near-a", "root")
     core.begin_node("near-a", "up_a", ["near-a-input"])
     core.record_running_upstream("near-a", "up_a", finish_at=20.0)
@@ -500,7 +514,7 @@ def test_eviction_prefers_no_future_demand_over_near_reuse() -> None:
     core.tasks[
         core.sessions["near-a"].task_ids["agent_c"]
     ].state = NodeTaskState.CANCELLED
-    core.register_session("ready-c")
+    core.register_session("ready-c", MULTI_EVICTION_WORKFLOW_NAME)
     finish_function(core, "ready-c", "root")
     finish_function(core, "ready-c", "up_c")
     _, _ = request_agent(core, "ready-c", "agent_c", created_at=10.0)
@@ -529,7 +543,7 @@ def test_eviction_unknown_reuse_falls_back_to_longest_idle() -> None:
     replica_a.created_at = 100.0
     replica_a.idle_since = 0.0
     replica_b.idle_since = 5.0
-    core.register_session("ready-c")
+    core.register_session("ready-c", MULTI_EVICTION_WORKFLOW_NAME)
     finish_function(core, "ready-c", "root")
     finish_function(core, "ready-c", "up_c")
     request_agent(core, "ready-c", "agent_c", created_at=10.0)
@@ -545,7 +559,7 @@ def test_near_prefetch_does_not_evict_ready_pair() -> None:
     core = policy_core(multi_eviction_workflow(), accelerator_count=2)
     grant_a = seed_idle_replica(core, "seed-a", "agent_a", now=3.0)
     grant_b = seed_idle_replica(core, "seed-b", "agent_b", now=7.0)
-    core.register_session("ready-a")
+    core.register_session("ready-a", MULTI_EVICTION_WORKFLOW_NAME)
     finish_function(core, "ready-a", "root")
     finish_function(core, "ready-a", "up_a")
     _, ready_acquire = request_agent(
@@ -554,7 +568,7 @@ def test_near_prefetch_does_not_evict_ready_pair() -> None:
         "agent_a",
         created_at=10.0,
     )
-    core.register_session("near-c")
+    core.register_session("near-c", MULTI_EVICTION_WORKFLOW_NAME)
     finish_function(core, "near-c", "root")
     core.begin_node("near-c", "up_c", ["near-c-input"])
     core.record_running_upstream("near-c", "up_c", finish_at=15.0)
@@ -574,7 +588,7 @@ def test_near_prefetch_does_not_evict_ready_pair() -> None:
 
 def test_failed_eviction_is_explicit_and_keeps_ownership() -> None:
     core = policy_core(eviction_workflow())
-    core.register_session("s1")
+    core.register_session("s1", EVICTION_WORKFLOW_NAME)
     finish_function(core, "s1", "start")
     task_id, acquire_id = request_agent(core, "s1", "resident", created_at=3.0)
     grant = complete_load_and_grant(core, acquire_id, now=4.0)
@@ -594,7 +608,7 @@ def test_failed_eviction_is_explicit_and_keeps_ownership() -> None:
 
 def test_tick_never_evicts_busy_or_loading_replicas() -> None:
     core = policy_core(eviction_workflow())
-    core.register_session("s1")
+    core.register_session("s1", EVICTION_WORKFLOW_NAME)
     finish_function(core, "s1", "start")
     _, _resident_acquire = request_agent(core, "s1", "resident", created_at=3.0)
     load = core.tick_once(now=4.0)[0]

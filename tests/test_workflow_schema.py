@@ -24,6 +24,7 @@ from workflow.types import (
 )
 
 WORKFLOW_PAYLOAD: dict[str, Any] = {
+    "workflow_name": "test-workflow",
     "nodes": [
         {
             "name": "split",
@@ -144,9 +145,13 @@ def test_workflow_graph_is_immutable() -> None:
 @pytest.mark.parametrize(
     ("payload", "message"),
     [
-        ({"nodes": [], "edges": []}, "non-empty"),
+        (
+            {"workflow_name": "test-workflow", "nodes": [], "edges": []},
+            "non-empty",
+        ),
         (
             {
+                "workflow_name": "test-workflow",
                 "nodes": WORKFLOW_PAYLOAD["nodes"],
                 "edges": [{"source": "missing", "target": "merge"}],
             },
@@ -154,6 +159,7 @@ def test_workflow_graph_is_immutable() -> None:
         ),
         (
             {
+                "workflow_name": "test-workflow",
                 "nodes": WORKFLOW_PAYLOAD["nodes"],
                 "edges": [{"source": "split", "target": "split"}],
             },
@@ -161,6 +167,7 @@ def test_workflow_graph_is_immutable() -> None:
         ),
         (
             {
+                "workflow_name": "test-workflow",
                 "nodes": WORKFLOW_PAYLOAD["nodes"],
                 "edges": [
                     {"source": "split", "target": "left"},
@@ -171,6 +178,7 @@ def test_workflow_graph_is_immutable() -> None:
         ),
         (
             {
+                "workflow_name": "test-workflow",
                 "nodes": WORKFLOW_PAYLOAD["nodes"][:2],
                 "edges": [
                     {"source": "split", "target": "left"},
@@ -181,6 +189,7 @@ def test_workflow_graph_is_immutable() -> None:
         ),
         (
             {
+                "workflow_name": "test-workflow",
                 "nodes": WORKFLOW_PAYLOAD["nodes"][:3],
                 "edges": [
                     {"source": "split", "target": "left"},
@@ -191,6 +200,7 @@ def test_workflow_graph_is_immutable() -> None:
         ),
         (
             {
+                "workflow_name": "test-workflow",
                 "nodes": WORKFLOW_PAYLOAD["nodes"][1:],
                 "edges": [
                     {"source": "left", "target": "merge"},

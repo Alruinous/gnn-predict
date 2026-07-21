@@ -153,6 +153,7 @@ def mbpp_functions() -> dict[str, Callable[..., object]]:
 
 def build_mbpp_workflow(
     *,
+    workflow_name: str = "mbpp",
     max_num_seqs: int = 3,
     queue_capacity: int = 16,
     qwen3_4b_path: str = QWEN3_4B_PATH,
@@ -210,7 +211,9 @@ def build_mbpp_workflow(
         {"source": "tester", "target": "final_tester"},
         {"source": "repair", "target": "final_tester"},
     ]
-    return Workflow.model_validate({"nodes": nodes, "edges": edges})
+    return Workflow.model_validate(
+        {"workflow_name": workflow_name, "nodes": nodes, "edges": edges}
+    )
 
 
 def _agent_node(

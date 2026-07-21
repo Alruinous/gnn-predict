@@ -28,15 +28,17 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from workflow.artifacts import (  # noqa: E402
-    PredictionCache,
-    PredictionEntry,
-    load_prediction_cache,
-)
-from workflow.cache_config import (  # noqa: E402
+from gnn_model.data.causal_lm_cache_config import (  # noqa: E402
     GraphCacheExportSpec,
     expand_graph_cache_specs,
     load_graph_cache_config,
+)
+from workflow.artifacts import (  # noqa: E402
+    ResourceContract,
+    ResourceContractCache,
+    ResourceContractSource,
+    ResourceEvidence,
+    load_resource_contract_cache,
 )
 from workflow.types import WorkflowModelFeatureKey  # noqa: E402
 
@@ -1042,7 +1044,7 @@ def build_prediction_cache(
     specs: list[ProfileSpec],
     manifest: dict[str, Any],
     complete: bool,
-) -> PredictionCache:
+) -> ResourceContractCache:
     _, loads = read_all_results(output_dir, tasks)
     records_by_id: dict[str, dict[str, Any]] = {}
     for task in tasks:
@@ -1054,7 +1056,7 @@ def build_prediction_cache(
                 raise ValueError(f"duplicate profile record: {spec_id}")
             records_by_id[spec_id] = record
 
-    entries: list[PredictionEntry] = []
+    entries: list[ResourceContract] = []
     for spec in specs:
         record = records_by_id.get(spec.spec_id)
         if record is None or record.get("status") != "success":
@@ -1064,8 +1066,10 @@ def build_prediction_cache(
             raise RuntimeError(f"successful spec has no load profile: {spec.spec_id}")
         gpu = cast(dict[str, object], record["gpu"])
         gpu_kind = str(manifest["gpu_kind"])
+        peak_vram_mb = float(record["peak_vram_mb"])
+        vram_margin_fraction = 0.10
         entries.append(
-            PredictionEntry(
+            ResourceContract(
                 key=WorkflowModelFeatureKey(
                     model_name=spec.model_name,
                     phase="decode",
@@ -1074,9 +1078,16 @@ def build_prediction_cache(
                     sequence_length=spec.sequence_length,
                     decode_output_length=spec.decode_output_length,
                 ),
+                source=ResourceContractSource.EMPIRICAL_PROFILE,
                 predicted_load_sec=float(load["predicted_load_sec"]),
                 predicted_run_sec=float(record["duration_sec"]),
-                predicted_peak_vram_mb=float(record["peak_vram_mb"]),
+                predicted_peak_vram_mb=peak_vram_mb,
+                peak_vram_mb_upper_bound=peak_vram_mb * (1.0 + vram_margin_fraction),
+                peak_vram_mb_evidence=ResourceEvidence(
+                    method="fixed_margin_fallback",
+                    sample_count=1,
+                    margin_fraction=vram_margin_fraction,
+                ),
                 predicted_power_watts=float(record["power_watts_avg"]),
                 predictor_metadata={
                     "source": "empirical_gpu_profile",
@@ -1093,7 +1104,7 @@ def build_prediction_cache(
                 },
             )
         )
-    return PredictionCache(
+    return ResourceContractCache(
         version=2,
         environment=prediction_environment(manifest, complete),
         entries=tuple(entries),
@@ -1135,7 +1146,7 @@ def consolidate_outputs(
     )
     predictions_path = output_dir / "predictions.yaml"
     write_yaml(predictions_path, cache.model_dump(mode="json"))
-    load_prediction_cache(predictions_path)
+    load_resource_contract_cache(predictions_path)
 
     summary = {
         "complete": complete,
@@ -1171,7 +1182,7 @@ def print_dry_run(tasks: list[GroupTask], specs: list[ProfileSpec]) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Profile cache.yaml generation buckets into PredictionCache YAML."
+        description="Profile cache.yaml generation buckets into ResourceContractCache."
     )
     parser.add_argument(
         "--cache-yaml",

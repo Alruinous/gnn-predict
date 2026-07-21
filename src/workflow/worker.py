@@ -16,6 +16,7 @@ from langchain.agents import AgentState
 from langchain_core.messages import AIMessage
 from ray.exceptions import RayActorError
 
+from workflow.actor_support import invoke
 from workflow.replica import PromptEncoding, ReplicaInferenceResult
 from workflow.scheduler import (
     AcquireAlreadyGrantedError,
@@ -217,7 +218,7 @@ async def execute_agent(
         system_prompt=node.system_prompt,
     )
     input_tokens = prompt.input_tokens
-    acquire_value = await _invoke(
+    acquire_value = await invoke(
         scheduler,
         "request_acquire",
         task_id,
@@ -242,7 +243,7 @@ async def execute_agent(
     if grant_observer is not None:
         grant_observer(grant)
     try:
-        result_value = await _invoke(
+        result_value = await invoke(
             grant.backend_handle,
             "invoke",
             acquire_value,
@@ -425,7 +426,7 @@ class NodeWorker:
             input_item_ids=tuple(ready.input_item_ids),
         )
         try:
-            task_value = await _invoke(
+            task_value = await invoke(
                 self.scheduler,
                 "begin_node",
                 item.session_id,
@@ -459,7 +460,7 @@ class NodeWorker:
         active = self._active_replica_requests.get(session_id)
         if active is not None:
             backend_handle, request_id = active
-            await _invoke(backend_handle, "abort", request_id)
+            await invoke(backend_handle, "abort", request_id)
 
     def stop(self) -> None:
         self._stopping = True
@@ -501,7 +502,7 @@ class NodeWorker:
         source_nodes: tuple[str, ...] = (),
         input_item_ids: tuple[str, ...] = (),
     ) -> None:
-        await _invoke(
+        await invoke(
             self.scheduler,
             "observe_input",
             InputTraceReport(
@@ -701,7 +702,7 @@ class NodeWorker:
         *,
         acquire_id: str | None = None,
     ) -> CompleteDecision:
-        value = await _invoke(
+        value = await invoke(
             self.scheduler,
             "complete",
             task_id,
@@ -736,7 +737,7 @@ class NodeWorker:
                     message=state,
                     session_input_ref=session_input_ref,
                 )
-                await _invoke(self.output_queues[successor], "put_async", emitted)
+                await invoke(self.output_queues[successor], "put_async", emitted)
                 enqueued_at = time.time()
                 output_item_ids.append(emitted.item_id)
                 output_items.append(
@@ -761,7 +762,7 @@ class NodeWorker:
             result = routed[""]
         if self._session_cancelled(session_id):
             return None
-        await _invoke(
+        await invoke(
             self.result_store,
             "put",
             session_id,
@@ -786,7 +787,7 @@ class NodeWorker:
         if self._session_cancelled(session_id):
             return
         try:
-            await _invoke(self.scheduler, "finish_node", task_id, output_report)
+            await invoke(self.scheduler, "finish_node", task_id, output_report)
         except TaskCancelledError:
             return
 
@@ -799,7 +800,7 @@ class NodeWorker:
         if self._session_cancelled(session_id):
             return
         try:
-            await _invoke(
+            await invoke(
                 self.scheduler,
                 "fail_node",
                 task_id,
@@ -829,15 +830,15 @@ async def _wait_for_grant(
 ) -> GrantInfoProtocol:
     deadline = time.monotonic() + acquire_timeout_sec
     while True:
-        grant_value = await _invoke(scheduler, "poll_grant", acquire_id)
+        grant_value = await invoke(scheduler, "poll_grant", acquire_id)
         if grant_value is not None:
             return cast(GrantInfoProtocol, grant_value)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             try:
-                await _invoke(scheduler, "cancel_acquire", acquire_id)
+                await invoke(scheduler, "cancel_acquire", acquire_id)
             except AcquireAlreadyGrantedError:
-                grant_value = await _invoke(scheduler, "poll_grant", acquire_id)
+                grant_value = await invoke(scheduler, "poll_grant", acquire_id)
                 if grant_value is None:
                     raise RuntimeError(
                         "granted acquire must be visible after cancellation race"
@@ -909,30 +910,16 @@ def _create_prompt_tokenizer(execution: ExecutionConfig) -> PromptTokenizerProto
     return PromptTokenizer(execution)
 
 
-async def _invoke(
-    target: object,
-    method_name: str,
-    *args: object,
-    **kwargs: object,
-) -> object:
-    method = getattr(target, method_name)
-    remote = getattr(method, "remote", None)
-    value = remote(*args, **kwargs) if callable(remote) else method(*args, **kwargs)
-    if inspect.isawaitable(value):
-        return await cast(Awaitable[object], value)
-    return cast(object, value)
-
-
 async def _poll_input_queue(queue: object, timeout_sec: float) -> object | None:
     get_async = cast(Any, queue).get_async
     if "timeout" in inspect.signature(get_async).parameters:
         try:
-            return await _invoke(queue, "get_async", timeout=timeout_sec)
+            return await invoke(queue, "get_async", timeout=timeout_sec)
         except Empty:
             return None
     try:
         return await asyncio.wait_for(
-            _invoke(queue, "get_async"),
+            invoke(queue, "get_async"),
             timeout=timeout_sec,
         )
     except TimeoutError:

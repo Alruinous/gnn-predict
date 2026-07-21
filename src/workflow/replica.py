@@ -5,7 +5,7 @@ import hashlib
 import json
 import time
 from collections.abc import Callable, Sequence
-from typing import Literal, Protocol
+from typing import ClassVar, Literal, Protocol
 
 import ray
 from pydantic import (
@@ -164,7 +164,15 @@ BackendFactory = Callable[[ModelDeploymentConfig], GenerationBackend]
 GpuIdProvider = Callable[[], Sequence[PhysicalGpuId]]
 
 
-class ModelReplica:
+class GenerationEngine:
+    engine_label: ClassVar[str] = "generation engine"
+    # Subclasses opt into rejecting requests beyond serving.max_num_seqs. The
+    # static baseline engine deliberately leaves this off: it has no scheduler
+    # admission control in front of it and relies on vLLM's own batching
+    # instead (see workflow/baseline/vllm_engine.py and the tests asserting
+    # it accepts more concurrent requests than max_num_seqs).
+    enforce_capacity: ClassVar[bool] = False
+
     def __init__(
         self,
         deployment: ModelDeploymentConfig,
@@ -182,13 +190,13 @@ class ModelReplica:
 
     def load(self) -> ReplicaLoadResult:
         if self._backend is not None:
-            raise RuntimeError("model replica is already loaded")
+            raise RuntimeError(f"{self.engine_label} is already loaded")
         if self._stopping:
-            raise RuntimeError("model replica is stopping")
+            raise RuntimeError(f"{self.engine_label} is stopping")
         gpu_ids = tuple(self._gpu_id_provider())
         if len(gpu_ids) != 1:
             raise RuntimeError(
-                f"model replica requires exactly one Ray GPU id, got {gpu_ids}"
+                f"{self.engine_label} requires exactly one Ray GPU id, got {gpu_ids}"
             )
 
         started = time.perf_counter()
@@ -219,16 +227,18 @@ class ModelReplica:
     ) -> ReplicaInferenceResult:
         backend = self._require_backend()
         if self._stopping:
-            raise RuntimeError("model replica is stopping")
+            raise RuntimeError(f"{self.engine_label} is stopping")
         if generation.serving != self.deployment.serving:
-            raise ValueError("generation serving config does not match the replica")
+            raise ValueError(
+                f"generation serving config does not match the {self.engine_label}"
+            )
         if max_new_tokens != generation.max_new_tokens:
             raise ValueError("generation output limit does not match the workflow")
         if request_id in self._active_request_ids:
             raise ValueError(f"duplicate vLLM request id: {request_id}")
         inflight = len(self._active_request_ids) + 1
-        if inflight > self.deployment.serving.max_num_seqs:
-            raise RuntimeError("replica request capacity exceeded")
+        if self.enforce_capacity and inflight > self.deployment.serving.max_num_seqs:
+            raise RuntimeError(f"{self.engine_label} request capacity exceeded")
         request = GenerationRequest(
             request_id=request_id,
             prompt_token_ids=prompt_token_ids,
@@ -334,7 +344,7 @@ class ModelReplica:
         self._backend = None
         if abort_failure is not None:
             raise RuntimeError(
-                "failed to abort active vLLM requests"
+                f"failed to abort active {self.engine_label} requests"
             ) from abort_failure
 
     def get_stats(self) -> ReplicaStats:
@@ -346,8 +356,13 @@ class ModelReplica:
 
     def _require_backend(self) -> GenerationBackend:
         if self._backend is None:
-            raise RuntimeError("model replica must load before invoke")
+            raise RuntimeError(f"{self.engine_label} must load before invoke")
         return self._backend
+
+
+class ModelReplica(GenerationEngine):
+    engine_label = "model replica"
+    enforce_capacity = True
 
 
 def _create_vllm_backend(deployment: ModelDeploymentConfig) -> GenerationBackend:

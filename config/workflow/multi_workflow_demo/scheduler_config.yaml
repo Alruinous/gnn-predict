@@ -1,0 +1,16 @@
+# Reference SchedulerConfig for a single-node, heterogeneous V100+A100 pool.
+# Load via: SchedulerConfig.model_validate(yaml.safe_load(path.read_text()))
+# vllm_python_executable is a placeholder — point it at the real vLLM venv
+# interpreter before running an actual smoke test.
+policy: cache
+accelerators:
+  - hostname: v100-node-0
+    gpu_kind: v100
+    local_index: 0
+    total_mem_mb: 32768
+  - hostname: a100-node-0
+    gpu_kind: a100
+    local_index: 0
+    total_mem_mb: 81920
+vllm_python_executable: /path/to/vllm-venv/bin/python
+eps_mem_mb: 512

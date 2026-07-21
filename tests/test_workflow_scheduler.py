@@ -17,10 +17,15 @@ from workflow.scheduler import (
 from workflow.schema import Workflow
 from workflow.types import NodeTaskState, SessionState
 
+FUNCTION_WORKFLOW_NAME = "function-workflow"
+BRANCHED_WORKFLOW_NAME = "branched-workflow"
+AGENT_WORKFLOW_NAME = "agent-workflow"
+
 
 def function_workflow() -> Workflow:
     return Workflow.model_validate(
         {
+            "workflow_name": FUNCTION_WORKFLOW_NAME,
             "nodes": [
                 {
                     "name": "entry",
@@ -41,6 +46,7 @@ def function_workflow() -> Workflow:
 def branched_workflow() -> Workflow:
     return Workflow.model_validate(
         {
+            "workflow_name": BRANCHED_WORKFLOW_NAME,
             "nodes": [
                 {"name": "start", "type": "function", "function": "start"},
                 {"name": "left", "type": "function", "function": "left"},
@@ -60,6 +66,7 @@ def branched_workflow() -> Workflow:
 def agent_workflow() -> Workflow:
     return Workflow.model_validate(
         {
+            "workflow_name": AGENT_WORKFLOW_NAME,
             "nodes": [
                 {
                     "name": "agent",
@@ -117,16 +124,17 @@ def output_report(
 
 def complete_and_finish(core: SchedulerCore, task_id: str) -> None:
     assert core.complete(task_id, function_report(core, task_id)).emit_output
-    node_id = core.tasks[task_id].node_id
+    task = core.tasks[task_id]
+    workflow = core._workflow(core.sessions[task.session_id].workflow_name)
     core.finish_node(
         task_id,
-        output_report(task_id, terminal=node_id == core.workflow.graph.terminal_node),
+        output_report(task_id, terminal=task.node_id == workflow.graph.terminal_node),
     )
 
 
 def test_function_task_completes_only_after_output_emission() -> None:
     core = SchedulerCore(function_workflow())
-    core.register_session("s1")
+    core.register_session("s1", FUNCTION_WORKFLOW_NAME)
     task_id = core.begin_node("s1", "entry", ["item-1"])
 
     decision = core.complete(task_id, function_report(core, task_id))
@@ -140,7 +148,7 @@ def test_function_task_completes_only_after_output_emission() -> None:
 
 def test_terminal_function_completion_marks_session_completed() -> None:
     core = SchedulerCore(function_workflow())
-    core.register_session("s1")
+    core.register_session("s1", FUNCTION_WORKFLOW_NAME)
     entry_id = core.begin_node("s1", "entry", ["item-1"])
     complete_and_finish(core, entry_id)
     terminal_id = core.begin_node("s1", "terminal", ["output-entry"])
@@ -154,7 +162,7 @@ def test_terminal_function_completion_marks_session_completed() -> None:
 
 def test_terminal_finish_requires_persisted_result() -> None:
     core = SchedulerCore(function_workflow())
-    core.register_session("s1")
+    core.register_session("s1", FUNCTION_WORKFLOW_NAME)
     entry_id = core.begin_node("s1", "entry", ["item-1"])
     complete_and_finish(core, entry_id)
     terminal_id = core.begin_node("s1", "terminal", ["output-entry"])
@@ -169,10 +177,10 @@ def test_terminal_finish_requires_persisted_result() -> None:
 
 def test_register_and_begin_reject_invalid_lifecycle_operations() -> None:
     core = SchedulerCore(function_workflow())
-    core.register_session("s1")
+    core.register_session("s1", FUNCTION_WORKFLOW_NAME)
 
     with pytest.raises(ValueError, match="already registered"):
-        core.register_session("s1")
+        core.register_session("s1", FUNCTION_WORKFLOW_NAME)
     with pytest.raises(KeyError, match="unknown session"):
         core.begin_node("missing", "entry", ["item-1"])
     with pytest.raises(KeyError, match="unknown node"):
@@ -191,7 +199,7 @@ def test_register_and_begin_reject_invalid_lifecycle_operations() -> None:
 
 def test_begin_accepts_dependency_that_is_emitting_its_output() -> None:
     core = SchedulerCore(function_workflow())
-    core.register_session("s1")
+    core.register_session("s1", FUNCTION_WORKFLOW_NAME)
     entry_id = core.begin_node("s1", "entry", ["item-1"])
     core.complete(entry_id, function_report(core, entry_id))
 
@@ -202,7 +210,7 @@ def test_begin_accepts_dependency_that_is_emitting_its_output() -> None:
 
 def test_agent_acquire_can_be_polled_cancelled_and_requested_again() -> None:
     core = SchedulerCore(agent_workflow())
-    core.register_session("s1")
+    core.register_session("s1", AGENT_WORKFLOW_NAME)
     task_id = core.begin_node("s1", "agent", ["item-1"])
 
     assert core.tasks[task_id].state == NodeTaskState.ACQUIRING
@@ -223,7 +231,7 @@ def test_agent_acquire_can_be_polled_cancelled_and_requested_again() -> None:
 
 def test_acquire_rejects_invalid_task_state_and_identifiers() -> None:
     function_core = SchedulerCore(function_workflow())
-    function_core.register_session("s1")
+    function_core.register_session("s1", FUNCTION_WORKFLOW_NAME)
     function_task_id = function_core.begin_node("s1", "entry", ["item-1"])
 
     with pytest.raises(ValueError, match="agent task"):
@@ -238,7 +246,7 @@ def test_acquire_rejects_invalid_task_state_and_identifiers() -> None:
 
 def test_complete_rejects_agent_reports_until_resource_lifecycle_exists() -> None:
     core = SchedulerCore(agent_workflow())
-    core.register_session("s1")
+    core.register_session("s1", AGENT_WORKFLOW_NAME)
     task_id = core.begin_node("s1", "agent", ["item-1"])
     acquire_id = core.request_acquire(task_id, input_tokens=64, created_at=1.0)
     report = AgentTaskRuntimeReport(
@@ -266,7 +274,7 @@ def test_complete_rejects_agent_reports_until_resource_lifecycle_exists() -> Non
 
 def test_complete_validates_function_report_identity_and_state() -> None:
     core = SchedulerCore(function_workflow())
-    core.register_session("s1")
+    core.register_session("s1", FUNCTION_WORKFLOW_NAME)
     task_id = core.begin_node("s1", "entry", ["item-1"])
     mismatched = function_report(core, task_id).model_copy(
         update={"session_id": "other"}
@@ -284,7 +292,7 @@ def test_complete_validates_function_report_identity_and_state() -> None:
 
 def test_failed_function_report_fails_task_and_session() -> None:
     core = SchedulerCore(function_workflow())
-    core.register_session("s1")
+    core.register_session("s1", FUNCTION_WORKFLOW_NAME)
     task_id = core.begin_node("s1", "entry", ["item-1"])
 
     decision = core.complete(
@@ -299,8 +307,8 @@ def test_failed_function_report_fails_task_and_session() -> None:
 
 def test_session_failure_is_isolated_and_queues_one_cancellation_action() -> None:
     core = SchedulerCore(function_workflow())
-    core.register_session("failed")
-    core.register_session("active")
+    core.register_session("failed", FUNCTION_WORKFLOW_NAME)
+    core.register_session("active", FUNCTION_WORKFLOW_NAME)
     failed_task_id = core.begin_node("failed", "entry", ["item-failed"])
     active_task_id = core.begin_node("active", "entry", ["item-active"])
 
@@ -315,7 +323,7 @@ def test_session_failure_is_isolated_and_queues_one_cancellation_action() -> Non
 
 def test_session_failure_cancels_pending_acquiring_and_emitting_tasks() -> None:
     core = SchedulerCore(branched_workflow())
-    core.register_session("s1")
+    core.register_session("s1", BRANCHED_WORKFLOW_NAME)
     start_id = core.begin_node("s1", "start", ["item-1"])
     complete_and_finish(core, start_id)
     left_id = core.begin_node("s1", "left", ["left-input"])
@@ -338,7 +346,7 @@ def test_session_failure_cancels_pending_acquiring_and_emitting_tasks() -> None:
 
 def test_late_failed_function_report_cancels_running_task() -> None:
     core = SchedulerCore(branched_workflow())
-    core.register_session("s1")
+    core.register_session("s1", BRANCHED_WORKFLOW_NAME)
     start_id = core.begin_node("s1", "start", ["item-1"])
     complete_and_finish(core, start_id)
     left_id = core.begin_node("s1", "left", ["left-input"])
@@ -356,7 +364,7 @@ def test_late_failed_function_report_cancels_running_task() -> None:
 
 def test_session_failure_removes_pending_acquire() -> None:
     core = SchedulerCore(agent_workflow())
-    core.register_session("s1")
+    core.register_session("s1", AGENT_WORKFLOW_NAME)
     task_id = core.begin_node("s1", "agent", ["item-1"])
     acquire_id = core.request_acquire(task_id, input_tokens=64, created_at=1.0)
 
@@ -369,7 +377,7 @@ def test_session_failure_removes_pending_acquire() -> None:
 
 def test_cancelled_task_uses_narrow_finish_and_fail_errors() -> None:
     core = SchedulerCore(function_workflow())
-    core.register_session("s1")
+    core.register_session("s1", FUNCTION_WORKFLOW_NAME)
     task_id = core.begin_node("s1", "entry", ["item-1"])
     core.complete(task_id, function_report(core, task_id))
     terminal_id = core.sessions["s1"].task_ids["terminal"]
@@ -383,7 +391,7 @@ def test_cancelled_task_uses_narrow_finish_and_fail_errors() -> None:
 
 def test_emission_failure_is_terminal() -> None:
     core = SchedulerCore(function_workflow())
-    core.register_session("s1")
+    core.register_session("s1", FUNCTION_WORKFLOW_NAME)
     task_id = core.begin_node("s1", "entry", ["item-1"])
     core.complete(task_id, function_report(core, task_id))
 
@@ -397,7 +405,7 @@ def test_emission_failure_is_terminal() -> None:
 
 def test_finish_node_validates_report_and_state() -> None:
     core = SchedulerCore(function_workflow())
-    core.register_session("s1")
+    core.register_session("s1", FUNCTION_WORKFLOW_NAME)
     task_id = core.begin_node("s1", "entry", ["item-1"])
 
     with pytest.raises(ValueError, match="emitting"):
@@ -414,7 +422,7 @@ def test_finish_node_validates_report_and_state() -> None:
 def test_drain_waits_for_active_work_and_emission() -> None:
     core = SchedulerCore(function_workflow())
     assert core.drain_complete()
-    core.register_session("s1")
+    core.register_session("s1", FUNCTION_WORKFLOW_NAME)
     assert not core.drain_complete()
     task_id = core.begin_node("s1", "entry", ["item-1"])
     assert not core.drain_complete()

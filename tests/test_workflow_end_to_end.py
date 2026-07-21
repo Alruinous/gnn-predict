@@ -10,7 +10,7 @@ import pytest
 from langchain.agents import AgentState
 from langchain_core.messages import AIMessage
 
-from workflow import controller as controller_module
+from workflow import fleet as fleet_module
 from workflow.artifacts import SchedulerConfig
 from workflow.controller import WorkflowController
 from workflow.schema import Workflow
@@ -34,6 +34,7 @@ def function_workflow(*, terminal_function: str = "merge") -> Workflow:
     if terminal_function == "block":
         return Workflow.model_validate(
             {
+                "workflow_name": "block-terminal-workflow",
                 "nodes": [
                     {"name": "terminal", "type": "function", "function": "block"}
                 ],
@@ -42,6 +43,7 @@ def function_workflow(*, terminal_function: str = "merge") -> Workflow:
         )
     return Workflow.model_validate(
         {
+            "workflow_name": "function-only-workflow",
             "nodes": [
                 {
                     "name": "split",
@@ -192,17 +194,17 @@ def test_session_latency_ends_at_persistence_and_releases_input_reference(
         run_id="session-latency",
     )
     controller.start()
-    original_put = controller_module.ray.put
+    original_put = fleet_module.ray.put
 
     def delayed_put(value: object) -> object:
         time.sleep(0.12)
         return original_put(value)
 
-    monkeypatch.setattr(controller_module.ray, "put", delayed_put)
+    monkeypatch.setattr(fleet_module.ray, "put", delayed_put)
     submitted_at = time.perf_counter()
     try:
         controller.submit("session-1", {"value": "one"})
-        assert "session-1" in controller._session_input_refs
+        assert "session-1" in controller._fleet._binding(controller.workflow.workflow_name).session_input_refs
 
         result_path = tmp_path / "session_results.jsonl"
         assert wait_until(
@@ -212,7 +214,7 @@ def test_session_latency_ends_at_persistence_and_releases_input_reference(
         )
         persisted_elapsed = time.perf_counter() - submitted_at
         assert wait_until(
-            lambda: "session-1" not in controller._session_input_refs,
+            lambda: "session-1" not in controller._fleet._binding(controller.workflow.workflow_name).session_input_refs,
             timeout_sec=10.0,
             interval_sec=0.01,
         )

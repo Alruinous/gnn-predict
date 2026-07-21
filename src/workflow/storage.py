@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from math import ceil
 from pathlib import Path
 from typing import TextIO, cast
@@ -168,15 +168,26 @@ def _percentile(values: list[float], quantile: float) -> float:
     return ordered[ceil(quantile * len(ordered)) - 1]
 
 
-def write_run_summary(output_dir: Path | str, run_id: str) -> None:
+def write_run_summary(
+    output_dir: Path | str,
+    run_id: str,
+    *,
+    result_directories: Sequence[Path | str] | None = None,
+) -> None:
     directory = Path(output_dir)
+    directories = (
+        [directory]
+        if result_directories is None
+        else [Path(item) for item in result_directories]
+    )
     result_count = 0
-    for result in _read_jsonl(directory / RESULTS_FILENAME):
-        if result.get("run_id") != run_id:
-            raise ValueError(
-                f"result run_id {result.get('run_id')!r} does not match {run_id!r}"
-            )
-        result_count += 1
+    for result_directory in directories:
+        for result in _read_jsonl(result_directory / RESULTS_FILENAME):
+            if result.get("run_id") != run_id:
+                raise ValueError(
+                    f"result run_id {result.get('run_id')!r} does not match {run_id!r}"
+                )
+            result_count += 1
 
     submitted_session_count = 0
     completed_session_count = 0

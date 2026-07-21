@@ -1,3 +1,4 @@
+workflow_name: summarize-runtime-example
 nodes:
   - name: prepare
     type: function
