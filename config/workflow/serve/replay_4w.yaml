@@ -1,0 +1,28 @@
+# dataset_replay experiment config. Set dataset_path to the platform dataset directories.
+# workflow_name must match the registered workflow (qmsum.yaml / mbpp.yaml).
+# sample_count caps samples (manifests pin 60); arrival_gap_sec spaces session arrivals.
+timeout_sec: 3600
+scenarios:
+  - dataset: qmsum
+    workflow_name: qmsum1
+    dataset_path: dataset/QMSum/data/ALL
+    sample_count: 30
+    arrival_gap_sec: 0.0
+
+  - dataset: qmsum
+    workflow_name: qmsum2
+    dataset_path: dataset/QMSum/data/ALL
+    sample_count: 30
+    arrival_gap_sec: 0.0
+
+  - dataset: mbpp
+    workflow_name: mbpp1
+    dataset_path: dataset/mbpp/sanitized-mbpp.json
+    sample_count: 30
+    arrival_gap_sec: 0.0
+
+  - dataset: mbpp
+    workflow_name: mbpp2
+    dataset_path: dataset/mbpp/sanitized-mbpp.json
+    sample_count: 30
+    arrival_gap_sec: 0.0

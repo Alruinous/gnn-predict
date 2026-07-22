@@ -113,10 +113,56 @@ RUN_ID=hetero_w11 SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml PRIORI
 3 个 V100 worker：
 
 ```sh
-RUN_ID=hetero_a1v3 SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml MIN_GPUS=4 sh scripts/workflow/serve_master.sh
+RUN_ID=hetero_cache_a1v3 SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml MIN_GPUS=4 sh scripts/workflow/serve_master.sh
+RUN_ID=hetero_kairos_a1v3 SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml MIN_GPUS=4 sh scripts/workflow/serve_master.sh
 ```
 
 观察 14B 是否稳定落 A100、小模型是否走最小安全卡，以及 makespan/驻留随配比的变化。
+
+## E4 — 开环泊松到达（负载扫描）
+
+E1–E3 都是 burst（`arrival_gap_sec=0`，所有 session 在 t=0 一次性灌入）。burst 使系统全程饱和、
+模型始终驻留：实测四策略 `prefetch_count` 全为 0、`model_load` 仅 13–19 次，cache 的预取与预测式驱逐
+没机会触发，优势只剩 makespan/尾延迟。**开环泊松**让 session 按指数间隔流入，制造「活跃-空闲」交替
+→ 模型被驱逐后又被需要 → cache 的预取/保留才发挥（`prefetch_count` 首次 >0）。
+
+**λ 锚点**：实测 burst 聚合饱和吞吐 ≈ 0.05 session/s（cache 3.36/min、fifo 2.52/min，见「读结果」）。
+按 ρ×0.05 得聚合 λ，再均分到各 workflow。已备三档配置（`arrival_process: poisson`、每场景
+`arrival_rate_per_sec`、顶层 `arrival_seed`；同一 seed 跨策略 → 逐字节相同到达轨迹）：
+
+| ρ | 聚合 λ | 2wf 每场景 λ | 4wf 每场景 λ | 配置 |
+|---|---|---|---|---|
+| 0.50 | 0.025 | 0.0125 | 0.00625 | `replay_{2w,4w}_poisson_r050.yaml` |
+| 0.75 | 0.0375 | 0.01875 | 0.009375 | `replay_{2w,4w}_poisson_r075.yaml` |
+| 1.00 | 0.050 | 0.025 | 0.0125 | `replay_{2w,4w}_poisson_r100.yaml` |
+
+> ρ 越低到达窗口越长：2wf 各档到达窗口 ≈79/52/39 min，总 wall-clock ≈ 到达窗口 + drain。首轮各单跑一次。
+
+启动（复用 `serve_master.sh`，公共 env 固定，只换 `SCHED_CONFIG`/`RUN_ID`；2wf 另设 `WORKFLOW_FILES`/
+`OUTPUT_DIR`，4wf 用默认 4 文件）：
+
+```sh
+# 2wf · ρ=0.75：四策略共用同一 EXPERIMENT_CONFIG（= 同 arrival_seed = 同到达轨迹，paired 对比）
+export WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml
+export OUTPUT_DIR=output/serve_2workflow_poisson
+export EXPERIMENT_CONFIG=config/workflow/serve/replay_2w_poisson_r075.yaml
+RUN_ID=pois2w_r075_fifo    SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml    MIN_GPUS=2 sh scripts/workflow/serve_master.sh
+RUN_ID=pois2w_r075_history SCHED_CONFIG=config/workflow/serve/scheduler_history.yaml MIN_GPUS=2 sh scripts/workflow/serve_master.sh
+RUN_ID=pois2w_r075_cache   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml   MIN_GPUS=2 sh scripts/workflow/serve_master.sh
+RUN_ID=pois2w_r075_kairos  SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml  MIN_GPUS=2 sh scripts/workflow/serve_master.sh
+
+# 4wf · ρ=0.75（默认 4 文件 + output/serve_4workflow_poisson）
+OUTPUT_DIR=output/serve_4workflow_poisson EXPERIMENT_CONFIG=config/workflow/serve/replay_4w_poisson_r075.yaml \
+  RUN_ID=pois4w_r075_cache SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml MIN_GPUS=2 sh scripts/workflow/serve_master.sh
+```
+
+- **置信区间**：每个 repeat 把配置里 `arrival_seed` 42→46 同步用于四策略（paired）；首轮先 seed=42 单跑。
+- **预期信号**（用「读结果」的 `summarize_trial`）：
+  - cache `prefetch_count` 首次 >0（burst 恒为 0）→ 直接证明预取价值；预取/驱逐优势预计 ρ≈0.5–0.75 最强，
+    makespan/吞吐优势 ρ→1.0 最强。
+  - cache vs fifo/history/kairos：更低 `model_load_count`、更高 `model_reuse_count`、更低
+    `idle_resident_gpu_seconds`、更低 `session_latency_sec` p95/max，差距随 ρ 上升扩大。
+  - kairos sanity：`prefetch_count==0 且 wasted_prefetch_count==0`。
 
 ---
 

@@ -8,9 +8,12 @@
 #   GPU_MEM                 : gpu_kind=total_mem_mb pairs for accelerator discovery
 #   PREDICTIONS             : resource contract cache covering every model on every gpu_kind
 #
-# Policy sweep: set SCHED_CONFIG=config/workflow/serve/scheduler_{fifo,history,cache}.yaml
+# Policy sweep: set SCHED_CONFIG=config/workflow/serve/scheduler_{fifo,history,cache,kairos}.yaml
 # and a fresh RUN_ID per run; each writes output/serve/<RUN_ID>/workflow_trace.jsonl.
 # Weighted fairness: set PRIORITY_WEIGHT=qmsum=2,mbpp=1 (empty = equal rotation).
+# Topology: default = 4wf (qmsum1/2+mbpp1/2 -> output/serve_4workflow). For 2wf set
+# WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml + OUTPUT_DIR.
+# Arrival: EXPERIMENT_CONFIG picks burst (replay_{2w,4w}.yaml) or poisson (replay_*_poisson_r0*.yaml).
 set -e
 
 export PROJECT_DIR=/home/wangjh/gnn_predict
@@ -23,7 +26,9 @@ export GPU_MEM="${GPU_MEM:-v100=32768,a100=81920}"
 export PREDICTIONS="${PREDICTIONS:-/home/wangjh/gnn_predict/cache/profile/predictions.yaml}"
 export SCHED_CONFIG="${SCHED_CONFIG:-config/workflow/serve/scheduler_cache.yaml}"
 export PRIORITY_WEIGHT="${PRIORITY_WEIGHT:-}"
-
+export EXPERIMENT_CONFIG="${EXPERIMENT_CONFIG:-config/workflow/serve/replay_4w.yaml}"
+export WORKFLOW_FILES="${WORKFLOW_FILES:-config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp2.yaml}"
+export OUTPUT_DIR="${OUTPUT_DIR:-output/serve_4workflow}"
 export PYTHONPATH="$PROJECT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
 PRIORITY_ARG=""
@@ -37,16 +42,16 @@ cd "$PROJECT_DIR"
 ray start --head --port="$RAY_PORT" --disable-usage-stats
 
 exec python -m workflow.master \
-  --workflow-files config/workflow/serve/qmsum.yaml,config/workflow/serve/mbpp.yaml \
+  --workflow-files "$WORKFLOW_FILES" \
   --functions experiment.workflow.scenario_functions:build_registry \
   --experiment experiment.workflow.experiments.dataset_replay:run \
-  --experiment-config config/workflow/serve/replay.yaml \
+  --experiment-config "$EXPERIMENT_CONFIG" \
   --scheduler-config "$SCHED_CONFIG" \
   --vllm-python "$VLLM_PYTHON" \
   --predictions "$PREDICTIONS" \
   --gpu-mem "$GPU_MEM" \
   --min-gpus "$MIN_GPUS" \
-  --output-dir output/serve \
+  --output-dir "$OUTPUT_DIR" \
   --run-id "$RUN_ID" \
   --ray-address auto \
   $PRIORITY_ARG

@@ -1,0 +1,15 @@
+# dataset_replay experiment config (2 workflows, burst baseline).
+# workflow_name must match the registered workflow (qmsum1.yaml / mbpp1.yaml).
+# sample_count caps samples; arrival_gap_sec=0 means burst (all sessions submitted at t=0).
+timeout_sec: 3600
+scenarios:
+  - dataset: qmsum
+    workflow_name: qmsum1
+    dataset_path: dataset/QMSum/data/ALL
+    sample_count: 60
+    arrival_gap_sec: 0.0
+  - dataset: mbpp
+    workflow_name: mbpp1
+    dataset_path: dataset/mbpp/sanitized-mbpp.json
+    sample_count: 60
+    arrival_gap_sec: 0.0

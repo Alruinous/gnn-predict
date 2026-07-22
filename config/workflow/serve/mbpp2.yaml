@@ -1,0 +1,171 @@
+workflow_name: mbpp2
+nodes:
+- name: coder
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-14B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-14B
+    max_new_tokens: 512
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 1024
+      max_num_seqs: 3
+      max_num_batched_tokens: 3072
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Write a correct Python solution for the programming task.
+
+    Return only Python code in one fenced code block.
+
+
+    Task:
+
+    {task}
+
+
+    Tests that must pass:
+
+    {tests}'
+  system_prompt: null
+- name: tester
+  task: null
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: function
+  function: evaluate_mbpp_initial
+  parameters: {}
+  routing: broadcast
+  max_concurrency: 8
+- name: reviewer
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 512
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Review the Python solution for correctness.
+
+    Focus on logic errors, edge cases, and API misuse.
+
+    Return only the review analysis, no code.
+
+
+    Task:
+
+    {task}
+
+
+    Current solution and test result:
+
+    {previous_output}
+
+
+    Tests:
+
+    {tests}'
+  system_prompt: null
+- name: repair
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-8B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-8B
+    max_new_tokens: 512
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 4096
+      max_num_seqs: 3
+      max_num_batched_tokens: 12288
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Repair the Python solution so that it passes the tests.
+
+    Return only Python code in one fenced code block.
+
+    The execution context JSON contains the tester''s code and initial result and
+    the reviewer''s analysis.
+
+
+    Task:
+
+    {task}
+
+
+    Execution context:
+
+    {node_outputs_json}
+
+
+    Tests:
+
+    {tests}'
+  system_prompt: null
+- name: final_tester
+  task: null
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: function
+  function: evaluate_mbpp_final
+  parameters: {}
+  routing: broadcast
+  max_concurrency: 8
+edges:
+- source: coder
+  target: tester
+- source: tester
+  target: reviewer
+- source: tester
+  target: repair
+- source: reviewer
+  target: repair
+- source: tester
+  target: final_tester
+- source: repair
+  target: final_tester
