@@ -72,9 +72,9 @@ nodes:
     enable_thinking: false
     truncation_side: null
     serving:
-      max_model_len: 2048
+      max_model_len: 8192
       max_num_seqs: 3
-      max_num_batched_tokens: 6144
+      max_num_batched_tokens: 24576
       gpu_memory_utilization: 0.98
   prompt_template: 'Review the Python solution for correctness.
 
@@ -118,9 +118,9 @@ nodes:
     enable_thinking: false
     truncation_side: null
     serving:
-      max_model_len: 3072
+      max_model_len: 4096
       max_num_seqs: 3
-      max_num_batched_tokens: 9216
+      max_num_batched_tokens: 12288
       gpu_memory_utilization: 0.98
   prompt_template: 'Repair the Python solution so that it passes the tests.
 

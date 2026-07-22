@@ -380,7 +380,7 @@ class StaticEnginePool:
             else os.pathsep.join((source_root, current_pythonpath))
         )
         return StaticVLLMEngineActor.options(
-            max_concurrency=64,
+            max_concurrency=1024,
             runtime_env={
                 "py_executable": str(self.vllm_python),
                 "env_vars": {

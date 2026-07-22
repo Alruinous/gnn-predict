@@ -24,6 +24,8 @@ export PREDICTIONS="${PREDICTIONS:-/home/wangjh/gnn_predict/cache/profile/predic
 export SCHED_CONFIG="${SCHED_CONFIG:-config/workflow/serve/scheduler_cache.yaml}"
 export PRIORITY_WEIGHT="${PRIORITY_WEIGHT:-}"
 
+export PYTHONPATH="$PROJECT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+
 PRIORITY_ARG=""
 if [ -n "$PRIORITY_WEIGHT" ]; then
   PRIORITY_ARG="--priority-weight $PRIORITY_WEIGHT"
@@ -34,7 +36,7 @@ cd "$PROJECT_DIR"
 
 ray start --head --port="$RAY_PORT" --disable-usage-stats
 
-exec env PYTHONPATH=src python -m workflow.master \
+exec python -m workflow.master \
   --workflow-files config/workflow/serve/qmsum.yaml,config/workflow/serve/mbpp.yaml \
   --functions experiment.workflow.scenario_functions:build_registry \
   --experiment experiment.workflow.experiments.dataset_replay:run \

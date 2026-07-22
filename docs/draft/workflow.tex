@@ -23,25 +23,28 @@
 \begin{document}
 \maketitle
 
-\section{Scope and Candidate Claims}
+\section{Core Idea and Candidate Contributions}
 
-This fragment focuses on lifecycle management for agentic workflows running on
-a fixed, user-controlled accelerator pool. The runtime exposes workflow and
-session state, while a resource predictor estimates execution time and peak
-memory for each local LLM activation. The lifecycle layer uses those forecasts
-to compare reuse, load, prefetch, reclaim, and defer actions without violating
-workflow dependencies or memory admission.
+The central design in this fragment is to make an ordered model-lifecycle plan,
+rather than a ready activation alone, the unit of scheduling. A readiness-only
+workflow scheduler chooses placement after an activation becomes ready. The
+proposed scheduler uses predicted DAG readiness and resource demand to act
+earlier: it reuses a compatible resident model, prefetches a missing model
+before its activation is released, evicts low-value idle models when capacity
+is scarce, or defers a transition whose complete path is unsafe.
 
-The candidate claims are deliberately narrower than an end-to-end workflow
-scheduler:
+The resulting mechanism makes three coupled decisions:
 
 \begin{itemize}
-    \item A shared lifecycle layer coordinates model state, accelerator capacity,
-    and workflow readiness.
-    \item Resource forecasts become plan-level admission constraints rather than
-    direct placement decisions.
-    \item Cross-session DAG lookahead enables safe preparation before an
-    activation becomes ready.
+    \item \textbf{Lifecycle plans as scheduling units.} Each decision selects an
+    activation together with an ordered sequence of reuse, load, eviction,
+    prefetch, and dispatch actions.
+    \item \textbf{Prediction-guided reuse and prefetch.} Cross-session DAG
+    lookahead retains models with imminent reuse and overlaps model loading with
+    predecessor execution.
+    \item \textbf{Value-aware eviction with path safety.} Eviction accounts for
+    the reload and lost-reuse cost of each victim, while admission checks the
+    peak memory of the entire transition rather than its final state alone.
 \end{itemize}
 
 \section{Motivation}
@@ -88,25 +91,33 @@ This bound is specific to a chain whose distinct stage models are resident
 concurrently. It should not be generalized to workflows backed by one shared
 model or to runtimes that already load models on demand.
 
-\section{Prediction-Aware Lifecycle Scheduling}
-\label{sec:lifecycle-scheduling-draft}
+\section{Lifecycle Scheduling Design}
+\label{sec:lifecycle-scheduling-design}
 
-\subsection{Scope and Abstraction}
+At each scheduling event, the scheduler chooses a pair $(x,b)$: an activation
+$x$ and the lifecycle plan $b$ that makes its model state available. This joint
+decision is the core design choice. Reuse changes the cost of dispatch,
+prefetch changes when memory is committed, and eviction changes which future
+activations will pay a reload; treating them as independent policies loses
+these interactions.
+
+\subsection{Scheduling Model}
 
 The runtime serves multiple workflow instances from a shared accelerator and
 model pool. An activation $x=(w,s,v)$ identifies workflow $w$, session $s$, and
-node $v$. Workflow-local state remains isolated, while compatible physical model
-instances may be reused across activations. The scheduler operates on two
-frontiers: ready activations $\mathcal{R}_t$, whose dependencies are satisfied,
-and near-ready activations $\mathcal{N}_t$, whose release times can be estimated
-from running predecessors.
+node $v$; $M_x$ is its required model. Workflow-local state remains isolated,
+while a compatible physical model instance may be reused across activations and
+sessions. For each device $g$, $\mathcal{Z}_t(g)$ partitions resident instances
+into active, reserved, and reclaimable states. Only reclaimable instances may be
+evicted.
 
-The scheduling interface contains only the required model, candidate device,
-predicted resource envelope, and legal lifecycle actions. Backend bookkeeping
-that does not change the decision or a stated invariant remains outside this
-abstraction.
+The scheduler operates on two frontiers: ready activations
+$\mathcal{R}_t$, whose dependencies are satisfied, and near-ready activations
+$\mathcal{N}_t$, whose release times can be estimated from running
+predecessors. Together, these frontiers reveal both immediate demand and the
+next compatible use of each resident model.
 
-\subsection{Forecasts and Candidate Plans}
+\subsection{Prediction-Guided Lifecycle Plans}
 
 For activation $x$ on device $g$, the forecaster exposes
 \begin{equation}
@@ -122,15 +133,35 @@ where the time estimates guide ordering and prefetch, while
 $U_{\mathrm{mem}}$ is a calibrated upper bound used for admission. The GNN may
 provide execution time and peak-memory estimates from the model graph and token
 regime; online measurements provide model-load costs and current residency.
-The predictor is therefore an input to scheduling, not the scheduling policy
-itself.
+The frontiers additionally induce a reuse value $\widehat{V}_t(m)$ for resident
+instance $m$, representing the load latency and workflow delay avoided by
+retaining it for predicted future activations.
 
-For each activation-device pair, the planner constructs a small set
-$\Pi(x,\mathcal{S}_t)$ of executable lifecycle plans: reuse a compatible
-resident instance, load the model on free capacity, or reclaim idle state before
-loading. If none is safe, the activation is deferred. A load is a prefetch when
-it starts before the activation becomes ready. Near-ready activation $x$ becomes
-eligible when
+For each activation-device pair, the planner constructs semantically distinct
+action sequences:
+\begin{equation}
+    \begin{aligned}
+        \Pi_{\mathrm{ready}}(x,g)=\{&
+        \langle\mathsf{Reuse}(m)\rangle,
+        \langle\mathsf{Load}(M_x,g)\rangle,\\
+        &\langle\mathsf{Evict}(E),\mathsf{Load}(M_x,g)\rangle\},\\
+        \Pi_{\mathrm{near}}(x,g)=\{&
+        \langle\mathsf{Prefetch}(M_x,g)\rangle,\\
+        &\langle\mathsf{Evict}(E),\mathsf{Prefetch}(M_x,g)\rangle\}.
+    \end{aligned}
+    \label{eq:lifecycle-plans}
+\end{equation}
+Here, $m$ must be a compatible resident instance and
+$E\subseteq\mathcal{Z}^{\mathrm{reclaim}}_t(g)$ is a victim set. Reuse avoids a
+cold load: an idle compatible instance yields a \textsc{Reuse} plan with no
+model-transition latency or additional weight residency. Proactive model
+preloading, denoted as \textsc{Prefetch}, begins before dependencies release the
+activation. Each successful preparation plan ends in \textsc{Dispatch} after
+dependencies are satisfied. Eviction is coupled to the load or prefetch that
+requires its reclaimed capacity. \textsc{Defer} remains a first-class plan when
+no transition is safe.
+
+A near-ready activation becomes eligible for prefetch when
 \begin{equation}
     \hat{t}_{\mathrm{ready}}(x)-t
     \le \hat{t}_{\mathrm{load}}(x)+\delta,
@@ -138,17 +169,58 @@ eligible when
 \end{equation}
 where $\delta$ absorbs forecast uncertainty and $\hat{t}_{\mathrm{load}}(x)$ is
 the shortest predicted load time among candidate-device plans. Ready work always
-precedes speculative prefetch. We write
-$\Pi_{\mathrm{pfx}}(x,\mathcal{S}_t)\subseteq\Pi(x,\mathcal{S}_t)$ for plans
-that prepare state without dispatching the activation.
+precedes speculative prefetch.
 
-A plan is feasible only if its dependencies and model compatibility hold and its
-predicted peak, including transient overlap during reclamation and loading, fits
-the target device. Selecting a plan reserves the state and capacity on which the
-decision depends; otherwise a concurrent lifecycle action could invalidate the
-admission check before dispatch.
+Eviction is prediction-guided rather than a fixed recency rule. The scheduler
+selects the lowest-regret victim set that can supply the required capacity:
+\begin{equation}
+    \begin{aligned}
+        \widehat{C}_{\mathrm{evict}}(E)
+        &=\sum_{m\in E}
+        \left(\widehat{C}_{\mathrm{reload}}(m)+\widehat{V}_t(m)\right)\\
+        E^*(x,g)&=\arg\min_E\widehat{C}_{\mathrm{evict}}(E)\\
+        \text{s.t.}\quad
+        &E\subseteq\mathcal{Z}^{\mathrm{reclaim}}_t(g),\\
+        &M_{\mathrm{free}}(g)+\sum_{m\in E}M(m)
+        \ge U_{\mathrm{mem}}(x,g).
+    \end{aligned}
+    \label{eq:eviction-regret}
+\end{equation}
+Here, $M(m)$ is the reclaimable memory footprint of instance $m$. Thus,
+eviction trades reclaimed capacity against the expected cost of reloading models
+and destroying near-future reuse.
 
-\subsection{One Scheduling Event}
+\subsection{Plan Scoring and Admission}
+
+The scheduler ranks feasible plans using
+\begin{equation}
+    \widehat{J}(b)
+    =\widehat{\Delta\mathrm{JCT}}(b)
+    +\lambda_e\widehat{C}_{\mathrm{evict}}(E_b)
+    +\lambda_u\widehat{C}_{\mathrm{uncertainty}}(b),
+    \label{eq:lifecycle-objective}
+\end{equation}
+where $E_b=\emptyset$ for plans without eviction and $\lambda_e,\lambda_u$
+control eviction-regret and uncertainty penalties.
+$\widehat{\Delta\mathrm{JCT}}$ includes execution and queueing delay, but counts
+only the portion of model loading exposed on the predicted workflow critical
+path. Direct reuse therefore pays no load cost, successful prefetch hides it,
+and eviction still pays its expected future regret.
+
+A plan is admitted only if dependencies and model compatibility hold and its
+calibrated path bound satisfies
+\begin{equation}
+    U_{\mathrm{path}}(b,g,\tau)\le M_g
+    \quad \forall \tau\in b,
+    \label{eq:path-memory-safety}
+\end{equation}
+where $M_g$ is device capacity and the bound includes protected resident state,
+the incoming model, execution workspace, and transient overlap before evicted
+state is fully reclaimed.
+Selecting a plan reserves every model state and capacity interval on which this
+check depends.
+
+\subsection{Scheduling Procedure}
 
 The runtime invokes Algorithm~\ref{alg:lifecycle-scheduling-event} on arrivals,
 completions, and material state changes. Each invocation admits ready work first,
@@ -156,7 +228,7 @@ considers prefetch only when ready work cannot progress, and defers when no safe
 plan exists.
 
 \begin{algorithm}[t]
-    \caption{Prediction-aware lifecycle scheduling event.}
+    \caption{Prediction-guided model-lifecycle scheduling.}
     \label{alg:lifecycle-scheduling-event}
     \KwIn{Ready frontier $\mathcal{R}_t$, near-ready frontier $\mathcal{N}_t$,
     runtime state $\mathcal{S}_t$, forecaster $f_\theta$}
@@ -164,18 +236,24 @@ plan exists.
 
     $\mathcal{R} \gets \operatorname{RankReady}(\mathcal{R}_t,\mathcal{S}_t)$\;
     \ForEach{$x\in\mathcal{R}$}{
-        $\mathcal{B}\gets\operatorname{Safe}
-        (\Pi(x,\mathcal{S}_t),f_\theta)$\;
+        $\mathcal{P}\gets\operatorname{ReusePlans}(x,\mathcal{S}_t)$\;
+        $\mathcal{P}\gets\mathcal{P}\cup
+        \operatorname{LoadPlans}(x,\mathcal{S}_t)$\;
+        $\mathcal{P}\gets\mathcal{P}\cup
+        \operatorname{EvictLoadPlans}(x,\mathcal{S}_t)$\;
+        $\mathcal{B}\gets\operatorname{SafePaths}(\mathcal{P},f_\theta)$\;
         \If{$\mathcal{B}\neq\emptyset$}{
             $b^*\gets\arg\min_{b\in\mathcal{B}}\widehat{J}(b)$\;
             \Return{$\operatorname{Reserve}(b^*,\mathcal{S}_t)$}\;
         }
     }
-    $\mathcal{N}\gets\{x\in\mathcal{N}_t\mid
-    \hat{t}_{\mathrm{ready}}(x)-t\le\hat{t}_{\mathrm{load}}(x)+\delta\}$\;
+    $\mathcal{N}\gets
+    \operatorname{PrefetchEligible}(\mathcal{N}_t,f_\theta,t,\delta)$\;
     \ForEach{$x\in\operatorname{RankNear}(\mathcal{N},\mathcal{S}_t)$}{
-        $\mathcal{B}\gets\operatorname{Safe}
-        (\Pi_{\mathrm{pfx}}(x,\mathcal{S}_t),f_\theta)$\;
+        $\mathcal{P}\gets\operatorname{PrefetchPlans}(x,\mathcal{S}_t)$\;
+        $\mathcal{P}\gets\mathcal{P}\cup
+        \operatorname{EvictPrefetchPlans}(x,\mathcal{S}_t)$\;
+        $\mathcal{B}\gets\operatorname{SafePaths}(\mathcal{P},f_\theta)$\;
         \If{$\mathcal{B}\neq\emptyset$}{
             $b^*\gets\arg\min_{b\in\mathcal{B}}\widehat{J}(b)$\;
             \Return{$\operatorname{Reserve}(b^*,\mathcal{S}_t)$}\;
@@ -184,17 +262,16 @@ plan exists.
     \Return{\textsc{Defer}}\;
 \end{algorithm}
 
-\textsc{RankReady} is the interface to the upstream workflow policy; it may use
-critical-path slack, tenant weights, or FIFO without changing lifecycle
-admission. $\Pi$ contains only semantically distinct actions, while
-\textsc{Safe} applies compatibility and calibrated peak-memory checks.
-$\widehat{J}$ compares predicted workflow delay with load, reconstruction, and
-future-reuse costs. This separation permits a different upstream ordering policy
-without weakening lifecycle safety.
+\textsc{RankReady} remains the interface to the upstream workflow policy.
+The lifecycle layer owns model reuse, prefetch timing, victim valuation, and
+path admission. The plan constructors expose only the semantic transitions in
+Eq.~\ref{eq:lifecycle-plans}; engine-specific bookkeeping remains outside the
+algorithm.
 
-\subsection{Boundary Relative to Prior Systems}
+\section{Related Work}
 
-Parrot exposes request dependencies and prompt-prefix relationships to support
+\paragraph{Workflow-aware LLM serving.} Parrot exposes request dependencies and
+prompt-prefix relationships to support
 application-centric placement and reuse~\cite{lin2024parrot}. Kairos ranks
 requests using workflow-derived remaining-latency distributions and dispatches
 them using memory demand~\cite{chen2025kairos}. Murakkab separates declarative
@@ -203,11 +280,11 @@ models and hardware under SLOs~\cite{chaudhry2025murakkab}. SAGA treats an agent
 workflow as the scheduling unit to preserve KV continuity and provide
 workflow-level fairness~\cite{guo2026saga}.
 
-These systems motivate exposing workflow structure but operate at different
-decision boundaries. The narrow claim here is that resource prediction turns
-each activation into a small set of lifecycle plans, and that admission selects
-only a plan whose preparation path is safe. Cross-workflow ordering and victim
-selection remain policy choices unless coupled to a new objective or guarantee.
+Together, these systems demonstrate the value of workflow visibility at the
+orchestration and serving layers. The contribution of this fragment is to make
+the predicted model-state transition itself schedulable: every activation is
+admitted together with a ranked reuse, prefetch, or eviction plan whose complete
+transition is resource-safe.
 
 \bibliographystyle{alpha}
 \bibliography{sample}

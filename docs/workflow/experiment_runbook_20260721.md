@@ -57,9 +57,9 @@ sh scripts/workflow/serve_worker.sh
 三次 master 作业，只换 `SCHED_CONFIG` 和 `RUN_ID`：
 
 ```sh
-RUN_ID=hetero_fifo    SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml    MIN_GPUS=6 sh scripts/workflow/serve_master.sh
-RUN_ID=hetero_history SCHED_CONFIG=config/workflow/serve/scheduler_history.yaml MIN_GPUS=6 sh scripts/workflow/serve_master.sh
-RUN_ID=hetero_cache   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml   MIN_GPUS=6 sh scripts/workflow/serve_master.sh
+RUN_ID=hetero_fifo    SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml    MIN_GPUS=2 sh scripts/workflow/serve_master.sh
+RUN_ID=hetero_history SCHED_CONFIG=config/workflow/serve/scheduler_history.yaml MIN_GPUS=2 sh scripts/workflow/serve_master.sh
+RUN_ID=hetero_cache   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml   MIN_GPUS=2 sh scripts/workflow/serve_master.sh
 ```
 
 产物：`output/serve/<RUN_ID>/{workflow_trace.jsonl,run_summary.json,<qmsum|mbpp>/session_results.jsonl}`。
@@ -70,15 +70,20 @@ RUN_ID=hetero_cache   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml   
 在 `cache` 策略上加 `PRIORITY_WEIGHT`，对比 qmsum 优先与轮转：
 
 ```sh
-RUN_ID=hetero_w21 SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml PRIORITY_WEIGHT=qmsum=2,mbpp=1 MIN_GPUS=6 sh scripts/workflow/serve_master.sh
-RUN_ID=hetero_w11 SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml PRIORITY_WEIGHT=qmsum=1,mbpp=1 MIN_GPUS=6 sh scripts/workflow/serve_master.sh
+RUN_ID=hetero_w21 SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml PRIORITY_WEIGHT=qmsum=2,mbpp=1 MIN_GPUS=2 sh scripts/workflow/serve_master.sh
+RUN_ID=hetero_w11 SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml PRIORITY_WEIGHT=qmsum=1,mbpp=1 MIN_GPUS=2 sh scripts/workflow/serve_master.sh
 ```
 
 ## E3 — 异构配比
 
-固定 `cache` 策略与负载，改变提交的 worker 里 **A100:V100 张数**（如 1A+3V、2A+4V），
-相应改 `MIN_GPUS`、换 `RUN_ID`。观察 14B 是否稳定落 A100、小模型是否走最小安全卡、
-makespan/驻留随配比的变化。
+固定 `cache` 策略与负载。1A+3V 入口要求向同一个 Ray Head 提交 1 个 A100 worker 和
+3 个 V100 worker：
+
+```sh
+RUN_ID=hetero_a1v3 SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml MIN_GPUS=4 sh scripts/workflow/serve_master.sh
+```
+
+观察 14B 是否稳定落 A100、小模型是否走最小安全卡，以及 makespan/驻留随配比的变化。
 
 ---
 

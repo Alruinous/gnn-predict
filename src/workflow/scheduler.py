@@ -3454,4 +3454,4 @@ def _validate_trace_payload(value: object) -> None:
 
 
 _remote_with_options = cast(Any, ray.remote)
-SchedulerActor = _remote_with_options(max_concurrency=64)(_SchedulerActor)
+SchedulerActor = _remote_with_options(max_concurrency=1024)(_SchedulerActor)
