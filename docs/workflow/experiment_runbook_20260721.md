@@ -68,6 +68,36 @@ RUN_ID=hetero_kairos  SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml  
 产物：`output/serve/<RUN_ID>/{workflow_trace.jsonl,run_summary.json,<qmsum|mbpp>/session_results.jsonl}`。
 拿到置信区间需每配置重复 5 次（`RUN_ID` 加 `_r1`…`_r5` 后缀）；首轮先各 1 次拿信号。
 
+### Kairos 基线 · 完整启动 recipe（自包含）
+
+`kairos` 依赖 `config/workflow/serve/scheduler_kairos.yaml` 与 `kairos` 策略（本分支已含）。从零
+起一次 Kairos run，复用与 `fifo/history/cache` 完全相同的 worker/workload/predictions：
+
+```sh
+# 1) 预测缓存（已在「前置」生成过可跳过）
+PYTHONPATH=src uv run python scripts/workflow/write_serve_predictions.py output/serve/predictions.json
+
+# 2) 每张卡各起 1 个 worker（改 PROJECT_DIR/VENV_DIR 后逐个提交；至少 1 张 A100 承载 Qwen3-14B）
+sh scripts/workflow/serve_worker.sh   # 重复 N 次，N = 下面的 MIN_GPUS
+
+# 3) Kairos master 作业（起 Ray Head + 跑 QMSum+MBPP 同池回放）
+RUN_ID=hetero_kairos SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml MIN_GPUS=2 sh scripts/workflow/serve_master.sh
+
+# 4) 读指标 + sanity check（Kairos 无预取，两个计数必须为 0）
+PYTHONPATH=src uv run python -c "
+from pathlib import Path; import json
+from experiment.workflow.analysis import summarize_trial
+s = summarize_trial(Path('output/serve/hetero_kairos'))
+assert s['prefetch_count'] == 0 and s['wasted_prefetch_count'] == 0, 'kairos 不应有预取'
+print(json.dumps({k: s[k] for k in ('makespan_sec','completed_session_count','session_latency_sec',
+  'resident_gpu_seconds','idle_resident_gpu_seconds','pipeline_bubble_ratio',
+  'model_load_count','model_reuse_count','model_eviction_count','prefetch_count')}, indent=2))
+"
+```
+
+置信区间：`RUN_ID=hetero_kairos_r1…_r5` 重复 5 次。与 `hetero_cache` 同法对照
+resident/idle/pipeline-bubble/makespan/尾延迟，形成 trade-off 表。
+
 ## E2 — 加权公平性
 
 在 `cache` 策略上加 `PRIORITY_WEIGHT`，对比 qmsum 优先与轮转：
