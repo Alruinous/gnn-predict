@@ -51,7 +51,7 @@ generation 时间可减少近 40%。
 | pipeline idle mean | 127.355 s |
 | pipeline idle p95 | 143.847 s |
 | pipeline bubble ratio mean | 0.408 |
-| stage utilization | 0.591 |
+| chunk-stage utilization | 0.591 |
 | ROUGE-L | 0.1013 |
 | LLM score | 1.5333 |
 | judge pass rate | 0.1000 |
@@ -64,9 +64,9 @@ generation 时间可减少近 40%。
 
 ![MBPP gap](img/motivation_20260704_mbpp_gap.png)
 
-**图 4: 静态模型驻留与 active frontier 的资源对比。** Baseline 在 workflow 全生命周期内
-同时驻留 coder（14B）、reviewer（8B）和 repair（14B）三个模型实例，但任意时刻真实活跃的
-LLM frontier 只有一个节点，资源浪费为 3.009x。
+**图 4: 静态模型驻留反事实与 active frontier 的资源对比。** 该反事实假设 workflow
+全生命周期内同时驻留 coder（14B）、reviewer（8B）和 repair（14B）三个模型实例，但任意时刻
+trace 中真实活跃的 LLM frontier 只有一个节点，资源差距为 3.009x。
 
 | 指标 | 数值 |
 |---|---:|
@@ -75,13 +75,13 @@ LLM frontier 只有一个节点，资源浪费为 3.009x。
 | active GPU-seconds | 5656.421 |
 | resource gap | 3.009x |
 | frontier gap | 3.000x |
-| node idle mean | 189.351 GPU-s |
+| aggregate idle / session (3 model nodes) | 189.351 GPU-s |
+| idle / model / session | 63.117 GPU-s |
 | pass@1 | 0.3500 |
 
-结果说明：在 fixed chain 中，任意时刻真实活跃 LLM frontier 只有一个节点；但 baseline 在
-workflow 生命周期内静态驻留 coder（14B）、reviewer（8B）和 repair（14B）三个模型实例，
-resident GPU-seconds 是 active 的三倍以上。该差距就是本地模型实例加载、复用、预取和卸载
-策略的优化空间。
+结果说明：在 fixed chain 中，任意时刻 trace 中真实活跃的 LLM frontier 只有一个节点；静态驻留量
+由每个 session 的起止时间和三个模型节点推导，并非硬件驻留遥测。该反事实的 resident GPU-seconds
+是 active 的三倍以上，量化了本地模型实例加载、复用、预取和卸载策略的优化空间。
 
 ## 输出文件
 
@@ -98,6 +98,20 @@ output/motivation/qmsum_3way_summary.json
 output/motivation/mbpp_chain_trace.jsonl
 output/motivation/mbpp_chain_results.jsonl
 output/motivation/mbpp_chain_summary.json
+```
+
+生命周期图由上述 trace/summary 生成；预测安全图使用
+`docs/train/gnn_model_llm_only_full_retrain_20260702.md` 中的 held-out 指标。两张论文图可确定性重生成：
+
+```bash
+uv run python scripts/motivation/plot_paper_motivation.py
+```
+
+输出文件：
+
+```text
+paper/hpca2027-sagepilot/figures/lifecycle_motivation.pdf
+paper/hpca2027-sagepilot/figures/prediction_safety_evidence.pdf
 ```
 
 ## 结论

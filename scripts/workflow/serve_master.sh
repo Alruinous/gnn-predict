@@ -23,7 +23,7 @@ export GPU_MEM="${GPU_MEM:-v100=32768,a100=81920}"
 export PREDICTIONS="${PREDICTIONS:-/home/wangjh/gnn_predict/cache/profile/predictions.yaml}"
 export SCHED_CONFIG="${SCHED_CONFIG:-config/workflow/serve/scheduler_cache.yaml}"
 export PRIORITY_WEIGHT="${PRIORITY_WEIGHT:-}"
-
+export EXPERIMENT_CONFIG="${EXPERIMENT_CONFIG:-config/workflow/serve/replay_2w.yaml}"
 export PYTHONPATH="$PROJECT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
 PRIORITY_ARG=""
@@ -37,16 +37,16 @@ cd "$PROJECT_DIR"
 ray start --head --port="$RAY_PORT" --disable-usage-stats
 
 exec python -m workflow.master \
-  --workflow-files config/workflow/serve/qmsum.yaml,config/workflow/serve/mbpp.yaml \
+  --workflow-files config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp2.yaml \
   --functions experiment.workflow.scenario_functions:build_registry \
   --experiment experiment.workflow.experiments.dataset_replay:run \
-  --experiment-config config/workflow/serve/replay.yaml \
+  --experiment-config "$EXPERIMENT_CONFIG" \
   --scheduler-config "$SCHED_CONFIG" \
   --vllm-python "$VLLM_PYTHON" \
   --predictions "$PREDICTIONS" \
   --gpu-mem "$GPU_MEM" \
   --min-gpus "$MIN_GPUS" \
-  --output-dir output/serve \
+  --output-dir output/serve_4workflow \
   --run-id "$RUN_ID" \
   --ray-address auto \
   $PRIORITY_ARG

@@ -1,4 +1,4 @@
-workflow_name: qmsum
+workflow_name: qmsum2
 nodes:
 - name: split
   task: null

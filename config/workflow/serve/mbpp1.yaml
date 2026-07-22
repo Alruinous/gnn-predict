@@ -1,4 +1,4 @@
-workflow_name: mbpp
+workflow_name: mbpp1
 nodes:
 - name: coder
   task: text_generation
