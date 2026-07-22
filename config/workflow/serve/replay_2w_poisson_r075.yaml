@@ -1,0 +1,20 @@
+# Open-loop Poisson arrival, 2 workflows (qmsum1 + mbpp1).
+# Aggregate offered load rho ~= 0.75 of measured burst saturation (~0.05 session/s);
+# per-workflow lambda = 0.0375/2 = 0.01875 session/s (mean inter-arrival ~53s).
+# Same arrival_seed across policies => identical arrival trace (paired comparison).
+# NOTE: lower rho => longer arrival window; total wall-clock ~= arrival window + drain.
+timeout_sec: 5400
+arrival_seed: 42
+scenarios:
+  - dataset: qmsum
+    workflow_name: qmsum1
+    dataset_path: dataset/QMSum/data/ALL
+    sample_count: 60
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.01875
+  - dataset: mbpp
+    workflow_name: mbpp1
+    dataset_path: dataset/mbpp/sanitized-mbpp.json
+    sample_count: 60
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.01875
