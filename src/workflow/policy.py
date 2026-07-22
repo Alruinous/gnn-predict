@@ -19,7 +19,7 @@ from workflow.artifacts import (
     ResourceContract,
     ResourceContractCache,
 )
-from workflow.schema import AgentNodeConfig
+from workflow.schema import AgentNodeConfig, WorkflowGraph
 from workflow.types import (
     ModelReplicaState,
     WorkflowModelFeatureKey,
@@ -220,6 +220,28 @@ def select_eviction_victim(
         legal,
         key=lambda candidate: (candidate.idle_since, candidate.replica_id),
     )
+
+
+def critical_path_remaining_latency(
+    graph: WorkflowGraph,
+    node_run_costs: Mapping[str, float],
+) -> dict[str, float]:
+    """Remaining critical-path service time from each node to the terminal.
+
+    ``remaining[v] = run_cost[v] + max(remaining[s] for successors s)`` with the
+    terminal node's remaining equal to its own run cost. The Kairos baseline
+    ranks ready requests shortest-remaining-first on this value. Run costs are
+    point estimates (a soft-decision signal), so nodes missing from
+    ``node_run_costs`` contribute zero.
+    """
+    remaining: dict[str, float] = {}
+    for node_id in reversed(graph.topological_order):
+        downstream = max(
+            (remaining[successor] for successor in graph.adjacency[node_id]),
+            default=0.0,
+        )
+        remaining[node_id] = node_run_costs.get(node_id, 0.0) + downstream
+    return remaining
 
 
 def _covering_sequence_length(

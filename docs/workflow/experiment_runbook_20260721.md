@@ -54,12 +54,15 @@ sh scripts/workflow/serve_worker.sh
 
 ## E1 — 多 workflow 共享池 · 策略扫（主力）
 
-三次 master 作业，只换 `SCHED_CONFIG` 和 `RUN_ID`：
+四次 master 作业，只换 `SCHED_CONFIG` 和 `RUN_ID`；`fifo/history/cache` 是本项目内部消融，
+`kairos` 是对外 prior-art 基线（Kairos 复现：全局剩余延迟 SRPT 排序 + 显存感知放置，无预取、
+无预测式驱逐），复用同一批 worker/workload/predictions，与 `cache` 做系统级对比：
 
 ```sh
 RUN_ID=hetero_fifo    SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml    MIN_GPUS=2 sh scripts/workflow/serve_master.sh
 RUN_ID=hetero_history SCHED_CONFIG=config/workflow/serve/scheduler_history.yaml MIN_GPUS=2 sh scripts/workflow/serve_master.sh
 RUN_ID=hetero_cache   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml   MIN_GPUS=2 sh scripts/workflow/serve_master.sh
+RUN_ID=hetero_kairos  SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml  MIN_GPUS=2 sh scripts/workflow/serve_master.sh
 ```
 
 产物：`output/serve/<RUN_ID>/{workflow_trace.jsonl,run_summary.json,<qmsum|mbpp>/session_results.jsonl}`。
@@ -103,6 +106,11 @@ print(json.dumps({k: s[k] for k in ('makespan_sec','completed_session_count','se
 ```
 
 可直接得到：makespan、JCT/延迟 p50/p95、resident/idle/pipeline-bubble GPU-s、模型 load/reuse/evict/prefetch 计数、TTFT、token 量。
+
+**Kairos 对比 sanity check**：`hetero_kairos` 的 `prefetch_count` 与 `wasted_prefetch_count` 必须为 0
+（Kairos 无预取），否则说明 policy 未生效。核心对照是 `hetero_kairos` vs `hetero_cache` 的
+`resident_gpu_seconds`/`idle_resident_gpu_seconds`/`pipeline_bubble_ratio`/`makespan_sec` 与
+`session_latency_sec`{p50,p95}，预期是"cache 省驻留、Kairos 可能占尾延迟"的 trade-off。
 
 > 能耗/利用率、LangGraph 基线、n=5 自动聚合出图暂未接入 master 路径，由后续 agent 补
 > （复用 `telemetry.py`/`aggregate.py`/`report.py`）。首轮用上面的 trace 指标即可支撑多 workflow 故事。

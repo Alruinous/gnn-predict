@@ -28,6 +28,7 @@ from workflow.artifacts import (
 from workflow.policy import (
     EvictionCandidate,
     PlacementDecision,
+    critical_path_remaining_latency,
     select_eviction_victim,
     select_placement,
 )
@@ -353,6 +354,10 @@ class SchedulerCore:
         self._nodes: dict[str, dict[str, NodeConfig]] = {}
         self._node_order: dict[str, dict[str, int]] = {}
         self._workflow_weights: dict[str, float] = {}
+        # Per-workflow static node -> remaining critical-path latency, used only
+        # by the Kairos SRPT ordering. Recomputed on register; other policies
+        # never read it.
+        self._remaining_latency: dict[str, dict[str, float]] = {}
         # Keyed by (model_key, gpu_kind) only: a replica is shareable across
         # workflows whenever their deployment configs are byte-identical.
         self._replica_pairs: dict[tuple[str, GpuKind], str] = {}
@@ -377,6 +382,11 @@ class SchedulerCore:
             for index, node_id in enumerate(workflow.graph.topological_order)
         }
         self._workflow_weights[workflow.workflow_name] = priority_weight
+        self._remaining_latency[workflow.workflow_name] = (
+            critical_path_remaining_latency(
+                workflow.graph, self._node_run_costs(workflow)
+            )
+        )
 
     def deregister_workflow(self, workflow_name: str) -> None:
         if workflow_name not in self._workflows:
@@ -391,6 +401,67 @@ class SchedulerCore:
         del self._nodes[workflow_name]
         del self._node_order[workflow_name]
         del self._workflow_weights[workflow_name]
+        del self._remaining_latency[workflow_name]
+
+    def _node_run_costs(self, workflow: Workflow) -> dict[str, float]:
+        # Static per-node point estimate of decode run time, feeding the Kairos
+        # remaining-latency ranking only. Agent nodes read a representative
+        # decode contract; function nodes and any node without cache coverage
+        # contribute zero (a soft-decision default).
+        costs: dict[str, float] = {}
+        for node_id, node in workflow.node_map().items():
+            if isinstance(node, AgentNodeConfig):
+                costs[node_id] = self._representative_run_sec(node)
+            else:
+                costs[node_id] = 0.0
+        return costs
+
+    def _representative_run_sec(self, node: AgentNodeConfig) -> float:
+        # Cheapest feasible GPU (smallest memory with cache coverage), batch 1,
+        # smallest covering input bucket, output bucket >= max_new_tokens —
+        # mirrors select_placement's bin-packing so the estimate tracks the GPU
+        # a request would actually land on.
+        predictions = self.predictions
+        if predictions is None:
+            return 0.0
+        accelerators = sorted(
+            (record.config for record in self.accelerators.values()),
+            key=lambda accelerator: (
+                accelerator.total_mem_mb,
+                accelerator.accelerator_id,
+            ),
+        )
+        for accelerator in accelerators:
+            sequence_length = next(
+                iter(
+                    predictions.decode_sequence_lengths(
+                        node.model.name, accelerator.gpu_kind, 1
+                    )
+                ),
+                None,
+            )
+            if sequence_length is None:
+                continue
+            output_length = next(
+                (
+                    candidate
+                    for candidate in predictions.decode_output_lengths(
+                        node.model.name, accelerator.gpu_kind, sequence_length, 1
+                    )
+                    if candidate >= node.execution.max_new_tokens
+                ),
+                None,
+            )
+            if output_length is None:
+                continue
+            return predictions.lookup_decode(
+                model_name=node.model.name,
+                gpu_kind=accelerator.gpu_kind,
+                batch_size=1,
+                sequence_length=sequence_length,
+                decode_output_length=output_length,
+            ).predicted_run_sec
+        return 0.0
 
     def _workflow(self, workflow_name: str) -> Workflow:
         try:
@@ -1047,6 +1118,27 @@ class SchedulerCore:
         ranked.sort(key=lambda item: (item[0], item[1], item[2]))
         return [item[3] for item in ranked]
 
+    def _order_pending(
+        self, pending_values: Sequence[PendingAcquire]
+    ) -> list[PendingAcquire]:
+        if self.scheduler_config.policy == "kairos":
+            # Kairos ignores workflow identity and priority weight: rank every
+            # ready request globally by shortest remaining critical-path latency
+            # (SRPT), tie-broken by arrival order.
+            return sorted(
+                pending_values,
+                key=lambda pending: (
+                    self._pending_remaining_latency(pending),
+                    pending.request_seq,
+                ),
+            )
+        return self._interleave_by_workflow(pending_values)
+
+    def _pending_remaining_latency(self, pending: PendingAcquire) -> float:
+        task = self.tasks[pending.task_id]
+        workflow_name = self.sessions[task.session_id].workflow_name
+        return self._remaining_latency.get(workflow_name, {}).get(task.node_id, 0.0)
+
     def _ready_decisions(self) -> dict[str, PlacementDecision]:
         if not self.pending_acquires:
             return {}
@@ -1055,7 +1147,7 @@ class SchedulerCore:
             raise RuntimeError("agent scheduling requires a prediction cache")
 
         pending_values = tuple(self.pending_acquires.values())
-        ordered = self._interleave_by_workflow(pending_values)
+        ordered = self._order_pending(pending_values)
         decisions: dict[str, PlacementDecision] = {}
         for snapshot in ordered:
             pending = self.pending_acquires.get(snapshot.acquire_id)
@@ -1098,7 +1190,7 @@ class SchedulerCore:
         )
 
     def _collect_near_ready_tasks(self) -> list[NearReadyTask]:
-        if self.scheduler_config.policy == "fifo":
+        if self.scheduler_config.policy in ("fifo", "kairos"):
             return []
         predictions = self.predictions
         if predictions is None:
@@ -1532,7 +1624,7 @@ class SchedulerCore:
         return inf
 
     def _reload_cost(self, replica: ModelReplicaRecord) -> float | None:
-        if self.scheduler_config.policy == "fifo":
+        if self.scheduler_config.policy in ("fifo", "kairos"):
             return None
         if self.scheduler_config.policy == "cache":
             return replica.expected_load_sec

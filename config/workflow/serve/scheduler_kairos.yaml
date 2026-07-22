@@ -1,0 +1,5 @@
+# Sweep variant: Kairos re-implementation — global remaining-latency (critical-path
+# SRPT) request ordering + memory-aware placement; no prefetch, no predictive
+# reuse-distance eviction (LRU fallback like fifo).
+policy: kairos
+acquire_timeout_sec: 1800.0

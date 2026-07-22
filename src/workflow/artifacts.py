@@ -25,7 +25,7 @@ from common.validate import NonEmptyStr
 from workflow.types import WorkflowModelFeatureKey
 
 GpuKind = NonEmptyStr
-SchedulerPolicy = Literal["fifo", "history", "cache"]
+SchedulerPolicy = Literal["fifo", "history", "cache", "kairos"]
 OpenUnitInterval = Annotated[float, Field(gt=0, le=1)]
 
 
