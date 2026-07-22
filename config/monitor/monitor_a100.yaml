@@ -192,9 +192,9 @@ targets:
   
   qwen3:
     enabled: true
-    result_json: res/qwen3/results/qwen3_a100_1784102488_results.json
+    result_json: res/qwen3/results/qwen3_a100_1784561283_results.json
     node_name: inspur-gpu-04
-    pod_name: sg-wangjh-260715-be881-default0-0
+    pod_name: sg-wangjh-260720-80053-default0-0
     gpu_id: "1"
     output_csv: "csv/a100_llm/qwen3_monitor.csv"
 

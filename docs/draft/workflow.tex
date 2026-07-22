@@ -1,159 +1,213 @@
 \documentclass{article}
 
-\usepackage[UTF8]{ctex}
-
-% Language setting
-% Replace `english' with e.g. `spanish' to change the document language
 \usepackage[english]{babel}
-
-% Set page size and margins
-% Replace `letterpaper' with `a4paper' for UK/EU standard size
-\usepackage[letterpaper,top=2cm,bottom=2cm,left=3cm,right=3cm,marginparwidth=1.75cm]{geometry}
-
-% Useful packages
-\usepackage{graphicx}
-\usepackage[colorlinks=true, allcolors=blue]{hyperref}
-
-
-% 数学公式
+\usepackage[
+    letterpaper,
+    top=2cm,
+    bottom=2cm,
+    left=3cm,
+    right=3cm,
+    marginparwidth=1.75cm
+]{geometry}
 \usepackage{amsmath}
 \usepackage{amssymb}
-
-% 算法环境
 \usepackage[ruled,vlined,linesnumbered]{algorithm2e}
+\SetKw{Return}{return}
+\usepackage{booktabs}
+\usepackage[colorlinks=true,allcolors=blue]{hyperref}
 
-\title{Your Paper}
-\author{You}
+\title{Workflow Lifecycle Scheduling Fragment}
+\author{}
+\date{}
 
 \begin{document}
 \maketitle
 
-\begin{abstract}
-Your abstract.
-\end{abstract}
+\section{Scope and Candidate Claims}
 
-\section{claims}
+This fragment focuses on lifecycle management for agentic workflows running on
+a fixed, user-controlled accelerator pool. The runtime exposes workflow and
+session state, while a resource predictor estimates execution time and peak
+memory for each local LLM activation. The lifecycle layer uses those forecasts
+to compare reuse, load, prefetch, reclaim, and defer actions without violating
+workflow dependencies or memory admission.
 
-对比 SAGA、Kairos、Murakkab、Parrot，我感觉项目应该更聚焦于，多智能体工作流中本地加速卡资源受限场景下的模型生命周期管理。
-系统解析 workflow DAG，追踪任务的 session 状态和各智能体负载，使用 GNN 预测器提供的资源预测能力，预测各智能体节点的执行耗时、显存峰值和 OOM 风险，从而动态决定模型何时加载、预取、复用和释放。
-
-通过这种预测感知的调度方式，系统希望在不破坏 workflow 语义依赖的前提下，降低 fan-in/fan-out 带来的 idle 时间，提高 GPU 利用率，并为本地智能体节点提供资源安全的部署决策。
+The candidate claims are deliberately narrower than an end-to-end workflow
+scheduler:
 
 \begin{itemize}
-    \item 构建一个基于任务负载感知的多智能体协作调度系统，为本地部署多智能体工作流场景提供，模型生命周期管理，资源调度和资源依赖的管理能力。
-    \item 预测感知的调度算法：GNN 预测器基于多智能体的模型图特征，提供的显存峰值和推理耗时预测能力，使得调度器可以在多智能体节点，提前加载模型、复用模型和释放模型，从而降低模型空闲时间，合理部署模型，提高 GPU 利用率。
-    \item 流水线技术的工作流优化：不同于 LangGraph 框架的粗粒度并行推理能力，系统支持解析 workflow 中各智能体节点的拓扑关系，追踪任务的 session 状态和各智能体负载，减少
+    \item A shared lifecycle layer coordinates model state, accelerator capacity,
+    and workflow readiness.
+    \item Resource forecasts become plan-level admission constraints rather than
+    direct placement decisions.
+    \item Cross-session DAG lookahead enables safe preparation before an
+    activation becomes ready.
 \end{itemize}
 
-\section{algorithm}
+\section{Motivation}
 
-\subsection{GNN 调度算法}
+\subsection{Chain Workflow}
 
-系统在 workflow DAG 初始化时，会 根据每一个节点所需的模型，维护一个模型资源池。节点使用该模型运行推理服务，视作引用在模型。比如模型的需求分别为 qwen3-8b 、 qwen3-4b 、 qwen3-4b ，那么就会维护一个 qwen3-8b 的引用和两个 qwen3-4b 的引用。系统在初始化时会预存几类模型的图特征、部署耗时等指标，供 GNN 预测器使用。
+A chain workflow with $n$ sequential LLM nodes and $m$ independent sessions
+exposes a structural resource-waste problem. Let $t_{i,j}$ be the active LLM
+execution time of node $i$ on session $j$, and let
+$A=\sum_i\sum_j t_{i,j}$ be the active GPU-seconds. Let $G\ge 0$ denote the
+remaining execution span in which none of the chain models is active, including
+arrival gaps and intervening non-LLM work. The makespan is $T=A+G$. If all $n$
+model instances remain resident throughout this span, their resident GPU-seconds
+are $R_{\mathrm{static}}=nT$, yielding
+\[
+    \rho_{\mathrm{static}}
+    = \frac{R_{\mathrm{static}}}{A}
+    = n\left(1+\frac{G}{A}\right)
+    \ge n.
+\]
 
-目前 GNN 预测器支持根据模型图结构，输入 token 长度和输出 token 长度，构建图特征，预测模型的 prefill 和 decode 耗时、显存峰值等指标。
+We validate this bound on MBPP~\cite{austin2021program} with a
+\texttt{coder $\rightarrow$ reviewer $\rightarrow$ repair} chain. The three
+stages use Qwen3-14B, Qwen3-8B, and Qwen3-14B on separate GPUs. Across 60
+sessions, active and resident GPU-seconds are 5,656 and 17,017, respectively,
+giving a measured gap of 3.009 (Table~\ref{tab:mbpp_empirical}).
 
-本文区分 task、session 和 model instance 三类对象。Task 是实际被调度执行的单位，表示某个 session 在某个 workflow 节点上的一次执行请求；session 表示同一个输入任务在 DAG 中传播形成的依赖上下文；model instance 表示已经部署在加速卡上的模型副本，是资源管理单位。Session 不独占模型，也不直接决定模型释放，只用于判断 task 依赖是否齐全、估计下游 task 的 ready 时间和 token 规模。
+\begin{table}[htbp]
+    \centering
+    \caption{MBPP chain resource gap ($n=3$, $m=60$).}
+    \label{tab:mbpp_empirical}
+    \begin{tabular}{lr}
+        \toprule
+        Metric & Value \\
+        \midrule
+        Active GPU-seconds & 5,656 \\
+        Resident GPU-seconds & 17,017 \\
+        Resource gap $\rho$ & 3.009 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
-算法采用 loop 扫描方式实现，每轮调度器按照拓扑顺序扫描 workflow DAG，并从节点队列与 session 状态中收集候选 task。如果一个节点的前驱节点执行推理任务，则根据前驱节点的推理任务开始时间，和预测器提供的预计总耗时，推算前驱节点完成当前任务的结束时间。根据该结束时间，可以知道当前节点的推理任务预计何时开始。
+This bound is specific to a chain whose distinct stage models are resident
+concurrently. It should not be generalized to workflows backed by one shared
+model or to runtimes that already load models on demand.
 
-如果节点内的模型已部署且引用的模型正空闲，当任务到来时，则可以立即运行该推理任务。如果节点内的模型没有部署，或已部署的模型正在被另一节点使用（多个引用一个实例模型的情况），则可以根据前驱节点的 ETA 和当前节点所需模型的部署耗时，考虑提前加载一个新的模型到一个加速卡上。模型资源池需要维护每个模型的使用状态。
+\section{Prediction-Aware Lifecycle Scheduling}
+\label{sec:lifecycle-scheduling-draft}
 
-前驱推理节点的预计输出 token 长度可以由当前输入 token 长度和历史平均输出 token 长度的信息预测出，再结合当前节点的 prompt template，节点的输入 token 长度也可以被计算出一个预计值。根据该预计值、节点模型图结构和预计输出 token 的长度，可以预测出节点模型的显存峰值。根据最大适配或最小适配原则，将模型部署到一个合适的加速卡上。如果缺少合适的加速卡，则可以考虑驱逐合适的空闲模型。
+\subsection{Scope and Abstraction}
 
-驱逐策略只能驱逐空引用的模型，这种模型处于 idle 状态，只能驱逐显存容量大于等于待部署的模型，这样模型才能成功部署。在此必要条件下，策略又可以分驱逐显存开销最大、驱逐显存开销最小、驱逐空闲时间最长、驱逐空闲时间最短。驱逐策略使用的显存开销值，为模型 idle 时占用的实际显存开销，而非预测器预测的。
+The runtime serves multiple workflow instances from a shared accelerator and
+model pool. An activation $x=(w,s,v)$ identifies workflow $w$, session $s$, and
+node $v$. Workflow-local state remains isolated, while compatible physical model
+instances may be reused across activations. The scheduler operates on two
+frontiers: ready activations $\mathcal{R}_t$, whose dependencies are satisfied,
+and near-ready activations $\mathcal{N}_t$, whose release times can be estimated
+from running predecessors.
 
-如果缺少合适的空闲模型可驱逐，则节点无法立刻运行推理任务。该类节点的模型部署会在下一轮调度被再次考虑，因此节点的推理任务可能会被缓存到 buffer 中，等待下一轮调度。从缓存中消费任务的策略不做研究，固定为 FIFO。
+The scheduling interface contains only the required model, candidate device,
+predicted resource envelope, and legal lifecycle actions. Backend bookkeeping
+that does not change the decision or a stated invariant remains outside this
+abstraction.
 
-\begin{algorithm}[htbp]
-    \caption{Prediction-Aware Workflow Scheduling Algorithm}
-    \label{alg:gnn_scheduler}
+\subsection{Forecasts and Candidate Plans}
 
-    \KwIn{Workflow DAG $\mathcal{G}=(\mathcal{V}, \mathcal{E})$, accelerator set $\mathcal{K}$, model pool $\mathcal{P}$, GNN predictor $f_{GNN}$}
-    \KwOut{Task dispatch, model loading/prefetch, accelerator placement, and eviction decisions}
+For activation $x$ on device $g$, the forecaster exposes
+\begin{equation}
+    \widehat{K}(x,g)=\left\langle
+        \hat{t}_{\mathrm{ready}},
+        \hat{t}_{\mathrm{load}},
+        \hat{t}_{\mathrm{run}},
+        U_{\mathrm{mem}}
+    \right\rangle,
+    \label{eq:lifecycle-contract}
+\end{equation}
+where the time estimates guide ordering and prefetch, while
+$U_{\mathrm{mem}}$ is a calibrated upper bound used for admission. The GNN may
+provide execution time and peak-memory estimates from the model graph and token
+regime; online measurements provide model-load costs and current residency.
+The predictor is therefore an input to scheduling, not the scheduling policy
+itself.
 
-    Initialize workflow state $\mathcal{S}$ and model pool $\mathcal{P}$\;
+For each activation-device pair, the planner constructs a small set
+$\Pi(x,\mathcal{S}_t)$ of executable lifecycle plans: reuse a compatible
+resident instance, load the model on free capacity, or reclaim idle state before
+loading. If none is safe, the activation is deferred. A load is a prefetch when
+it starts before the activation becomes ready. Near-ready activation $x$ becomes
+eligible when
+\begin{equation}
+    \hat{t}_{\mathrm{ready}}(x)-t
+    \le \hat{t}_{\mathrm{load}}(x)+\delta,
+    \label{eq:prefetch-window}
+\end{equation}
+where $\delta$ absorbs forecast uncertainty and $\hat{t}_{\mathrm{load}}(x)$ is
+the shortest predicted load time among candidate-device plans. Ready work always
+precedes speculative prefetch. We write
+$\Pi_{\mathrm{pfx}}(x,\mathcal{S}_t)\subseteq\Pi(x,\mathcal{S}_t)$ for plans
+that prepare state without dispatching the activation.
 
-    \While{System is running}{
-        $t_{now} \gets$ GetCurrentTime()\;
-        $\mathcal{C}_{ready} \gets$ CollectReadyTasks($\mathcal{G}, \mathcal{S}$)\;
-        $\mathcal{C}_{near} \gets$ CollectNearReadyTasks($\mathcal{G}, \mathcal{S}$)\;
-        $\mathcal{C} \gets \mathcal{C}_{ready} \cup \mathcal{C}_{near}$\;
+A plan is feasible only if its dependencies and model compatibility hold and its
+predicted peak, including transient overlap during reclamation and loading, fits
+the target device. Selecting a plan reserves the state and capacity on which the
+decision depends; otherwise a concurrent lifecycle action could invalidate the
+admission check before dispatch.
 
-        \For{each candidate task $x=(s,v) \in \mathcal{C}$ in topological order}{
-            $\mathcal{M}_v \gets$ Required model specification for node $v$\;
-            $\hat{t}_{ready}(x) \gets$ EstimateReadyTime($x, \mathcal{S}$)\;
-            $\hat{L}_{in}(x), \hat{L}_{out}(x) \gets$ PredictTokens($x, \mathcal{S}$)\;
-            $M_{peak}(x), T_{infer}(x) \gets f_{GNN}\left(F(\mathcal{M}_v), \hat{L}_{in}(x), \hat{L}_{out}(x)\right)$\;
+\subsection{One Scheduling Event}
 
-            \If{$x \in \mathcal{C}_{ready}$}{
-                $m \gets$ SelectIdleInstance($\mathcal{P}, \mathcal{M}_v$)\;
-                \If{$m \neq \emptyset$}{
-                    Dispatch($x, m$)\;
-                    \textbf{continue}\;
-                }
-            }
+The runtime invokes Algorithm~\ref{alg:lifecycle-scheduling-event} on arrivals,
+completions, and material state changes. Each invocation admits ready work first,
+considers prefetch only when ready work cannot progress, and defers when no safe
+plan exists.
 
-            $T_{deploy} \gets$ GetDeployTime($\mathcal{M}_v$)\;
-            \If{$t_{now} + T_{deploy} + \epsilon_{time} \ge \hat{t}_{ready}(x)$}{
-                $k^* \gets$ SelectAccelerator($\mathcal{K}, M_{peak}(x) + \epsilon_{mem}$)\;
+\begin{algorithm}[t]
+    \caption{Prediction-aware lifecycle scheduling event.}
+    \label{alg:lifecycle-scheduling-event}
+    \KwIn{Ready frontier $\mathcal{R}_t$, near-ready frontier $\mathcal{N}_t$,
+    runtime state $\mathcal{S}_t$, forecaster $f_\theta$}
+    \KwOut{A reserved lifecycle plan or \textsc{Defer}}
 
-                \If{$k^* = \emptyset$}{
-                    $\mathcal{P}_{evict} \gets$ EvictPolicy($\mathcal{P}, M_{peak}(x) + \epsilon_{mem}$)\;
-                    \If{$\mathcal{P}_{evict} \neq \emptyset$}{
-                        Evict($\mathcal{P}_{evict}$)\;
-                        $k^* \gets$ SelectAccelerator($\mathcal{K}, M_{peak}(x) + \epsilon_{mem}$)\;
-                    }
-                }
-
-                \If{$k^* \neq \emptyset$}{
-                    LoadOrPrefetch($\mathcal{M}_v, k^*$)\;
-                }
-            }
+    $\mathcal{R} \gets \operatorname{RankReady}(\mathcal{R}_t,\mathcal{S}_t)$\;
+    \ForEach{$x\in\mathcal{R}$}{
+        $\mathcal{B}\gets\operatorname{Safe}
+        (\Pi(x,\mathcal{S}_t),f_\theta)$\;
+        \If{$\mathcal{B}\neq\emptyset$}{
+            $b^*\gets\arg\min_{b\in\mathcal{B}}\widehat{J}(b)$\;
+            \Return{$\operatorname{Reserve}(b^*,\mathcal{S}_t)$}\;
         }
-        Sleep($\Delta t$)\;
     }
+    $\mathcal{N}\gets\{x\in\mathcal{N}_t\mid
+    \hat{t}_{\mathrm{ready}}(x)-t\le\hat{t}_{\mathrm{load}}(x)+\delta\}$\;
+    \ForEach{$x\in\operatorname{RankNear}(\mathcal{N},\mathcal{S}_t)$}{
+        $\mathcal{B}\gets\operatorname{Safe}
+        (\Pi_{\mathrm{pfx}}(x,\mathcal{S}_t),f_\theta)$\;
+        \If{$\mathcal{B}\neq\emptyset$}{
+            $b^*\gets\arg\min_{b\in\mathcal{B}}\widehat{J}(b)$\;
+            \Return{$\operatorname{Reserve}(b^*,\mathcal{S}_t)$}\;
+        }
+    }
+    \Return{\textsc{Defer}}\;
 \end{algorithm}
 
-\subsubsection*{符号说明与核心模块定义}
+\textsc{RankReady} is the interface to the upstream workflow policy; it may use
+critical-path slack, tenant weights, or FIFO without changing lifecycle
+admission. $\Pi$ contains only semantically distinct actions, while
+\textsc{Safe} applies compatibility and calibrated peak-memory checks.
+$\widehat{J}$ compares predicted workflow delay with load, reconstruction, and
+future-reuse costs. This separation permits a different upstream ordering policy
+without weakening lifecycle safety.
 
-算法 \ref{alg:gnn_scheduler} 中涉及的核心符号与函数定义如下：
+\subsection{Boundary Relative to Prior Systems}
 
-\begin{itemize}
-    \item \textbf{图模型与节点资源}：
-    \begin{itemize}
-        \item $\mathcal{G}=(\mathcal{V}, \mathcal{E})$：表示多智能体工作流的 DAG（有向无环图），其中 $\mathcal{V}$ 为智能体节点集合，$\mathcal{E}$ 为节点间的数据与执行依赖边。
-        \item $x=(s,v)$：候选 task，其中 $s$ 为 session，$v$ 为 workflow 节点。
-        \item $\mathcal{M}_v$：节点 $v$ 运行所需的具体大语言模型规格（如 \texttt{qwen3-8b}）。
-        \item $\mathcal{K}$：系统中可用的本地加速卡（如 GPU）集合。
-        \item $\mathcal{P}$：全局模型资源池，维护所有已加载到显存中的模型实例及其运行时状态（如：所属设备、是否处于空闲 $Idle$ 状态、实际闲置显存等）。
-        \item $\mathcal{S}$：workflow 运行状态，包括 session 依赖状态、节点队列积压、任务开始时间和预计完成时间。
-    \end{itemize}
+Parrot exposes request dependencies and prompt-prefix relationships to support
+application-centric placement and reuse~\cite{lin2024parrot}. Kairos ranks
+requests using workflow-derived remaining-latency distributions and dispatches
+them using memory demand~\cite{chen2025kairos}. Murakkab separates declarative
+workflow structure from execution configuration and uses profiles to choose
+models and hardware under SLOs~\cite{chaudhry2025murakkab}. SAGA treats an agent
+workflow as the scheduling unit to preserve KV continuity and provide
+workflow-level fairness~\cite{guo2026saga}.
 
-    \item \textbf{时间与预测指标}：
-    \begin{itemize}
-        \item $t_{now}$：当前系统的绝对时间。
-        \item $\Delta t$：调度器的轮询间隔（Sleep Gap），用于避免高频扫描带来的 CPU 额外开销。
-        \item $\hat{t}_{ready}(x)$：task $x$ 所需前置任务全部就绪的预计最早开始时间。对于 fan-in 节点，其由同一 session 下前驱 task 的预计完成时间推算得出。
-        \item $T_{deploy}$：模型 $\mathcal{M}_v$ 从外部存储加载到加速卡显存中所需的预计部署耗时。
-        \item $\epsilon_{time}, \epsilon_{mem}$：调度系统的安全裕度（Safety Margin）参数。前者代表提前加载触发的时间容错边界；后者代表显存预测的安全防线，用以规避长尾或极值序列引发的 OOM。
-    \end{itemize}
-
-    \item \textbf{核心子程序 (Subroutines)}：
-    \begin{itemize}
-        \item \texttt{CollectReadyTasks} 与 \texttt{CollectNearReadyTasks}：分别收集依赖已经满足的 task，以及可根据上游进度预测 ready 时间的 task。
-        \item \texttt{PredictTokens(x, $\mathcal{S}$)}：根据 task 所属 session 的前驱输出特征以及当前节点 $v$ 自身的 Prompt 模板，推算出即将执行推理任务的预计输入 token 长度 $\hat{L}_{in}(x)$ 和输出 token 长度 $\hat{L}_{out}(x)$。
-        \item $f_{GNN}(\dots)$：基于图神经网络（GNN）的资源预测器。它接收模型的静态图特征 $F(\mathcal{M}_v)$ 以及预测序列长度，输出估算的显存峰值 $M_{peak}(x)$ 与总推理耗时 $T_{infer}(x)$（涵盖 Prefill 和 Decode 阶段）。
-        \item \texttt{SelectIdleInstance}：在模型资源池中选择与节点需求匹配且当前空闲的模型实例，用于立即执行 ready task。
-        \item \texttt{SelectAccelerator}($\mathcal{K}, M_{req}$)：加速卡调度分配模块。基于请求的显存量 $M_{req}$，在物理加速卡集合 $\mathcal{K}$ 中根据特定分配原则（如最大适配、最小适配等）选出最合适的设备，否则返回 \texttt{NULL}。
-        \item \texttt{EvictPolicy}($\mathcal{P}, M_{req}$)：空闲模型驱逐策略模块。当显存耗尽时，从资源池 $\mathcal{P}$ 中挑选出一组处于 $Idle$ 状态的模型实例作为受害者 (Victims) 以满足 $M_{req}$ 的显存诉求。本研究中的具体驱逐规则（如驱逐显存占用最大、驱逐空闲时间最长/LRU等）将作为可插拔策略在该函数内部实现。
-        \item \texttt{LoadOrPrefetch}：在满足显存安全约束后加载模型；若 task 尚未 ready，则该加载行为表现为 prefetch。
-    \end{itemize}
-\end{itemize}
-
-We hope you find Overleaf useful!
-
-
+These systems motivate exposing workflow structure but operate at different
+decision boundaries. The narrow claim here is that resource prediction turns
+each activation into a small set of lifecycle plans, and that admission selects
+only a plan whose preparation path is safe. Cross-workflow ordering and victim
+selection remain policy choices unless coupled to a new objective or guarantee.
 
 \bibliographystyle{alpha}
 \bibliography{sample}

@@ -1,0 +1,3 @@
+# Sweep variant: prediction-cache ETA/prefetch + reuse-distance eviction.
+policy: cache
+acquire_timeout_sec: 1800.0

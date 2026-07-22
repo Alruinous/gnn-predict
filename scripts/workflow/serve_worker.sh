@@ -5,11 +5,10 @@ set -e
 
 sleep 5
 
-export PROJECT_DIR=/path/to/project
+export PROJECT_DIR=/home/wangjh/gnn_predict
 export VENV_DIR="$PROJECT_DIR/.venv"
 export RAY_PORT="${RAY_PORT:-6667}"
-
-: "${MASTER_ADDR:?Volcano did not inject MASTER_ADDR}"
+export MASTER_ADDR="${MASTER_ADDR:-localhost}"
 
 cd "$PROJECT_DIR"
 . "$VENV_DIR/bin/activate"

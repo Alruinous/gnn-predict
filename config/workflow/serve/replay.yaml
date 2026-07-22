@@ -5,11 +5,11 @@ timeout_sec: 3600
 scenarios:
   - dataset: qmsum
     workflow_name: qmsum
-    dataset_path: /path/to/datasets/qmsum
+    dataset_path: dataset/QMSum/data/ALL
     sample_count: 60
     arrival_gap_sec: 0.0
   - dataset: mbpp
     workflow_name: mbpp
-    dataset_path: /path/to/datasets/mbpp
+    dataset_path: dataset/mbpp/sanitized-mbpp.json
     sample_count: 60
     arrival_gap_sec: 0.0
