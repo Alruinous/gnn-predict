@@ -1,6 +1,6 @@
-# Open-loop Poisson arrival, 4 workflows (qmsum1/qmsum2 + mbpp1/mbpp2).
+# Open-loop Poisson arrival, 8 workflows (qmsum1..4 + mbpp1..4).
 # Aggregate offered load rho ~= 0.75 of measured burst saturation (~0.05 session/s);
-# per-workflow lambda = 0.0375/4 = 0.009375 session/s (mean inter-arrival ~107s).
+# per-workflow lambda = 0.0375/8 = 0.0046875 session/s (mean inter-arrival ~213s).
 # Each workflow is an independent Poisson stream (distinct trace_key => distinct seed).
 # NOTE: lower rho => longer arrival window; total wall-clock ~= arrival window + drain.
 timeout_sec: 5400
@@ -9,48 +9,48 @@ scenarios:
   - dataset: qmsum
     workflow_name: qmsum1
     dataset_path: dataset/QMSum/data/ALL
-    sample_count: 10
+    sample_count: 15
     arrival_process: poisson
-    arrival_rate_per_sec: 0.009375
+    arrival_rate_per_sec: 0.0046875
   - dataset: qmsum
     workflow_name: qmsum2
     dataset_path: dataset/QMSum/data/ALL
-    sample_count: 10
+    sample_count: 15
     arrival_process: poisson
-    arrival_rate_per_sec: 0.009375
+    arrival_rate_per_sec: 0.0046875
   - dataset: qmsum
     workflow_name: qmsum3
     dataset_path: dataset/QMSum/data/ALL
-    sample_count: 10
+    sample_count: 15
     arrival_process: poisson
-    arrival_rate_per_sec: 0.009375
+    arrival_rate_per_sec: 0.0046875
   - dataset: qmsum
     workflow_name: qmsum4
     dataset_path: dataset/QMSum/data/ALL
-    sample_count: 10
+    sample_count: 15
     arrival_process: poisson
-    arrival_rate_per_sec: 0.009375
+    arrival_rate_per_sec: 0.0046875
   - dataset: mbpp
     workflow_name: mbpp1
     dataset_path: dataset/mbpp/sanitized-mbpp.json
-    sample_count: 10
+    sample_count: 15
     arrival_process: poisson
-    arrival_rate_per_sec: 0.009375
+    arrival_rate_per_sec: 0.0046875
   - dataset: mbpp
     workflow_name: mbpp2
     dataset_path: dataset/mbpp/sanitized-mbpp.json
-    sample_count: 10
+    sample_count: 15
     arrival_process: poisson
-    arrival_rate_per_sec: 0.009375
+    arrival_rate_per_sec: 0.0046875
   - dataset: mbpp
     workflow_name: mbpp3
     dataset_path: dataset/mbpp/sanitized-mbpp.json
-    sample_count: 10
+    sample_count: 15
     arrival_process: poisson
-    arrival_rate_per_sec: 0.009375
+    arrival_rate_per_sec: 0.0046875
   - dataset: mbpp
     workflow_name: mbpp4
     dataset_path: dataset/mbpp/sanitized-mbpp.json
-    sample_count: 10
+    sample_count: 15
     arrival_process: poisson
-    arrival_rate_per_sec: 0.009375
+    arrival_rate_per_sec: 0.0046875

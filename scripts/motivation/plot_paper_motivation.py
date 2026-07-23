@@ -18,17 +18,24 @@ from reportlab.pdfgen.canvas import Canvas
 STAGES = ("chunk_0", "chunk_1", "chunk_2", "merge")
 FONT_REGULAR = "FigureSans"
 FONT_BOLD = "FigureSans-Bold"
+FIGURE_WIDTH = 7.16 * inch
+FIGURE_HEIGHT = 3.10 * inch
+MIN_FONT_SIZE = 9.0
+PANEL_FONT_SIZE = 10.0
+METRIC_FONT_SIZE = 9.5
 COLORS = {
     "text": HexColor("#202124"),
-    "muted": HexColor("#686B70"),
-    "grid": HexColor("#D8DADE"),
-    "chunk_0": HexColor("#4C78A8"),
-    "chunk_1": HexColor("#72B7B2"),
-    "chunk_2": HexColor("#F2A541"),
-    "merge": HexColor("#D95F59"),
-    "idle": HexColor("#E3E5E8"),
-    "resident": HexColor("#ECEDEF"),
-    "resident_line": HexColor("#A4A7AB"),
+    "muted": HexColor("#50545A"),
+    "grid": HexColor("#C9CDD2"),
+    "chunk_0": HexColor("#26456E"),
+    "chunk_1": HexColor("#5C8D89"),
+    "chunk_2": HexColor("#D89B39"),
+    "merge": HexColor("#8F3B4F"),
+    "idle": HexColor("#E6E8EB"),
+    "recovered": HexColor("#E2EDDF"),
+    "recovered_text": HexColor("#3F6B3C"),
+    "resident": HexColor("#F2F3F4"),
+    "resident_line": HexColor("#73777D"),
 }
 
 pdfmetrics.registerFont(TTFont(FONT_REGULAR, "Vera.ttf"))
@@ -188,6 +195,7 @@ def draw_text(
     bold: bool = False,
     align: str = "left",
 ) -> None:
+    assert size >= MIN_FONT_SIZE, size
     pdf.setFont(FONT_BOLD if bold else FONT_REGULAR, size)
     pdf.setFillColor(color or COLORS["text"])
     if align == "right":
@@ -212,14 +220,14 @@ def hatch_rect(
     path.rect(x, y, width, height)
     pdf.clipPath(path, stroke=0, fill=0)
     pdf.setStrokeColor(COLORS["resident_line"])
-    pdf.setLineWidth(0.45)
+    pdf.setLineWidth(0.6)
     offset = -height
     while offset < width:
         pdf.line(x + offset, y, x + offset + height, y + height)
         offset += 4.0
     pdf.restoreState()
     pdf.setStrokeColor(COLORS["resident_line"])
-    pdf.setLineWidth(0.45)
+    pdf.setLineWidth(0.6)
     pdf.rect(x, y, width, height, stroke=1, fill=0)
 
 
@@ -277,11 +285,9 @@ def draw_lifecycle_figure(
     qmsum_summary: dict[str, Any],
     mbpp_summary: dict[str, Any],
 ) -> None:
-    width = 7.15 * inch
-    height = 2.38 * inch
     pdf = Canvas(
         str(output_path),
-        pagesize=(width, height),
+        pagesize=(FIGURE_WIDTH, FIGURE_HEIGHT),
         pageCompression=1,
         invariant=1,
         initialFontName=FONT_REGULAR,
@@ -319,33 +325,40 @@ def draw_qmsum_schedule_panel(
     baseline_span: float,
     replay_span: float,
 ) -> None:
-    x0 = 27.0
-    x1 = 240.0
+    x0 = 34.0
+    x1 = 244.0
     speedup = baseline_span / replay_span
-    draw_text(pdf, 3.0, 162.0, "(a) QMSum execution span", size=7.7, bold=True)
+    draw_text(
+        pdf,
+        6.0,
+        211.0,
+        "(a) QMSum cross-session overlap",
+        size=PANEL_FONT_SIZE,
+        bold=True,
+    )
     draw_text(
         pdf,
         x1,
-        153.0,
-        f"{baseline_span:,.0f} s / {replay_span:,.0f} s = {speedup:.2f}x",
-        size=6.1,
+        198.0,
+        f"{baseline_span:,.0f} -> {replay_span:,.0f} s | {speedup:.2f}x",
+        size=METRIC_FONT_SIZE,
         color=COLORS["chunk_0"],
         bold=True,
         align="right",
     )
-    draw_text(pdf, x0, 145.0, "Session-at-a-time", size=6.2, bold=True)
-    pdf.setFillColor(COLORS["idle"])
-    pdf.rect(x0 + 69.0, 144.5, 6.0, 5.0, stroke=0, fill=1)
+    draw_text(
+        pdf, x0, 184.0, "Session-at-a-time", size=MIN_FONT_SIZE, bold=True
+    )
     draw_text(
         pdf,
-        x0 + 78.0,
-        145.0,
-        "pipeline bubble",
-        size=4.9,
+        x0 + 91.0,
+        184.0,
+        "gray = pipeline bubble",
+        size=MIN_FONT_SIZE,
         color=COLORS["muted"],
     )
-    observed_y = (130.0, 120.0, 110.0, 100.0)
-    replay_y = (73.0, 63.0, 53.0, 43.0)
+    observed_y = (163.0, 150.0, 137.0, 124.0)
+    replay_y = (84.0, 71.0, 58.0, 45.0)
     draw_schedule(
         pdf,
         schedule=observed,
@@ -353,11 +366,13 @@ def draw_qmsum_schedule_panel(
         x0=x0,
         x1=x1,
         row_y=observed_y,
-        bar_height=5.8,
+        bar_height=8.0,
         baseline_span=baseline_span,
     )
-    draw_text(pdf, x0, 88.0, "Cross-session replay", size=6.2, bold=True)
+    draw_text(pdf, x0, 105.0, "Offline replay", size=MIN_FONT_SIZE, bold=True)
     replay_end_x = x0 + (x1 - x0) * replay_span / baseline_span
+    pdf.setFillColor(COLORS["recovered"])
+    pdf.rect(replay_end_x, 42.0, x1 - replay_end_x, 51.0, stroke=0, fill=1)
     draw_schedule(
         pdf,
         schedule=replay,
@@ -365,73 +380,103 @@ def draw_qmsum_schedule_panel(
         x0=x0,
         x1=x1,
         row_y=replay_y,
-        bar_height=5.8,
+        bar_height=8.0,
         baseline_span=baseline_span,
     )
-    pdf.setStrokeColor(COLORS["muted"])
-    pdf.setLineWidth(0.55)
-    pdf.setDash(2, 2)
-    pdf.line(replay_end_x, 40.0, replay_end_x, 83.0)
-    pdf.setDash()
     draw_text(
         pdf,
-        replay_end_x - 1.5,
-        82.0,
-        f"{replay_span:,.0f} s",
-        size=5.1,
+        (replay_end_x + x1) / 2,
+        65.0,
+        "recovered span",
+        size=MIN_FONT_SIZE,
+        color=COLORS["recovered_text"],
+        bold=True,
+        align="center",
+    )
+    pdf.setStrokeColor(COLORS["text"])
+    pdf.setLineWidth(0.9)
+    pdf.line(replay_end_x, 42.0, replay_end_x, 93.0)
+    draw_text(
+        pdf,
+        replay_end_x - 2.0,
+        95.0,
+        f"{replay_span:,.0f}s",
+        size=MIN_FONT_SIZE,
         bold=True,
         align="right",
     )
     for y, label in zip(observed_y, ("C0", "C1", "C2", "M"), strict=True):
         draw_text(
             pdf,
-            x0 - 5.0,
+            x0 - 7.0,
             y + 0.8,
             label,
-            size=5.3,
+            size=MIN_FONT_SIZE,
             color=COLORS["muted"],
             align="right",
         )
     for y, label in zip(replay_y, ("C0", "C1", "C2", "M"), strict=True):
         draw_text(
             pdf,
-            x0 - 5.0,
+            x0 - 7.0,
             y + 0.8,
             label,
-            size=5.3,
+            size=MIN_FONT_SIZE,
             color=COLORS["muted"],
             align="right",
         )
-    axis_y = 31.0
+    axis_y = 30.0
+    pdf.setStrokeColor(COLORS["text"])
+    pdf.setLineWidth(0.8)
     pdf.line(x0, axis_y, x1, axis_y)
     for tick in (0, 2000, 4000, 6000):
         tick_x = x0 + (x1 - x0) * tick / baseline_span
-        pdf.line(tick_x, axis_y, tick_x, axis_y - 2.5)
+        pdf.line(tick_x, axis_y, tick_x, axis_y - 3.0)
         draw_text(
             pdf,
             tick_x,
-            axis_y - 9.0,
+            axis_y - 12.0,
             f"{tick:,}",
-            size=5.0,
+            size=MIN_FONT_SIZE,
             color=COLORS["muted"],
             align="center",
         )
     draw_text(
         pdf,
         (x0 + x1) / 2,
-        11.5,
+        3.5,
         "Generation-only span (s)",
-        size=5.8,
+        size=MIN_FONT_SIZE,
         align="center",
     )
 
 
 def draw_qmsum_cdf_panel(pdf: Canvas, summary: dict[str, Any]) -> None:
-    draw_text(pdf, 250.0, 162.0, "(b) Bubble ECDF", size=7.5, bold=True)
-    x0 = 268.0
-    x1 = 347.0
-    y0 = 31.0
-    y1 = 145.0
+    draw_text(
+        pdf, 252.0, 211.0, "(b) Bubble ratio", size=PANEL_FONT_SIZE, bold=True
+    )
+    draw_text(
+        pdf,
+        252.0,
+        198.0,
+        "stage utilization",
+        size=MIN_FONT_SIZE,
+        color=COLORS["recovered_text"],
+    )
+    draw_text(
+        pdf,
+        352.0,
+        198.0,
+        f"{float(summary['stage_utilization']):.0%}",
+        size=MIN_FONT_SIZE,
+        color=COLORS["recovered_text"],
+        bold=True,
+        align="right",
+    )
+    x0 = 273.0
+    x1 = 352.0
+    y0 = 30.0
+    y1 = 187.0
     x_min = 0.26
     x_max = 0.54
 
@@ -442,21 +487,21 @@ def draw_qmsum_cdf_panel(pdf: Canvas, summary: dict[str, Any]) -> None:
         return y0 + (y1 - y0) * value
 
     pdf.setStrokeColor(COLORS["grid"])
-    pdf.setLineWidth(0.45)
+    pdf.setLineWidth(0.6)
     for tick in (0.0, 0.5, 1.0):
         tick_y = map_y(tick)
         pdf.line(x0, tick_y, x1, tick_y)
         draw_text(
             pdf,
-            x0 - 3.5,
-            tick_y - 1.8,
+            x0 - 6.0,
+            tick_y - 2.5,
             f"{tick:.1f}",
-            size=4.8,
+            size=MIN_FONT_SIZE,
             color=COLORS["muted"],
             align="right",
         )
     pdf.setStrokeColor(COLORS["text"])
-    pdf.setLineWidth(0.6)
+    pdf.setLineWidth(0.8)
     pdf.line(x0, y0, x0, y1)
     pdf.line(x0, y0, x1, y0)
     ratios = sorted(
@@ -470,7 +515,7 @@ def draw_qmsum_cdf_panel(pdf: Canvas, summary: dict[str, Any]) -> None:
         else:
             path.lineTo(*point)
     pdf.setStrokeColor(COLORS["chunk_0"])
-    pdf.setLineWidth(1.1)
+    pdf.setLineWidth(1.6)
     pdf.drawPath(path, stroke=1, fill=0)
     mean = float(summary["pipeline_bubble_ratio"]["mean"])
     p95 = float(summary["pipeline_bubble_ratio"]["p95"])
@@ -478,54 +523,51 @@ def draw_qmsum_cdf_panel(pdf: Canvas, summary: dict[str, Any]) -> None:
         line_x = map_x(value)
         pdf.setDash(*dash)
         pdf.setStrokeColor(COLORS["muted"])
-        pdf.setLineWidth(0.55)
+        pdf.setLineWidth(0.8)
         pdf.line(line_x, y0, line_x, y1)
     pdf.setDash()
     draw_text(
         pdf,
-        map_x(mean) - 2.0,
-        map_y(0.67),
+        map_x(mean) - 4.0,
+        map_y(0.70),
         f"mean {mean:.3f}",
-        size=5.0,
+        size=MIN_FONT_SIZE,
         color=COLORS["muted"],
         bold=True,
         align="right",
     )
     draw_text(
         pdf,
-        map_x(p95) + 2.0,
-        map_y(0.87),
+        x1 - 2.0,
+        map_y(0.88),
         f"P95 {p95:.3f}",
-        size=5.0,
+        size=MIN_FONT_SIZE,
         color=COLORS["muted"],
         bold=True,
+        align="right",
     )
     for tick in (0.3, 0.4, 0.5):
         tick_x = map_x(tick)
         pdf.setStrokeColor(COLORS["text"])
-        pdf.line(tick_x, y0, tick_x, y0 - 2.5)
+        pdf.setLineWidth(0.8)
+        pdf.line(tick_x, y0, tick_x, y0 - 3.0)
         draw_text(
             pdf,
             tick_x,
-            y0 - 9.0,
+            y0 - 12.0,
             f"{tick:.1f}",
-            size=4.8,
+            size=MIN_FONT_SIZE,
             color=COLORS["muted"],
             align="center",
         )
     draw_text(
         pdf,
         (x0 + x1) / 2,
-        11.5,
-        "Pipeline bubble ratio",
-        size=5.8,
+        3.5,
+        "Bubble ratio",
+        size=MIN_FONT_SIZE,
         align="center",
     )
-    pdf.saveState()
-    pdf.translate(252.5, (y0 + y1) / 2)
-    pdf.rotate(90)
-    draw_text(pdf, 0.0, 0.0, "CDF", size=5.8, align="center")
-    pdf.restoreState()
 
 
 def draw_mbpp_panel(
@@ -543,52 +585,40 @@ def draw_mbpp_panel(
     )
     assert math.isclose(trace_resident_total, resident_total, abs_tol=1e-6)
     assert math.isclose(trace_active_total, active_total, abs_tol=1e-6)
-    resource_gap = float(summary["resource_gap"])
-    draw_text(pdf, 358.0, 162.0, "(c) MBPP model residency", size=7.3, bold=True)
+    draw_text(
+        pdf, 360.0, 211.0, "(c) MBPP residency gap", size=PANEL_FONT_SIZE, bold=True
+    )
     draw_text(
         pdf,
-        511.0,
-        151.0,
-        f"resident / active = {resource_gap:.2f}x",
-        size=5.8,
-        color=COLORS["chunk_0"],
-        bold=True,
-        align="right",
+        360.0,
+        198.0,
+        "3 resident models; <= 1 active",
+        size=MIN_FONT_SIZE,
+        color=COLORS["muted"],
     )
     median_duration = median(sample.duration for sample in samples)
     sample = min(samples, key=lambda item: abs(item.duration - median_duration))
-    x0 = 390.0
-    x1 = 511.0
-    pdf.setFillColor(COLORS["chunk_0"])
-    pdf.rect(x0, 139.0, 9.0, 5.5, stroke=0, fill=1)
-    draw_text(pdf, x0 + 12.0, 139.2, "active", size=4.7, color=COLORS["muted"])
-    hatch_rect(pdf, x0 + 45.0, 139.0, 9.0, 5.5)
-    draw_text(
-        pdf,
-        x0 + 57.0,
-        139.2,
-        "static residency",
-        size=4.7,
-        color=COLORS["muted"],
-    )
-    row_y = (116.0, 92.0, 68.0)
+    x0 = 401.0
+    x1 = 507.0
+    row_y = (161.0, 126.0, 91.0)
     names = ("Coder", "Reviewer", "Repair")
     intervals = (sample.coder, sample.reviewer, sample.repair)
     stage_colors = (COLORS["chunk_0"], COLORS["chunk_1"], COLORS["chunk_2"])
-    for name, interval, color, y in zip(
-        names, intervals, stage_colors, row_y, strict=True
+    stage_text_colors = (HexColor("#FFFFFF"), HexColor("#FFFFFF"), COLORS["text"])
+    for name, interval, color, text_color, y in zip(
+        names, intervals, stage_colors, stage_text_colors, row_y, strict=True
     ):
         draw_text(
             pdf,
-            x0 - 6.0,
-            y + 3.0,
+            x0 - 7.0,
+            y + 3.5,
             name,
-            size=5.6,
+            size=MIN_FONT_SIZE,
             color=COLORS["muted"],
             bold=True,
             align="right",
         )
-        hatch_rect(pdf, x0, y, x1 - x0, 10.0)
+        hatch_rect(pdf, x0, y, x1 - x0, 16.0)
         left, width = interval_rect(
             interval,
             x0=x0,
@@ -596,62 +626,58 @@ def draw_mbpp_panel(
             horizon=sample.duration,
         )
         pdf.setFillColor(color)
-        pdf.rect(left, y, width, 10.0, stroke=0, fill=1)
+        pdf.rect(left, y, width, 16.0, stroke=0, fill=1)
         if width >= 20.0:
             draw_text(
                 pdf,
                 left + width / 2,
-                y + 2.8,
+                y + 4.0,
                 f"{interval[1]:.0f}s",
-                size=5.5,
-                color=HexColor("#FFFFFF"),
+                size=MIN_FONT_SIZE,
+                color=text_color,
                 bold=True,
                 align="center",
             )
-    axis_y = 59.0
+    axis_y = 78.0
     pdf.setStrokeColor(COLORS["text"])
-    pdf.setLineWidth(0.6)
+    pdf.setLineWidth(0.8)
     pdf.line(x0, axis_y, x1, axis_y)
     for fraction in (0.0, 0.5, 1.0):
         tick_x = x0 + (x1 - x0) * fraction
-        pdf.line(tick_x, axis_y, tick_x, axis_y - 2.5)
+        pdf.line(tick_x, axis_y, tick_x, axis_y - 3.0)
         draw_text(
             pdf,
             tick_x,
-            axis_y - 9.0,
+            axis_y - 12.0,
             f"{sample.duration * fraction:.0f}",
-            size=4.8,
+            size=MIN_FONT_SIZE,
             color=COLORS["muted"],
             align="center",
         )
     draw_text(
         pdf,
         (x0 + x1) / 2,
-        38.0,
+        52.0,
         "Relative session time (s)",
-        size=5.8,
+        size=MIN_FONT_SIZE,
         align="center",
     )
-    draw_text(
-        pdf,
-        x0,
-        27.5,
-        "Aggregate residency",
-        size=4.8,
-        color=COLORS["muted"],
-        bold=True,
-    )
+    pdf.setFillColor(COLORS["chunk_0"])
+    pdf.rect(362.0, 39.0, 10.0, 8.0, stroke=0, fill=1)
+    draw_text(pdf, 377.0, 38.5, "active", size=MIN_FONT_SIZE)
+    hatch_rect(pdf, 435.0, 39.0, 10.0, 8.0)
+    draw_text(pdf, 450.0, 38.5, "resident", size=MIN_FONT_SIZE)
     active_fraction = active_total / resident_total
-    hatch_rect(pdf, x0, 15.0, x1 - x0, 9.5)
+    hatch_rect(pdf, x0, 22.0, x1 - x0, 12.0)
     active_width = (x1 - x0) * active_fraction
     pdf.setFillColor(COLORS["chunk_0"])
-    pdf.rect(x0, 15.0, active_width, 9.5, stroke=0, fill=1)
+    pdf.rect(x0, 22.0, active_width, 12.0, stroke=0, fill=1)
     draw_text(
         pdf,
         x0 + active_width / 2,
-        17.5,
-        f"active {active_fraction:.0%}",
-        size=4.6,
+        24.5,
+        f"{active_fraction:.0%}",
+        size=MIN_FONT_SIZE,
         color=HexColor("#FFFFFF"),
         bold=True,
         align="center",
@@ -659,10 +685,20 @@ def draw_mbpp_panel(
     draw_text(
         pdf,
         x0 + active_width + (x1 - x0 - active_width) / 2,
-        17.5,
-        f"idle {1 - active_fraction:.0%}",
-        size=4.5,
+        24.5,
+        f"{1 - active_fraction:.0%}",
+        size=MIN_FONT_SIZE,
         color=COLORS["muted"],
+        bold=True,
+        align="center",
+    )
+    draw_text(
+        pdf,
+        (360.0 + 507.0) / 2,
+        5.0,
+        f"{active_total:,.0f} -> {resident_total:,.0f} GPU-s "
+        f"({float(summary['resource_gap']):.2f}x)",
+        size=MIN_FONT_SIZE,
         bold=True,
         align="center",
     )

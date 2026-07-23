@@ -51,6 +51,52 @@ nodes:
   parameters: {}
   routing: broadcast
   max_concurrency: 8
+- name: diagnoser
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-1.7B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-1.7B
+    max_new_tokens: 512
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Diagnose the Python solution and its test result.
+
+    Identify the likely root cause, failing edge cases, and concrete correction requirements.
+
+    Return only a concise diagnostic analysis, no code.
+
+
+    Task:
+
+    {task}
+
+
+    Current solution and test result:
+
+    {previous_output}
+
+
+    Tests:
+
+    {tests}'
+  system_prompt: null
 - name: reviewer
   task: text_generation
   description: null
@@ -88,9 +134,9 @@ nodes:
     {task}
 
 
-    Current solution and test result:
+    Current solution, test result, and diagnostic analysis:
 
-    {previous_output}
+    {node_outputs_json}
 
 
     Tests:
@@ -126,8 +172,8 @@ nodes:
 
     Return only Python code in one fenced code block.
 
-    The execution context JSON contains the tester''s code and initial result and
-    the reviewer''s analysis.
+    The execution context JSON contains the tester''s code and initial result,
+    the diagnostic analysis, and the reviewer''s analysis.
 
 
     Task:
@@ -160,8 +206,14 @@ edges:
 - source: coder
   target: tester
 - source: tester
+  target: diagnoser
+- source: tester
+  target: reviewer
+- source: diagnoser
   target: reviewer
 - source: tester
+  target: repair
+- source: diagnoser
   target: repair
 - source: reviewer
   target: repair

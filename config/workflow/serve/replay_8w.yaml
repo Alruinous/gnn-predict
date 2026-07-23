@@ -6,47 +6,47 @@ scenarios:
   - dataset: qmsum
     workflow_name: qmsum1
     dataset_path: dataset/QMSum/data/ALL
-    sample_count: 10
+    sample_count: 15
     arrival_gap_sec: 0.0
 
   - dataset: qmsum
     workflow_name: qmsum2
     dataset_path: dataset/QMSum/data/ALL
-    sample_count: 10
+    sample_count: 15
     arrival_gap_sec: 0.0
 
   - dataset: qmsum
     workflow_name: qmsum3
     dataset_path: dataset/QMSum/data/ALL
-    sample_count: 10
+    sample_count: 15
     arrival_gap_sec: 0.0
 
   - dataset: qmsum
     workflow_name: qmsum4
     dataset_path: dataset/QMSum/data/ALL
-    sample_count: 10
+    sample_count: 15
     arrival_gap_sec: 0.0
 
   - dataset: mbpp
     workflow_name: mbpp1
     dataset_path: dataset/mbpp/sanitized-mbpp.json
-    sample_count: 10
+    sample_count: 15
     arrival_gap_sec: 0.0
 
   - dataset: mbpp
     workflow_name: mbpp2
     dataset_path: dataset/mbpp/sanitized-mbpp.json
-    sample_count: 10
+    sample_count: 15
     arrival_gap_sec: 0.0
 
   - dataset: mbpp
     workflow_name: mbpp3
     dataset_path: dataset/mbpp/sanitized-mbpp.json
-    sample_count: 10
+    sample_count: 15
     arrival_gap_sec: 0.0
 
   - dataset: mbpp
     workflow_name: mbpp4
     dataset_path: dataset/mbpp/sanitized-mbpp.json
-    sample_count: 10
+    sample_count: 15
     arrival_gap_sec: 0.0
