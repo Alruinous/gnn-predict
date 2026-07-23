@@ -82,7 +82,7 @@ generation 时间可减少近 40%。
 | pipeline idle mean | {qmsum_summary["pipeline_idle_time"]["mean"]:.3f} s |
 | pipeline idle p95 | {qmsum_summary["pipeline_idle_time"]["p95"]:.3f} s |
 | pipeline bubble ratio mean | {qmsum_summary["pipeline_bubble_ratio"]["mean"]:.3f} |
-| stage utilization | {qmsum_summary["stage_utilization"]:.3f} |
+| chunk-stage utilization | {qmsum_summary["stage_utilization"]:.3f} |
 | ROUGE-L | {q_quality["rouge_l"]:.4f} |
 | LLM score | {q_quality["llm_score"]:.4f} |
 | judge pass rate | {q_quality["pass_rate"]:.4f} |
@@ -95,9 +95,9 @@ generation 时间可减少近 40%。
 
 ![MBPP gap]({relative_image(image_paths["mbpp_gap"])})
 
-**图 4: 静态模型驻留与 active frontier 的资源对比。** Baseline 在 workflow 全生命周期内
-同时驻留 coder（14B）、reviewer（8B）和 repair（14B）三个模型实例，但任意时刻真实活跃的
-LLM frontier 只有一个节点，资源浪费为 {mbpp_summary["resource_gap"]:.3f}x。
+**图 4: 静态模型驻留反事实与 active frontier 的资源对比。** 该反事实假设 workflow
+全生命周期内同时驻留 coder（14B）、reviewer（8B）和 repair（14B）三个模型实例，但任意时刻
+trace 中真实活跃的 LLM frontier 只有一个节点，资源差距为 {mbpp_summary["resource_gap"]:.3f}x。
 
 | 指标 | 数值 |
 |---|---:|
@@ -106,13 +106,13 @@ LLM frontier 只有一个节点，资源浪费为 {mbpp_summary["resource_gap"]:
 | active GPU-seconds | {mbpp_summary["active_model_seconds"]["total"]:.3f} |
 | resource gap | {mbpp_summary["resource_gap"]:.3f}x |
 | frontier gap | {mbpp_summary["frontier_gap"]:.3f}x |
-| node idle mean | {mbpp_summary["node_idle_time"]["mean"]:.3f} GPU-s |
+| aggregate idle / session (3 model nodes) | {mbpp_summary["node_idle_time"]["mean"]:.3f} GPU-s |
+| idle / model / session | {mbpp_summary["node_idle_time"]["mean"] / 3:.3f} GPU-s |
 | pass@1 | {mbpp_summary["pass_at_1"]:.4f} |
 
-结果说明：在 fixed chain 中，任意时刻真实活跃 LLM frontier 只有一个节点；但 baseline 在
-workflow 生命周期内静态驻留 coder（14B）、reviewer（8B）和 repair（14B）三个模型实例，
-resident GPU-seconds 是 active 的三倍以上。该差距就是本地模型实例加载、复用、预取和卸载
-策略的优化空间。
+结果说明：在 fixed chain 中，任意时刻 trace 中真实活跃的 LLM frontier 只有一个节点；静态驻留量
+由每个 session 的起止时间和三个模型节点推导，并非硬件驻留遥测。该反事实的 resident GPU-seconds
+是 active 的三倍以上，量化了本地模型实例加载、复用、预取和卸载策略的优化空间。
 
 ## 输出文件
 
@@ -129,6 +129,18 @@ resident GPU-seconds 是 active 的三倍以上。该差距就是本地模型实
 {output_dir / "mbpp_chain_trace.jsonl"}
 {output_dir / "mbpp_chain_results.jsonl"}
 {output_dir / "mbpp_chain_summary.json"}
+```
+
+生命周期图由上述 trace/summary 确定性生成：
+
+```bash
+uv run python scripts/motivation/plot_paper_motivation.py
+```
+
+输出文件：
+
+```text
+paper/hpca2027-sagepilot/figures/lifecycle_motivation.pdf
 ```
 
 ## 结论

@@ -100,8 +100,7 @@ output/motivation/mbpp_chain_results.jsonl
 output/motivation/mbpp_chain_summary.json
 ```
 
-生命周期图由上述 trace/summary 生成；预测安全图使用
-`docs/train/gnn_model_llm_only_full_retrain_20260702.md` 中的 held-out 指标。两张论文图可确定性重生成：
+生命周期图由上述 trace/summary 确定性生成：
 
 ```bash
 uv run python scripts/motivation/plot_paper_motivation.py
@@ -111,7 +110,6 @@ uv run python scripts/motivation/plot_paper_motivation.py
 
 ```text
 paper/hpca2027-sagepilot/figures/lifecycle_motivation.pdf
-paper/hpca2027-sagepilot/figures/prediction_safety_evidence.pdf
 ```
 
 ## 结论
