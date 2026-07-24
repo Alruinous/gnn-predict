@@ -14,6 +14,10 @@ from experiment.workflow.experiments.driver import (
     submit_sessions,
     wait_terminal,
 )
+from experiment.workflow.gsm8k import (
+    build_gsm8k_session_inputs,
+    load_gsm8k_experiment_samples,
+)
 from experiment.workflow.mbpp import (
     build_mbpp_session_inputs,
     load_mbpp_experiment_samples,
@@ -31,6 +35,7 @@ InputBuilder = Callable[[TaskSample], dict[str, JsonValue]]
 _SCENARIOS: dict[str, tuple[SampleLoader, InputBuilder]] = {
     "qmsum": (load_qmsum_experiment_samples, build_qmsum_session_inputs),
     "mbpp": (load_mbpp_experiment_samples, build_mbpp_session_inputs),
+    "gsm8k": (load_gsm8k_experiment_samples, build_gsm8k_session_inputs),
 }
 
 

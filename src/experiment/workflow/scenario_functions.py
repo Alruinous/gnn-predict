@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from experiment.workflow.gsm8k import gsm8k_functions
 from experiment.workflow.mbpp import mbpp_functions
 from experiment.workflow.qmsum import qmsum_functions
 
 
 def build_registry() -> dict[str, Callable[..., object]]:
-    qmsum = qmsum_functions()
-    mbpp = mbpp_functions()
-    overlap = set(qmsum) & set(mbpp)
-    if overlap:
-        raise ValueError(f"function name collision across scenarios: {sorted(overlap)}")
-    return {**qmsum, **mbpp}
+    registry: dict[str, Callable[..., object]] = {}
+    for functions in (qmsum_functions(), mbpp_functions(), gsm8k_functions()):
+        overlap = set(registry) & set(functions)
+        if overlap:
+            raise ValueError(
+                f"function name collision across scenarios: {sorted(overlap)}"
+            )
+        registry.update(functions)
+    return registry
