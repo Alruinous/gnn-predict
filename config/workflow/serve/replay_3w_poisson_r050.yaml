@@ -1,0 +1,27 @@
+# Open-loop Poisson arrival, 3 workflows (qmsum1 + mbpp1 + gsm8k1).
+# Nominal aggregate session rate ~= 0.025 session/s (parity with 2w r050 reference),
+# redistributed across 3 workflows: per-workflow lambda = 0.025/3 ~= 0.008333 session/s.
+# NOTE: gsm8k sessions are lighter, so true rho vs the 3-dataset burst-saturation is
+# lower than 0.50; recalibrate arrival_rate_per_sec after a 3w burst-capacity measurement.
+# Same arrival_seed across policies => identical arrival trace (paired comparison).
+timeout_sec: 5400
+arrival_seed: 42
+scenarios:
+  - dataset: qmsum
+    workflow_name: qmsum1
+    dataset_path: dataset/QMSum/data/ALL
+    sample_count: 40
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.008333
+  - dataset: mbpp
+    workflow_name: mbpp1
+    dataset_path: dataset/mbpp/sanitized-mbpp.json
+    sample_count: 40
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.008333
+  - dataset: gsm8k
+    workflow_name: gsm8k1
+    dataset_path: dataset/gsm8k/data/test.jsonl
+    sample_count: 40
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.008333

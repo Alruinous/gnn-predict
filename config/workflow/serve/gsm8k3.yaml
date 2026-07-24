@@ -1,0 +1,259 @@
+workflow_name: gsm8k3
+nodes:
+- name: fanout
+  task: null
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: function
+  function: fanout_gsm8k
+  parameters: {}
+  routing: targeted
+  max_concurrency: 1
+- name: solve_0
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 512
+    dtype: float16
+    do_sample: true
+    temperature: 0.7
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 1024
+      max_num_seqs: 3
+      max_num_batched_tokens: 3072
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Solve the math word problem step by step.
+
+    End with a line ''#### '' followed by the final numeric answer.
+
+
+    Problem:
+
+    {question}'
+  system_prompt: null
+- name: solve_1
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 512
+    dtype: float16
+    do_sample: true
+    temperature: 0.7
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 1024
+      max_num_seqs: 3
+      max_num_batched_tokens: 3072
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Solve the math word problem step by step.
+
+    End with a line ''#### '' followed by the final numeric answer.
+
+
+    Problem:
+
+    {question}'
+  system_prompt: null
+- name: solve_2
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 512
+    dtype: float16
+    do_sample: true
+    temperature: 0.7
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 1024
+      max_num_seqs: 3
+      max_num_batched_tokens: 3072
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Solve the math word problem step by step.
+
+    End with a line ''#### '' followed by the final numeric answer.
+
+
+    Problem:
+
+    {question}'
+  system_prompt: null
+- name: solve_3
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 512
+    dtype: float16
+    do_sample: true
+    temperature: 0.7
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 1024
+      max_num_seqs: 3
+      max_num_batched_tokens: 3072
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Solve the math word problem step by step.
+
+    End with a line ''#### '' followed by the final numeric answer.
+
+
+    Problem:
+
+    {question}'
+  system_prompt: null
+- name: solve_4
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 512
+    dtype: float16
+    do_sample: true
+    temperature: 0.7
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 1024
+      max_num_seqs: 3
+      max_num_batched_tokens: 3072
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Solve the math word problem step by step.
+
+    End with a line ''#### '' followed by the final numeric answer.
+
+
+    Problem:
+
+    {question}'
+  system_prompt: null
+- name: aggregate
+  task: null
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: function
+  function: aggregate_gsm8k_votes
+  parameters: {}
+  routing: broadcast
+  max_concurrency: 8
+- name: refine
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-14B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-14B
+    max_new_tokens: 512
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 2048
+      max_num_seqs: 3
+      max_num_batched_tokens: 6144
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Decide the final answer to the math word problem using the candidate
+    solutions and their majority vote.
+
+    End with a line ''#### '' followed by the final numeric answer.
+
+
+    Problem:
+
+    {question}
+
+
+    Candidate solutions:
+
+    {previous_output}'
+  system_prompt: null
+edges:
+- source: fanout
+  target: solve_0
+- source: fanout
+  target: solve_1
+- source: fanout
+  target: solve_2
+- source: fanout
+  target: solve_3
+- source: fanout
+  target: solve_4
+- source: solve_0
+  target: aggregate
+- source: solve_1
+  target: aggregate
+- source: solve_2
+  target: aggregate
+- source: solve_3
+  target: aggregate
+- source: solve_4
+  target: aggregate
+- source: aggregate
+  target: refine

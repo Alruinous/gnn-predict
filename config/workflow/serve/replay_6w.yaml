@@ -1,40 +1,41 @@
-# dataset_replay experiment config. Set dataset_path to the platform dataset directories.
-# workflow_name must match the registered workflow (qmsum.yaml / mbpp.yaml).
-# sample_count caps samples (manifests pin 60); arrival_gap_sec spaces session arrivals.
+# dataset_replay experiment config (6 workflows, burst baseline).
+# Two workflows per dataset (qmsum1/2 + mbpp1/2 + gsm8k1/2); 20 sessions each = 120 total,
+# matching the 2w/4w/8w convention (same total workload, redistributed).
+# arrival_gap_sec=0 means burst (all sessions submitted at t=0).
 timeout_sec: 3600
 scenarios:
   - dataset: qmsum
     workflow_name: qmsum1
     dataset_path: dataset/QMSum/data/ALL
-    sample_count: 10
+    sample_count: 20
     arrival_gap_sec: 0.0
 
   - dataset: qmsum
     workflow_name: qmsum2
     dataset_path: dataset/QMSum/data/ALL
-    sample_count: 10
-    arrival_gap_sec: 0.0
-
-  - dataset: qmsum
-    workflow_name: qmsum3
-    dataset_path: dataset/QMSum/data/ALL
-    sample_count: 10
+    sample_count: 20
     arrival_gap_sec: 0.0
 
   - dataset: mbpp
     workflow_name: mbpp1
     dataset_path: dataset/mbpp/sanitized-mbpp.json
-    sample_count: 10
+    sample_count: 20
     arrival_gap_sec: 0.0
 
   - dataset: mbpp
     workflow_name: mbpp2
     dataset_path: dataset/mbpp/sanitized-mbpp.json
-    sample_count: 10
+    sample_count: 20
     arrival_gap_sec: 0.0
 
-  - dataset: mbpp
-    workflow_name: mbpp3
-    dataset_path: dataset/mbpp/sanitized-mbpp.json
-    sample_count: 10
+  - dataset: gsm8k
+    workflow_name: gsm8k1
+    dataset_path: dataset/gsm8k/data/test.jsonl
+    sample_count: 20
+    arrival_gap_sec: 0.0
+
+  - dataset: gsm8k
+    workflow_name: gsm8k2
+    dataset_path: dataset/gsm8k/data/test.jsonl
+    sample_count: 20
     arrival_gap_sec: 0.0
