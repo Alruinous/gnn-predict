@@ -1,0 +1,27 @@
+{
+  "dtype": "float16",
+  "duration_samples_sec": [
+    190.98206246178597,
+    55.4583865236491,
+    25.12315578199923
+  ],
+  "gpu": {
+    "index": 3,
+    "name": "Tesla V100-SXM2-32GB",
+    "total_memory_mb": 32768,
+    "uuid": "GPU-4dacd256-cad0-573b-f421-0a3e8ac2e153"
+  },
+  "group_name": "qwen3_4b",
+  "idle_vram_samples_mb": [
+    8259.25,
+    8261.25,
+    8261.25
+  ],
+  "model_name": "Qwen3-4B",
+  "model_path": "/data/Models/Qwen/Qwen3-4B",
+  "predicted_load_sec": 190.98206246178597,
+  "record_type": "model_load",
+  "recorded_at": "2026-07-21T16:44:11.454594+00:00",
+  "sample_count": 3,
+  "status": "success"
+}

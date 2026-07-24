@@ -1,0 +1,40 @@
+version: 2
+created_at: '2026-07-21T16:23:15.518650+00:00'
+completed_at: '2026-07-22T03:43:22.028041+00:00'
+complete: true
+cache_yaml: /home/wangjh/gnn_predict/config/workflow/cache.yaml
+cache_yaml_sha256: 6fe2f48667517a4e37455bdf3432b674a9a0f58635694fa98cbf248ba8f4220a
+selection_sha256: f77114b68c4d320ddd065bc0f8817ba725ee61ce0262889e0fcdbfa31f142702
+selected_spec_count: 1980
+gpu_kind: a100
+gpu_count: 3
+gpus:
+- index: 0
+  name: NVIDIA A100-PCIE-40GB
+  uuid: GPU-c9db5c06-61c6-01b7-b9aa-20307600482c
+  total_memory_mb: 40960
+- index: 1
+  name: NVIDIA A100-PCIE-40GB
+  uuid: GPU-4ce9cbee-8444-67c3-2ead-dfda2618ccdf
+  total_memory_mb: 40960
+- index: 2
+  name: NVIDIA A100-PCIE-40GB
+  uuid: GPU-08efa9c6-c2b6-09d7-95ad-8b214dc49ab2
+  total_memory_mb: 40960
+environment:
+  hostname: sg-wangjh-260722-17c9d-default0-0
+  platform: Linux-5.15.0-170-generic-x86_64-with-glibc2.35
+  python: 3.12.10
+  torch: 2.9.0+cu128
+  transformers: 5.9.0
+  cuda: '12.8'
+  driver: 590.48.01
+measurement:
+  phase: decode
+  semantics: full_generate_forced_output_length
+  input_kind: deterministic_synthetic_token_ids
+  run_samples_per_spec: 1
+  load_samples_per_model: 3
+  load_statistic: max_as_conservative_p95
+  power_sample_interval_sec: 0.05
+  oom_policy: skip_dominated_batch_sequence_output_shapes

@@ -17,6 +17,14 @@
 
 推荐阅读顺序是当前实现说明、Phase 1 系统目标、系统实验方案和系统实验结果。
 
+## 待开发说明
+
+- [GNN 缓存部署耗时校准](gnn_deployment_load_calibration_20260724.md)：记录 Profile/GNN
+  加载估计与在线 vLLM deployment 的语义偏差、trace 校准的 held-out 证据、GNN 预测收益
+  口径，以及缓存兼容和 deployment-aware 两阶段开发方案。
+
+本节文档描述已经确认的问题与建议实现，不代表对应能力已进入当前 runtime。
+
 ## 历史研究与实验
 
 以下文档保存研究演进和实验依据，不作为当前 runtime 契约：

@@ -1,0 +1,27 @@
+{
+  "dtype": "float16",
+  "duration_samples_sec": [
+    275.64913490973413,
+    260.40732141025364,
+    106.86419269163162
+  ],
+  "gpu": {
+    "index": 2,
+    "name": "NVIDIA A100-PCIE-40GB",
+    "total_memory_mb": 40960,
+    "uuid": "GPU-08efa9c6-c2b6-09d7-95ad-8b214dc49ab2"
+  },
+  "group_name": "qwen3_8b",
+  "idle_vram_samples_mb": [
+    16565.5,
+    16567.5,
+    16567.5
+  ],
+  "model_name": "Qwen3-8B",
+  "model_path": "/data/Models/Qwen/Qwen3-8B",
+  "predicted_load_sec": 275.64913490973413,
+  "record_type": "model_load",
+  "recorded_at": "2026-07-21T16:52:10.441464+00:00",
+  "sample_count": 3,
+  "status": "success"
+}

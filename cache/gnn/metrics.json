@@ -1,0 +1,1026 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-07-24T04:35:33.124600+00:00",
+  "data_audit": {
+    "source_files": [
+      {
+        "path": "csv/v100_llm/qwen3_monitor.csv",
+        "sha256": "ccdc4c506aa8bc1d902c9008822fdfabefa3bf93aff32f8f331c45f638b48fb5",
+        "model_name": "qwen3",
+        "gpu_name": "v100",
+        "record_count": 390,
+        "phase_counts": {
+          "decode": 390
+        },
+        "known_excluded_anomaly": null
+      },
+      {
+        "path": "csv/v100_llm/gemma4_monitor.csv",
+        "sha256": "242f716538bd8272811b49518167a7ed9ebf90714c4508b645f75eacb22f71dc",
+        "model_name": "gemma4",
+        "gpu_name": "v100",
+        "record_count": 712,
+        "phase_counts": {
+          "decode": 627,
+          "prefill": 85
+        },
+        "known_excluded_anomaly": null
+      },
+      {
+        "path": "csv/a100_llm/qwen3_monitor.csv",
+        "sha256": "52b0dccb2e532ff51e6630b57333952ae1e242a5f779884908b799bdaebf18e0",
+        "model_name": "qwen3",
+        "gpu_name": "a100",
+        "record_count": 520,
+        "phase_counts": {
+          "decode": 520
+        },
+        "known_excluded_anomaly": {
+          "excluded_fields": [
+            "gpu_util_percent_max",
+            "gpu_sm_active_percent_max",
+            "gpu_sm_occupancy_percent_max"
+          ],
+          "sm_active_zero_count": 520,
+          "sm_occupancy_zero_count": 520,
+          "gpu_util_positive_count": 425,
+          "gpu_util_zero_count": 95,
+          "reason": "A100 Qwen3 DCGM profiling channels are unavailable"
+        }
+      },
+      {
+        "path": "csv/a100_llm/gemma4_monitor.csv",
+        "sha256": "9961f92597c9a07bdbddfa62f9f7fae037577797eb32e04306460ae446722038",
+        "model_name": "gemma4",
+        "gpu_name": "a100",
+        "record_count": 716,
+        "phase_counts": {
+          "decode": 633,
+          "prefill": 83
+        },
+        "known_excluded_anomaly": null
+      }
+    ],
+    "total_record_count": 2338,
+    "coverage_counts": [
+      {
+        "model_name": "gemma4",
+        "gpu_name": "a100",
+        "phase": "decode",
+        "count": 633
+      },
+      {
+        "model_name": "gemma4",
+        "gpu_name": "a100",
+        "phase": "prefill",
+        "count": 83
+      },
+      {
+        "model_name": "gemma4",
+        "gpu_name": "v100",
+        "phase": "decode",
+        "count": 627
+      },
+      {
+        "model_name": "gemma4",
+        "gpu_name": "v100",
+        "phase": "prefill",
+        "count": 85
+      },
+      {
+        "model_name": "qwen3",
+        "gpu_name": "a100",
+        "phase": "decode",
+        "count": 520
+      },
+      {
+        "model_name": "qwen3",
+        "gpu_name": "v100",
+        "phase": "decode",
+        "count": 390
+      }
+    ],
+    "target_names": [
+      "run_duration_sec_avg",
+      "cpu_cores_max",
+      "memory_delta_gb_max",
+      "gpu_mem_used_mb_max",
+      "gpu_power_watts_avg"
+    ],
+    "deployment_source": "cache/profile/predictions.yaml",
+    "prepared_manifest_path": "/home/wangjh/gnn_predict/data/gnn_cache_current/prepared/manifest.json",
+    "prepared_manifest_sha256": "6fa9f92ad607a39bdb196e1e84f15c03a93e955f2df4ace6979d635b6f8a633b"
+  },
+  "training": {
+    "result_path": "/home/wangjh/gnn_predict/output/gnn_llm_cache_20260723/results/gnn_llm_cache_20260723_1784822063_result.json",
+    "result_sha256": "c19275a64045c63462fd5cbd5507c4dcbaffe5c3d7e3d0ddb54d3a82c3f7c677",
+    "checkpoint_path": "/home/wangjh/gnn_predict/output/gnn_llm_cache_20260723/checkpoints/best_model.pt",
+    "checkpoint_sha256": "48a313693e036a79b11dc0d1cfa0bc318a447637322f81ecc667a91026d0dfca",
+    "dataset": {
+      "train_count": 1402,
+      "val_count": 468,
+      "test_count": 468
+    },
+    "timings": {
+      "data": {
+        "started_at_ts": 1784822063.5118206,
+        "ended_at_ts": 1784822065.6417084,
+        "started_at_text": "2026-07-23T15:54:23.511821+00:00",
+        "ended_at_text": "2026-07-23T15:54:25.641708+00:00"
+      },
+      "model_build": {
+        "started_at_ts": 1784822065.6417992,
+        "ended_at_ts": 1784822065.771101,
+        "started_at_text": "2026-07-23T15:54:25.641799+00:00",
+        "ended_at_text": "2026-07-23T15:54:25.771101+00:00"
+      },
+      "training": {
+        "started_at_ts": 1784822065.7711549,
+        "ended_at_ts": 1784822518.0910983,
+        "started_at_text": "2026-07-23T15:54:25.771155+00:00",
+        "ended_at_text": "2026-07-23T16:01:58.091098+00:00"
+      },
+      "evaluation": {
+        "started_at_ts": 1784822518.09123,
+        "ended_at_ts": 1784822518.8210616,
+        "started_at_text": "2026-07-23T16:01:58.091230+00:00",
+        "ended_at_text": "2026-07-23T16:01:58.821062+00:00"
+      },
+      "full": {
+        "started_at_ts": 1784822063.5118198,
+        "ended_at_ts": 1784822518.8211286,
+        "started_at_text": "2026-07-23T15:54:23.511820+00:00",
+        "ended_at_text": "2026-07-23T16:01:58.821129+00:00"
+      }
+    },
+    "summary": {
+      "batch_size": 32,
+      "num_epochs": 100,
+      "learning_rate": 0.0008,
+      "weight_decay": 0.0001,
+      "best_epoch": 70,
+      "best_val_loss": 0.04648514464497566,
+      "last_train_loss": 0.04050235898790618,
+      "checkpoint_path": "/home/wangjh/gnn_predict/output/gnn_llm_cache_20260723/checkpoints/best_model.pt"
+    },
+    "test_metrics": {
+      "mae": 0.15112581849098206,
+      "mse": 0.17334657907485962,
+      "rmse": 0.4163491129875183,
+      "r2": 0.82828688621521,
+      "wape": 0.23548494279384613,
+      "max_abs_error": 13.994232177734375,
+      "run_duration_sec_avg_mae": 0.08427692949771881,
+      "run_duration_sec_avg_mse": 0.017851702868938446,
+      "run_duration_sec_avg_rmse": 0.13361026346683502,
+      "run_duration_sec_avg_r2": 0.9844401478767395,
+      "run_duration_sec_avg_wape": 0.11928027123212814,
+      "run_duration_sec_avg_max_abs_error": 0.7834522724151611,
+      "cpu_cores_max_mae": 0.19997984170913696,
+      "cpu_cores_max_mse": 0.5149871706962585,
+      "cpu_cores_max_rmse": 0.7176260948181152,
+      "cpu_cores_max_r2": 0.2715129256248474,
+      "cpu_cores_max_wape": 0.41411933302879333,
+      "cpu_cores_max_max_abs_error": 13.994232177734375,
+      "memory_delta_gb_max_mae": 0.09720052778720856,
+      "memory_delta_gb_max_mse": 0.03312090411782265,
+      "memory_delta_gb_max_rmse": 0.18199148774147034,
+      "memory_delta_gb_max_r2": 0.9195000529289246,
+      "memory_delta_gb_max_wape": 0.1812787652015686,
+      "memory_delta_gb_max_max_abs_error": 0.9694506525993347,
+      "gpu_mem_used_mb_max_mae": 0.08654969185590744,
+      "gpu_mem_used_mb_max_mse": 0.017093267291784286,
+      "gpu_mem_used_mb_max_rmse": 0.13074122369289398,
+      "gpu_mem_used_mb_max_r2": 0.9895075559616089,
+      "gpu_mem_used_mb_max_wape": 0.10836001485586166,
+      "gpu_mem_used_mb_max_max_abs_error": 1.2648229598999023,
+      "gpu_power_watts_avg_mae": 0.2876221537590027,
+      "gpu_power_watts_avg_mse": 0.28367987275123596,
+      "gpu_power_watts_avg_rmse": 0.5326160788536072,
+      "gpu_power_watts_avg_r2": 0.723975658416748,
+      "gpu_power_watts_avg_wape": 0.4202207326889038,
+      "gpu_power_watts_avg_max_abs_error": 5.6283721923828125,
+      "original_scale_mae": 82.358154296875,
+      "original_scale_mse": 73976.484375,
+      "original_scale_rmse": 271.9861755371094,
+      "original_scale_r2": 0.9958970546722412,
+      "original_scale_wape": 0.04905451834201813,
+      "original_scale_max_abs_error": 5882.0595703125,
+      "original_scale_run_duration_sec_avg_mae": 1.235297441482544,
+      "original_scale_run_duration_sec_avg_mse": 3.8353540897369385,
+      "original_scale_run_duration_sec_avg_rmse": 1.9584059715270996,
+      "original_scale_run_duration_sec_avg_r2": 0.9844401478767395,
+      "original_scale_run_duration_sec_avg_wape": 0.10025878250598907,
+      "original_scale_run_duration_sec_avg_max_abs_error": 11.483531951904297,
+      "original_scale_cpu_cores_max_mae": 0.00019999065261799842,
+      "original_scale_cpu_cores_max_mse": 5.150376409801538e-07,
+      "original_scale_cpu_cores_max_rmse": 0.0007176612270995975,
+      "original_scale_cpu_cores_max_r2": 0.27150923013687134,
+      "original_scale_cpu_cores_max_wape": 0.00019989408610854298,
+      "original_scale_cpu_cores_max_max_abs_error": 0.013994932174682617,
+      "original_scale_memory_delta_gb_max_mae": 0.43280962109565735,
+      "original_scale_memory_delta_gb_max_mse": 0.6566875576972961,
+      "original_scale_memory_delta_gb_max_rmse": 0.8103626370429993,
+      "original_scale_memory_delta_gb_max_r2": 0.9195000529289246,
+      "original_scale_memory_delta_gb_max_wape": 0.07435016334056854,
+      "original_scale_memory_delta_gb_max_max_abs_error": 4.316721439361572,
+      "original_scale_gpu_mem_used_mb_max_mae": 402.4993591308594,
+      "original_scale_gpu_mem_used_mb_max_mse": 369678.625,
+      "original_scale_gpu_mem_used_mb_max_rmse": 608.0120239257812,
+      "original_scale_gpu_mem_used_mb_max_r2": 0.9895075559616089,
+      "original_scale_gpu_mem_used_mb_max_wape": 0.048453520983457565,
+      "original_scale_gpu_mem_used_mb_max_max_abs_error": 5882.0595703125,
+      "original_scale_gpu_power_watts_avg_mae": 7.62306547164917,
+      "original_scale_gpu_power_watts_avg_mse": 199.2705841064453,
+      "original_scale_gpu_power_watts_avg_rmse": 14.116323471069336,
+      "original_scale_gpu_power_watts_avg_r2": 0.723975658416748,
+      "original_scale_gpu_power_watts_avg_wape": 0.11129549890756607,
+      "original_scale_gpu_power_watts_avg_max_abs_error": 149.1729736328125
+    }
+  },
+  "vram_calibration": {
+    "margin_fraction": 0.16094261407852173,
+    "quantile_margin_fraction": 0.16094261407852173,
+    "quantile": 0.95,
+    "floor_fraction": 0.1,
+    "sample_count": 468
+  },
+  "cache_evaluation_against_profile": {
+    "entry_count": 2848,
+    "load_exact_match_count": 2848,
+    "overall": {
+      "run_sec": {
+        "mae": 5.766186264507178,
+        "mse": 147.32472715835505,
+        "rmse": 12.137739787882875,
+        "r2": 0.979002555013219,
+        "wape": 0.0724152697033069,
+        "max_abs_error": 164.65577313283853
+      },
+      "peak_vram_mb": {
+        "mae": 3523.685982779171,
+        "mse": 17667531.09582364,
+        "rmse": 4203.276233585373,
+        "r2": 0.8120736005342335,
+        "wape": 0.2402680478793015,
+        "max_abs_error": 12291.5078125
+      },
+      "power_watts": {
+        "mae": 41.520970845969394,
+        "mse": 2810.8709288752593,
+        "rmse": 53.017647334404224,
+        "r2": 0.16229242879606376,
+        "wape": 0.2659306723877299,
+        "max_abs_error": 133.44773408713914
+      },
+      "vram_upper_bound_coverage": 0.9146769662921348
+    },
+    "by_gpu": {
+      "a100": {
+        "run_sec": {
+          "mae": 2.7511370470929792,
+          "mse": 22.57024795282926,
+          "rmse": 4.750815503977107,
+          "r2": 0.9929472067700807,
+          "wape": 0.044925228896197475,
+          "max_abs_error": 27.384024535241224
+        },
+        "peak_vram_mb": {
+          "mae": 3337.9034153053976,
+          "mse": 15628566.743816935,
+          "rmse": 3953.2982108382535,
+          "r2": 0.8553305116102514,
+          "wape": 0.228206819165316,
+          "max_abs_error": 12283.423828125
+        },
+        "power_watts": {
+          "mae": 38.436541631322726,
+          "mse": 2613.541074562497,
+          "rmse": 51.1228038605327,
+          "r2": 0.3227109229695616,
+          "wape": 0.2760206150238176,
+          "max_abs_error": 133.44773408713914
+        },
+        "vram_upper_bound_coverage": 0.9066666666666666
+      },
+      "v100": {
+        "run_sec": {
+          "mae": 9.918799961279657,
+          "mse": 319.1485090357487,
+          "rmse": 17.86472807057943,
+          "r2": 0.971415557750726,
+          "wape": 0.09450697015140183,
+          "max_abs_error": 164.65577313283853
+        },
+        "peak_vram_mb": {
+          "mae": 3779.563475543549,
+          "mse": 20475787.507185124,
+          "rmse": 4525.017956559413,
+          "r2": 0.7259051742668535,
+          "wape": 0.2567753261895313,
+          "max_abs_error": 12291.5078125
+        },
+        "power_watts": {
+          "mae": 45.76914130019897,
+          "mse": 3082.652447753438,
+          "rmse": 55.52163945484173,
+          "r2": -0.7829829263306358,
+          "wape": 0.25514295821901095,
+          "max_abs_error": 122.71648232374005
+        },
+        "vram_upper_bound_coverage": 0.9257095158597662
+      }
+    },
+    "by_model": {
+      "Qwen3-0.6B": {
+        "run_sec": {
+          "mae": 4.883153414350431,
+          "mse": 91.43943708898163,
+          "rmse": 9.56239703677805,
+          "r2": 0.9801469784803474,
+          "wape": 0.07216369846360816,
+          "max_abs_error": 54.0142316790068
+        },
+        "peak_vram_mb": {
+          "mae": 3409.357314077524,
+          "mse": 16940696.586937524,
+          "rmse": 4115.90774762233,
+          "r2": 0.3864488429318712,
+          "wape": 0.5325720241240383,
+          "max_abs_error": 12291.5078125
+        },
+        "power_watts": {
+          "mae": 22.642354674329287,
+          "mse": 1209.4411830355173,
+          "rmse": 34.77702090512523,
+          "r2": 0.6132597123857089,
+          "wape": 0.2007151106604979,
+          "max_abs_error": 117.12855740493913
+        },
+        "vram_upper_bound_coverage": 0.94
+      },
+      "Qwen3-1.7B": {
+        "run_sec": {
+          "mae": 4.592831631468,
+          "mse": 82.86411840834509,
+          "rmse": 9.102973053258209,
+          "r2": 0.9831489003911642,
+          "wape": 0.06583046795544449,
+          "max_abs_error": 58.668218167227394
+        },
+        "peak_vram_mb": {
+          "mae": 3645.6397295673078,
+          "mse": 18327759.13542616,
+          "rmse": 4281.093217325005,
+          "r2": 0.33093878493335116,
+          "wape": 0.4308475483169576,
+          "max_abs_error": 11110.953125
+        },
+        "power_watts": {
+          "mae": 37.4131052205931,
+          "mse": 2289.131668247743,
+          "rmse": 47.84487086666389,
+          "r2": 0.1642012490396879,
+          "wape": 0.27116996521401626,
+          "max_abs_error": 122.71648232374005
+        },
+        "vram_upper_bound_coverage": 0.9523076923076923
+      },
+      "Qwen3-14B": {
+        "run_sec": {
+          "mae": 5.3904833925611975,
+          "mse": 132.72471886538895,
+          "rmse": 11.520621461769714,
+          "r2": 0.9809261234154546,
+          "wape": 0.06359538244927052,
+          "max_abs_error": 104.92006301721318
+        },
+        "peak_vram_mb": {
+          "mae": 3961.9050436580883,
+          "mse": 23778243.172122113,
+          "rmse": 4876.293999762741,
+          "r2": -4.818364685975791,
+          "wape": 0.12355247230811293,
+          "max_abs_error": 12283.423828125
+        },
+        "power_watts": {
+          "mae": 77.18358726844012,
+          "mse": 6637.566392749099,
+          "rmse": 81.47126114618024,
+          "r2": -19.712864698907097,
+          "wape": 0.34833347672184106,
+          "max_abs_error": 133.44773408713914
+        },
+        "vram_upper_bound_coverage": 0.6446078431372549
+      },
+      "Qwen3-4B": {
+        "run_sec": {
+          "mae": 6.852721545895594,
+          "mse": 212.92506927905532,
+          "rmse": 14.591952209319194,
+          "r2": 0.9774079140175912,
+          "wape": 0.07526657488100907,
+          "max_abs_error": 149.35418920078166
+        },
+        "peak_vram_mb": {
+          "mae": 3667.9615499205506,
+          "mse": 18959069.84646355,
+          "rmse": 4354.201401688208,
+          "r2": 0.1524907122635265,
+          "wape": 0.2758116085533854,
+          "max_abs_error": 10202.609375
+        },
+        "power_watts": {
+          "mae": 36.357396710280554,
+          "mse": 2303.804825309054,
+          "rmse": 47.997966887244864,
+          "r2": 0.1916114320506228,
+          "wape": 0.23769236789296652,
+          "max_abs_error": 120.02439857520741
+        },
+        "vram_upper_bound_coverage": 0.976271186440678
+      },
+      "Qwen3-8B": {
+        "run_sec": {
+          "mae": 7.3096095732565365,
+          "mse": 230.01097400365722,
+          "rmse": 15.166112685973859,
+          "r2": 0.9751794991546588,
+          "wape": 0.08180676636861435,
+          "max_abs_error": 164.65577313283853
+        },
+        "peak_vram_mb": {
+          "mae": 3034.82732421875,
+          "mse": 11827741.668600015,
+          "rmse": 3439.1483929310198,
+          "r2": -0.186790678855016,
+          "wape": 0.14933567706124595,
+          "max_abs_error": 7115.70703125
+        },
+        "power_watts": {
+          "mae": 47.770742496422216,
+          "mse": 3025.3020307793563,
+          "rmse": 55.00274566582432,
+          "r2": -4.100396126408512,
+          "wape": 0.26009909936846165,
+          "max_abs_error": 123.88934591011378
+        },
+        "vram_upper_bound_coverage": 0.9745454545454545
+      }
+    }
+  },
+  "runtime_calibration": {
+    "method": "sparse_o512_linear_v1",
+    "formula": "scale(model,gpu,batch,sequence,g512) * g512 * output / 512",
+    "anchor_output_length": 512,
+    "samples_per_model_gpu": 5,
+    "sample_count": 50,
+    "ridge_lambda": 0.01,
+    "profile_cache_sha256": "da0925f58540c0b756bc372fe909ff66598029bb6d562a67e8d222c348820bac",
+    "source_uncalibrated_cache_sha256": "fab578707e513b1565ecef231d7efd939b56c01b589db87896ed41483779fedf",
+    "selected_keys_sha256": "bdea235c9729e0215e813f3602e382f546b090003b1bfbb390451dd2dd272346",
+    "feature_names": [
+      "log_sequence_length",
+      "log_batch_size",
+      "log_gnn_anchor_run_sec",
+      "v100_x_log_sequence_length",
+      "v100_x_log_batch_size",
+      "v100_x_log_gnn_anchor_run_sec",
+      "category_Qwen3-0.6B_v100",
+      "category_Qwen3-1.7B_a100",
+      "category_Qwen3-1.7B_v100",
+      "category_Qwen3-14B_a100",
+      "category_Qwen3-14B_v100",
+      "category_Qwen3-4B_a100",
+      "category_Qwen3-4B_v100",
+      "category_Qwen3-8B_a100",
+      "category_Qwen3-8B_v100"
+    ],
+    "feature_mean": [
+      7.9399092040303945,
+      0.5398835014815441,
+      3.193128741853161,
+      3.892462185234344,
+      0.2508463256919277,
+      1.678262238744476,
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.1
+    ],
+    "feature_scale": [
+      0.7173145335517097,
+      0.48393922639591186,
+      0.19814844950039506,
+      3.9191992333688113,
+      0.41630805583025793,
+      1.681275431957927,
+      0.29999999999999977,
+      0.29999999999999977,
+      0.29999999999999977,
+      0.2999999999999998,
+      0.2999999999999999,
+      0.2999999999999999,
+      0.29999999999999993,
+      0.3,
+      0.3
+    ],
+    "coefficients": [
+      0.22393323359131634,
+      0.00032009585110336785,
+      0.03806847143939601,
+      -0.2984716411887408,
+      0.2809924488095433,
+      0.015942719211998368,
+      -0.486675239561223,
+      0.35567853407387545,
+      0.009874265465116236,
+      0.36154420901525186,
+      0.15141831321578822,
+      0.4567589096680213,
+      0.11397287679713781,
+      0.4733375843278903,
+      0.12092007109474892,
+      0.46756830801772103
+    ],
+    "categories": [
+      {
+        "model_name": "Qwen3-0.6B",
+        "gpu_name": "a100"
+      },
+      {
+        "model_name": "Qwen3-0.6B",
+        "gpu_name": "v100"
+      },
+      {
+        "model_name": "Qwen3-1.7B",
+        "gpu_name": "a100"
+      },
+      {
+        "model_name": "Qwen3-1.7B",
+        "gpu_name": "v100"
+      },
+      {
+        "model_name": "Qwen3-14B",
+        "gpu_name": "a100"
+      },
+      {
+        "model_name": "Qwen3-14B",
+        "gpu_name": "v100"
+      },
+      {
+        "model_name": "Qwen3-4B",
+        "gpu_name": "a100"
+      },
+      {
+        "model_name": "Qwen3-4B",
+        "gpu_name": "v100"
+      },
+      {
+        "model_name": "Qwen3-8B",
+        "gpu_name": "a100"
+      },
+      {
+        "model_name": "Qwen3-8B",
+        "gpu_name": "v100"
+      }
+    ],
+    "generated_at": "2026-07-24T04:35:33.124600+00:00",
+    "selected_sample_keys": [
+      {
+        "model_name": "Qwen3-0.6B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 1,
+        "sequence_length": 1024,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-0.6B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 1,
+        "sequence_length": 6144,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-0.6B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 2,
+        "sequence_length": 3584,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-0.6B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 3,
+        "sequence_length": 2048,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-0.6B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 3,
+        "sequence_length": 8192,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-0.6B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 1,
+        "sequence_length": 1024,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-0.6B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 1,
+        "sequence_length": 5120,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-0.6B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 2,
+        "sequence_length": 3072,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-0.6B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 3,
+        "sequence_length": 1536,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-0.6B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 3,
+        "sequence_length": 7168,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-1.7B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 1,
+        "sequence_length": 1024,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-1.7B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 1,
+        "sequence_length": 6144,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-1.7B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 2,
+        "sequence_length": 3584,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-1.7B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 3,
+        "sequence_length": 2048,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-1.7B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 3,
+        "sequence_length": 8192,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-1.7B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 1,
+        "sequence_length": 1024,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-1.7B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 1,
+        "sequence_length": 5120,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-1.7B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 2,
+        "sequence_length": 3072,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-1.7B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 3,
+        "sequence_length": 1536,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-1.7B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 3,
+        "sequence_length": 7168,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-14B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 1,
+        "sequence_length": 1024,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-14B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 1,
+        "sequence_length": 6144,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-14B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 2,
+        "sequence_length": 3584,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-14B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 3,
+        "sequence_length": 2048,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-14B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 3,
+        "sequence_length": 8192,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-14B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 1,
+        "sequence_length": 1024,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-14B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 1,
+        "sequence_length": 1536,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-14B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 1,
+        "sequence_length": 2560,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-14B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 2,
+        "sequence_length": 1536,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-14B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 3,
+        "sequence_length": 1536,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-4B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 1,
+        "sequence_length": 1024,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-4B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 1,
+        "sequence_length": 6144,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-4B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 2,
+        "sequence_length": 3584,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-4B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 3,
+        "sequence_length": 2048,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-4B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 3,
+        "sequence_length": 8192,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-4B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 1,
+        "sequence_length": 1024,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-4B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 1,
+        "sequence_length": 4096,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-4B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 2,
+        "sequence_length": 1536,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-4B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 2,
+        "sequence_length": 5120,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-4B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 3,
+        "sequence_length": 4096,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-8B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 1,
+        "sequence_length": 1024,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-8B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 1,
+        "sequence_length": 6144,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-8B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 2,
+        "sequence_length": 3584,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-8B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 3,
+        "sequence_length": 2048,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-8B",
+        "phase": "decode",
+        "gpu_name": "a100",
+        "batch_size": 3,
+        "sequence_length": 8192,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-8B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 1,
+        "sequence_length": 1024,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-8B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 1,
+        "sequence_length": 3584,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-8B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 2,
+        "sequence_length": 1536,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-8B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 2,
+        "sequence_length": 4096,
+        "decode_output_length": 512
+      },
+      {
+        "model_name": "Qwen3-8B",
+        "phase": "decode",
+        "gpu_name": "v100",
+        "batch_size": 3,
+        "sequence_length": 3584,
+        "decode_output_length": 512
+      }
+    ],
+    "baseline_full_cache": {
+      "mae": 45.28386044519819,
+      "mse": 7130.149211611611,
+      "rmse": 84.44021086906173,
+      "r2": -0.016223947643427827,
+      "wape": 0.5687022265532394,
+      "max_abs_error": 572.8537674546242
+    },
+    "calibrated_full_cache": {
+      "mae": 5.766186264507178,
+      "mse": 147.32472715835505,
+      "rmse": 12.137739787882875,
+      "r2": 0.979002555013219,
+      "wape": 0.0724152697033069,
+      "max_abs_error": 164.65577313283853
+    },
+    "strict_long_output_holdout": {
+      "predicate": "decode_output_length > 1024",
+      "entry_count": 1138,
+      "run_sec": {
+        "mae": 11.273395462415532,
+        "mse": 346.7692677041471,
+        "rmse": 18.621741801027827,
+        "r2": 0.953607341379478,
+        "wape": 0.07269661339161153,
+        "max_abs_error": 164.65577313283853
+      }
+    },
+    "output_length_monotonicity_violations": 0
+  }
+}

@@ -1,0 +1,36 @@
+version: 1
+created_at: '2026-07-12T10:00:32.320396+00:00'
+completed_at: '2026-07-13T05:14:24.486479+00:00'
+complete: true
+cache_yaml: /home/wangjh/gnn_predict/config/workflow/cache.yaml
+cache_yaml_sha256: 6fe2f48667517a4e37455bdf3432b674a9a0f58635694fa98cbf248ba8f4220a
+selection_sha256: f77114b68c4d320ddd065bc0f8817ba725ee61ce0262889e0fcdbfa31f142702
+selected_spec_count: 1980
+gpu_count: 2
+gpus:
+- index: 0
+  name: Tesla V100-SXM2-32GB
+  uuid: GPU-4b03b0b3-765b-05b9-f04f-a841df3ac578
+  total_memory_mb: 32768
+- index: 1
+  name: Tesla V100-SXM2-32GB
+  uuid: GPU-b30d16be-cd77-ef6a-bd27-ba2f0cd97267
+  total_memory_mb: 32768
+environment:
+  hostname: jpt-wangjh-260703-9a982-default0-0
+  platform: Linux-5.15.0-170-generic-x86_64-with-glibc2.39
+  python: 3.12.10
+  torch: 2.9.0+cu128
+  transformers: 5.9.0
+  cuda: '12.8'
+  driver: 580.126.16
+measurement:
+  phase: decode
+  semantics: full_generate_forced_output_length
+  input_kind: deterministic_synthetic_token_ids
+  run_samples_per_spec: 1
+  load_samples_per_model: 3
+  load_statistic: max_as_conservative_p95
+  power_sample_interval_sec: 0.05
+  a100_policy: exact_copy_of_successful_v100_entries
+  oom_policy: skip_dominated_batch_sequence_output_shapes

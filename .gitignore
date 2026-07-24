@@ -22,8 +22,6 @@ CLAUDE.md
 .cursor
 .omc/
 
-/cache
-
 
 .ruff_cache/
 ruff.toml

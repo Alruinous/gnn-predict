@@ -1,0 +1,30 @@
+complete: true
+selected_specs: 1980
+terminal_specs: 1980
+pending_specs: 0
+status_counts:
+  skipped_load_oom: 330
+  success: 1650
+by_model:
+  Qwen3-0.6B:
+    success: 330
+  Qwen3-1.7B:
+    success: 330
+  Qwen3-4B:
+    success: 330
+  Qwen3-8B:
+    success: 330
+  Qwen3-14B:
+    success: 330
+  Qwen3-32B:
+    skipped_load_oom: 330
+load_statuses:
+  qwen3_0_6b: success
+  qwen3_1_7b: success
+  qwen3_4b: success
+  qwen3_8b: success
+  qwen3_14b: success
+  qwen3_32b: oom
+gpu_kind: a100
+successful_prediction_entries: 1650
+generated_at: '2026-07-19T20:29:40.309111+00:00'

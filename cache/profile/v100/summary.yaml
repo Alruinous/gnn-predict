@@ -1,0 +1,42 @@
+complete: true
+selected_specs: 1980
+terminal_specs: 1980
+pending_specs: 0
+status_counts:
+  oom: 10
+  skipped_dominated_oom: 442
+  skipped_load_oom: 330
+  success: 1198
+by_model:
+  Qwen3-0.6B:
+    oom: 1
+    skipped_dominated_oom: 9
+    success: 320
+  Qwen3-1.7B:
+    oom: 1
+    skipped_dominated_oom: 9
+    success: 320
+  Qwen3-4B:
+    oom: 2
+    skipped_dominated_oom: 68
+    success: 260
+  Qwen3-8B:
+    oom: 3
+    skipped_dominated_oom: 107
+    success: 220
+  Qwen3-14B:
+    oom: 3
+    skipped_dominated_oom: 249
+    success: 78
+  Qwen3-32B:
+    skipped_load_oom: 330
+load_statuses:
+  qwen3_0_6b: success
+  qwen3_1_7b: success
+  qwen3_4b: success
+  qwen3_8b: success
+  qwen3_14b: success
+  qwen3_32b: oom
+gpu_kind: v100
+successful_prediction_entries: 1198
+generated_at: '2026-07-22T03:43:23.448667+00:00'
