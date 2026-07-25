@@ -227,10 +227,19 @@ workflow `<name>/session_results.jsonl`，`analysis.summarize_trace` 直接消�
 改 `scheduler.yaml` 的 `policy`（fifo|history|cache）+ 换 `--run-id` 重投作业，离线逐个比对
 trace（一个 fleet 只有一个共享调度器、只跑一种 policy）。
 
-部署脚本：`scripts/workflow/serve_master.sh`（ddp.md master 模板 + `ray start --head` +
-`python -m workflow.master`）、`serve_worker.sh`（worker 各持一卡 `ray start --address
-$MASTER_ADDR:$RAY_PORT --block`）。本地无 GPU 冒烟：`scripts/workflow/dev_sim.py` 用多进程 Ray
-（loopback head + workers）+ function-only echo workflow 端到端验证 master 全链路。
+部署脚本分两条路径。**旧一次性流**：`scripts/workflow/serve_master.sh`（ddp.md master 模板 +
+`ray start --head` + `python -m workflow.master`，起 Head 与跑实验一体，作业平台一次性作业）。
+**常驻集群流**（Head/worker 跨实验复用，见 `experiment_runbook_resident_20260725.md`）：开发容器
+`serve_head.sh`（每 `RAY_PORT` 一个常驻 Head，`--num-gpus=0`、关 dashboard、`temp-dir=/tmp/ray_<port>`
+且附属端口按 port 派生，故多 Head 同机隔离共存）；作业平台 `serve_worker.sh`（各持一卡
+`ray start --address $RAY_HEAD_ADDR:$RAY_PORT --block`，地址优先级 `RAY_HEAD_ADDR` > `MASTER_ADDR` >
+`localhost`，`RAY_HEAD_ADDR` 绕开 Volcano 注入的 `MASTER_ADDR`）；开发容器 `serve_submit.sh`（env 接口
+同 serve_master，attach `--ray-address 127.0.0.1:$RAY_PORT` 跑一个实验后 detach，不拆集群，下一条
+submit 复用同集群）。约束：同机多 Head 时 driver 必须显式 address（`auto` 遇多个 GCS 会报错）；一个
+集群同时只能跑一个实验（每次 `serve_submit` 结束 `evict_all` 整个共享 GPU 池），要并行须用不同集群；
+`ray stop` 是全机全局（无 address 作用域），选择性停某个 Head 用 `pkill -f /tmp/ray_<port>`。本地无 GPU
+冒烟：`scripts/workflow/dev_sim.py` 用多进程 Ray（loopback head + workers）+ function-only echo workflow
+端到端验证 master 全链路。
 
 注册前置（fail-fast）：agent workflow 需 predictions、accelerators、每个 `(model, gpu_kind)`
 覆盖且有 ≥ `max_new_tokens` 的 output bucket、`model_path` 存在、`vllm_python_executable`
