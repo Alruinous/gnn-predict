@@ -14,8 +14,11 @@ set -e
 
 umask 000
 
-export PROJECT_DIR=/home/wangjh/gnn_predict
-export VENV_DIR="$PROJECT_DIR/.venv"
+# Overridable so a git worktree can submit its own code against a resident head; the
+# interpreter stays the main checkout's venv unless VENV_DIR says otherwise, because the
+# vLLM extras live there.
+export PROJECT_DIR="${PROJECT_DIR:-/home/wangjh/gnn_predict}"
+export VENV_DIR="${VENV_DIR:-/home/wangjh/gnn_predict/.venv}"
 export RAY_PORT="${RAY_PORT:-6667}"
 export RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
 export VLLM_PYTHON="${VLLM_PYTHON:-/home/wangjh/gnn_predict/envs/vllm-v100/.venv/bin/python}"

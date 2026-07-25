@@ -221,7 +221,7 @@ def test_kairos_orders_globally_by_remaining_latency_ignoring_weight() -> None:
     fast_task = core.begin_node("s-fast", "fast", ["in-fast"])
     fast_acquire = core.request_acquire(fast_task, input_tokens=1100, created_at=2.0)
 
-    ordered = core._order_pending(tuple(core.pending_acquires.values()))
+    ordered = core._order_pending(tuple(core.pending_acquires.values()), now=3.0)
 
     # Shortest remaining latency wins despite later arrival and lower weight.
     assert [pending.acquire_id for pending in ordered] == [fast_acquire, slow_acquire]
@@ -240,7 +240,7 @@ def test_kairos_breaks_remaining_latency_ties_by_arrival_order() -> None:
     task_b = core.begin_node("s-b", "b", ["in-b"])
     acquire_b = core.request_acquire(task_b, input_tokens=1100, created_at=2.0)
 
-    ordered = core._order_pending(tuple(core.pending_acquires.values()))
+    ordered = core._order_pending(tuple(core.pending_acquires.values()), now=3.0)
 
     # Equal remaining latency (shared model) falls back to arrival order.
     assert [pending.acquire_id for pending in ordered] == [acquire_a, acquire_b]
@@ -253,7 +253,7 @@ def test_non_kairos_policy_keeps_weighted_interleave_ordering() -> None:
         prediction("model-slow", run_sec=10.0),
         prediction("model-fast", run_sec=1.0),
     )
-    core = scheduler_core(slow, entries, policy="cache")
+    core = scheduler_core(slow, entries, policy="history")
     core.register_workflow(fast)
 
     core.register_session("s-slow", "wf-slow")
@@ -266,7 +266,7 @@ def test_non_kairos_policy_keeps_weighted_interleave_ordering() -> None:
     values = tuple(core.pending_acquires.values())
 
     # A non-Kairos policy must not apply global SRPT; it keeps weighted interleave.
-    assert core._order_pending(values) == core._interleave_by_workflow(values)
+    assert core._order_pending(values, now=3.0) == core._interleave_by_workflow(values)
 
 
 # --- Kairos disables prefetch and predictive eviction (fifo-equivalent) --------
@@ -327,3 +327,62 @@ def test_cache_eviction_uses_load_estimate_reload_cost() -> None:
 
     # Cache keeps a reuse-distance-aware reload cost from the load estimate.
     assert core._reload_cost(core.replicas[grant.replica_id]) == 5.0
+
+
+# --- Cache admits resident-model work ahead of work that needs a load ----------
+
+
+def test_cache_policy_admits_resident_model_work_first() -> None:
+    resident = single_agent_workflow("wf-resident", "resident", "model-resident")
+    cold = single_agent_workflow("wf-cold", "cold", "model-cold")
+    entries = (
+        prediction("model-resident", run_sec=5.0),
+        prediction("model-cold", run_sec=5.0),
+    )
+    core = scheduler_core(resident, entries, policy="cache")
+    core.register_workflow(cold)
+
+    # Make model-resident the loaded replica, then queue the cold request first so
+    # arrival order and residency order disagree.
+    core.register_session("s-warm", "wf-resident")
+    load_replica(core, "s-warm", "resident")
+
+    core.register_session("s-cold", "wf-cold")
+    cold_task = core.begin_node("s-cold", "cold", ["in-cold"])
+    cold_acquire = core.request_acquire(cold_task, input_tokens=1100, created_at=1.0)
+    core.register_session("s-hot", "wf-resident")
+    hot_task = core.begin_node("s-hot", "resident", ["in-hot"])
+    hot_acquire = core.request_acquire(hot_task, input_tokens=1100, created_at=2.0)
+
+    ordered = core._order_pending(tuple(core.pending_acquires.values()), now=3.0)
+
+    # The later request wins because its model is already resident; serving it costs
+    # no load, whereas the cold request would force one.
+    assert [pending.acquire_id for pending in ordered] == [hot_acquire, cold_acquire]
+
+
+def test_cache_policy_ages_out_residency_preference() -> None:
+    resident = single_agent_workflow("wf-resident", "resident", "model-resident")
+    cold = single_agent_workflow("wf-cold", "cold", "model-cold")
+    entries = (
+        prediction("model-resident", run_sec=5.0),
+        prediction("model-cold", run_sec=5.0),
+    )
+    core = scheduler_core(resident, entries, policy="cache")
+    core.register_workflow(cold)
+    core.register_session("s-warm", "wf-resident")
+    load_replica(core, "s-warm", "resident")
+
+    core.register_session("s-cold", "wf-cold")
+    cold_task = core.begin_node("s-cold", "cold", ["in-cold"])
+    cold_acquire = core.request_acquire(cold_task, input_tokens=1100, created_at=1.0)
+    core.register_session("s-hot", "wf-resident")
+    hot_task = core.begin_node("s-hot", "resident", ["in-hot"])
+    hot_acquire = core.request_acquire(hot_task, input_tokens=1100, created_at=2.0)
+
+    aged = 1.0 + core.scheduler_config.acquire_timeout_sec
+    ordered = core._order_pending(tuple(core.pending_acquires.values()), now=aged)
+
+    # Once the cold request has waited past the aging bound it reclaims arrival order,
+    # so residency preference cannot starve it.
+    assert [pending.acquire_id for pending in ordered] == [cold_acquire, hot_acquire]

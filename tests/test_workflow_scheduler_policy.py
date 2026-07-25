@@ -552,7 +552,9 @@ def test_eviction_unknown_reuse_falls_back_to_longest_idle() -> None:
 
     assert isinstance(eviction, EvictReplicaAction)
     assert eviction.replica_id == grant_a.replica_id
-    assert eviction.reuse_distance_sec is None
+    # fifo publishes no reload cost, so the ranking inputs stay incomplete and the
+    # victim is the longest-idle replica regardless of any reuse distance.
+    assert eviction.reload_cost_sec is None
 
 
 def test_near_prefetch_does_not_evict_ready_pair() -> None:

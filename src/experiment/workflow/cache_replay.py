@@ -21,6 +21,7 @@ from workflow.artifacts import (
     ResourceContract,
     ResourceContractCache,
     SchedulerConfig,
+    SchedulerPolicy,
     load_resource_contract_cache,
 )
 from workflow.replica import ModelDeploymentConfig, ReplicaLoadResult
@@ -41,7 +42,17 @@ PolicyName = Literal[
     "trace_calibrated_cache",
     "trace_calibrated_cache_reclaim",
     "history",
+    "fifo",
+    "kairos",
 ]
+
+# Replay arms that exercise a scheduler policy directly rather than swapping the
+# prediction source; they let the counterfactual compare against the serve baselines.
+SCHEDULER_POLICY_ARMS: Mapping[PolicyName, SchedulerPolicy] = {
+    "fifo": "fifo",
+    "kairos": "kairos",
+    "history": "history",
+}
 
 MIN_CALIBRATION_SAMPLES = 3
 GPU_MEMORY_MB = {"v100": 32_768, "a100": 81_920}
@@ -712,7 +723,7 @@ class ReplaySimulator:
             if policy in ("trace_calibrated_cache", "trace_calibrated_cache_reclaim")
             else profile_cache
         )
-        scheduler_policy = "history" if policy == "history" else "cache"
+        scheduler_policy = SCHEDULER_POLICY_ARMS.get(policy, "cache")
         accelerators = tuple(
             AcceleratorConfig(
                 hostname=f"sim-{gpu_kind}-{index}",

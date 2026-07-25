@@ -28,6 +28,7 @@ from workflow.artifacts import (
 from workflow.policy import (
     EvictionCandidate,
     PlacementDecision,
+    critical_path_depth_to_node,
     critical_path_remaining_latency,
     select_eviction_victim,
     select_placement,
@@ -358,6 +359,10 @@ class SchedulerCore:
         # by the Kairos SRPT ordering. Recomputed on register; other policies
         # never read it.
         self._remaining_latency: dict[str, dict[str, float]] = {}
+        # Static per-node run costs and earliest-start depths, both derived from the
+        # prediction cache at register time. Reuse-distance eviction reads the depths.
+        self._node_costs: dict[str, Mapping[str, float]] = {}
+        self._node_depth: dict[str, dict[str, float]] = {}
         # Keyed by (model_key, gpu_kind) only: a replica is shareable across
         # workflows whenever their deployment configs are byte-identical.
         self._replica_pairs: dict[tuple[str, GpuKind], str] = {}
@@ -382,10 +387,13 @@ class SchedulerCore:
             for index, node_id in enumerate(workflow.graph.topological_order)
         }
         self._workflow_weights[workflow.workflow_name] = priority_weight
+        run_costs = self._node_run_costs(workflow)
+        self._node_costs[workflow.workflow_name] = run_costs
         self._remaining_latency[workflow.workflow_name] = (
-            critical_path_remaining_latency(
-                workflow.graph, self._node_run_costs(workflow)
-            )
+            critical_path_remaining_latency(workflow.graph, run_costs)
+        )
+        self._node_depth[workflow.workflow_name] = critical_path_depth_to_node(
+            workflow.graph, run_costs
         )
 
     def deregister_workflow(self, workflow_name: str) -> None:
@@ -662,7 +670,7 @@ class SchedulerCore:
             self._validate_resource_ledger()
             return suspect_actions
 
-        decisions = self._ready_decisions()
+        decisions = self._ready_decisions(now)
         granted_ready = False
         for acquire_id in tuple(decisions):
             pending = self.pending_acquires.get(acquire_id)
@@ -687,6 +695,7 @@ class SchedulerCore:
 
         actions: list[LoadReplicaAction | EvictReplicaAction] = []
         blocked_ready: list[tuple[PendingAcquire, PlacementDecision]] = []
+        loadable: list[tuple[PendingAcquire, PlacementDecision]] = []
         for acquire_id in tuple(decisions):
             pending = self.pending_acquires.get(acquire_id)
             if pending is None:
@@ -694,9 +703,20 @@ class SchedulerCore:
             decision = decisions[acquire_id]
             if self._replica_for_decision(pending, decision) is not None:
                 continue
+            if self._free_accelerator(decision) is None:
+                blocked_ready.append((pending, decision))
+                continue
+            loadable.append((pending, decision))
+        near = self._collect_near_ready_tasks()
+        for pending, decision in self._order_by_load_yield(loadable, near, now):
             accelerator = self._free_accelerator(decision)
             if accelerator is None:
-                blocked_ready.append((pending, decision))
+                continue
+            # Reordering lets two queued requests for one model reach this loop; the
+            # pair registry admits a single replica per (model, gpu kind).
+            if (self._pending_model_key(pending), decision.gpu_kind) in (
+                self._replica_pairs
+            ):
                 continue
             actions.append(self._start_ready_load(pending, decision, accelerator, now))
         if actions:
@@ -706,10 +726,9 @@ class SchedulerCore:
             self._validate_resource_ledger()
             return []
 
-        near = self._collect_near_ready_tasks()
         protected_pairs = self._ready_pairs(decisions)
         eviction_actions: list[LoadReplicaAction | EvictReplicaAction] = []
-        for pending, decision in blocked_ready:
+        for pending, decision in self._order_by_load_yield(blocked_ready, near, now):
             if pending.acquire_id not in self.pending_acquires:
                 continue
             eviction = self._start_eviction_for_decision(
@@ -1119,7 +1138,7 @@ class SchedulerCore:
         return [item[3] for item in ranked]
 
     def _order_pending(
-        self, pending_values: Sequence[PendingAcquire]
+        self, pending_values: Sequence[PendingAcquire], now: float
     ) -> list[PendingAcquire]:
         if self.scheduler_config.policy == "kairos":
             # Kairos ignores workflow identity and priority weight: rank every
@@ -1132,6 +1151,27 @@ class SchedulerCore:
                     pending.request_seq,
                 ),
             )
+        if self.scheduler_config.policy == "cache":
+            # Weighted-fair interleaving spreads admission across workflows, which
+            # fragments model locality: consecutive grants keep landing on different
+            # models and each switch costs a full load. Serve work whose model is
+            # already resident first, oldest-first within each class, so a residency
+            # is drained before it is given up. Aging bounds the delay a request can
+            # accumulate from being on the unlucky side of that split.
+            resident = {
+                replica.model_key
+                for replica in self.replicas.values()
+                if replica.state in (ModelReplicaState.IDLE, ModelReplicaState.BUSY)
+            }
+            starvation_sec = 0.5 * self.scheduler_config.acquire_timeout_sec
+            return sorted(
+                pending_values,
+                key=lambda pending: (
+                    now - pending.created_at <= starvation_sec
+                    and self._pending_model_key(pending) not in resident,
+                    pending.request_seq,
+                ),
+            )
         return self._interleave_by_workflow(pending_values)
 
     def _pending_remaining_latency(self, pending: PendingAcquire) -> float:
@@ -1139,7 +1179,7 @@ class SchedulerCore:
         workflow_name = self.sessions[task.session_id].workflow_name
         return self._remaining_latency.get(workflow_name, {}).get(task.node_id, 0.0)
 
-    def _ready_decisions(self) -> dict[str, PlacementDecision]:
+    def _ready_decisions(self, now: float) -> dict[str, PlacementDecision]:
         if not self.pending_acquires:
             return {}
         predictions = self.predictions
@@ -1147,7 +1187,7 @@ class SchedulerCore:
             raise RuntimeError("agent scheduling requires a prediction cache")
 
         pending_values = tuple(self.pending_acquires.values())
-        ordered = self._order_pending(pending_values)
+        ordered = self._order_pending(pending_values, now)
         decisions: dict[str, PlacementDecision] = {}
         for snapshot in ordered:
             pending = self.pending_acquires.get(snapshot.acquire_id)
@@ -1608,10 +1648,18 @@ class SchedulerCore:
         ]
         if distances:
             return min(distances)
+        # No upstream is running yet, so there is no ETA to read. Returning None here
+        # would drop the replica out of the comparable set and silently degrade the
+        # whole decision to LRU, which is what it must not do: fall back to the static
+        # earliest-start depth of the nearest node that still wants this model, offset
+        # by how far its session has already progressed.
         for session in self.sessions.values():
             if session.state != SessionState.ACTIVE:
                 continue
             nodes = self._nodes[session.workflow_name]
+            depth = self._node_depth.get(session.workflow_name, {})
+            weight = self._workflow_weights.get(session.workflow_name, 1.0)
+            progress = self._session_progress(session)
             for node_id, task_id in session.task_ids.items():
                 task = self.tasks[task_id]
                 node = nodes[node_id]
@@ -1619,9 +1667,26 @@ class SchedulerCore:
                     continue
                 if not isinstance(node, AgentNodeConfig):
                     continue
-                if ModelDeploymentConfig.from_node(node).model_key == replica.model_key:
-                    return None
+                if ModelDeploymentConfig.from_node(node).model_key != replica.model_key:
+                    continue
+                distances.append(max(0.0, depth.get(node_id, 0.0) - progress) / weight)
+        if distances:
+            return min(distances)
         return inf
+
+    def _session_progress(self, session: SessionRecord) -> float:
+        # How far this session has advanced along the static cost model: the latest
+        # finish depth among its completed nodes.
+        depth = self._node_depth.get(session.workflow_name, {})
+        costs = self._node_costs.get(session.workflow_name, {})
+        return max(
+            (
+                depth.get(node_id, 0.0) + costs.get(node_id, 0.0)
+                for node_id, task_id in session.task_ids.items()
+                if self.tasks[task_id].state == NodeTaskState.COMPLETED
+            ),
+            default=0.0,
+        )
 
     def _reload_cost(self, replica: ModelReplicaRecord) -> float | None:
         if self.scheduler_config.policy in ("fifo", "kairos"):
@@ -1641,6 +1706,95 @@ class SchedulerCore:
             return predicted_load_sec
         history = self.load_history.get((deployment.model_key, gpu_kind))
         return history.duration_sec_ema if history is not None else predicted_load_sec
+
+    def _pending_model_key(self, pending: PendingAcquire) -> str | None:
+        task = self.tasks[pending.task_id]
+        workflow_name = self.sessions[task.session_id].workflow_name
+        node = self._nodes[workflow_name][task.node_id]
+        if not isinstance(node, AgentNodeConfig):
+            return None
+        return ModelDeploymentConfig.from_node(node).model_key
+
+    def _order_by_load_yield(
+        self,
+        blocked: Sequence[tuple[PendingAcquire, PlacementDecision]],
+        near: Sequence[NearReadyTask],
+        now: float,
+    ) -> list[tuple[PendingAcquire, PlacementDecision]]:
+        # A load is the dominant cost in this system, so when one has to be paid the
+        # queue head is the wrong thing to serve: pick the model whose transfer unlocks
+        # the most already-queued and imminent work per second spent loading it. Ties
+        # and unknown load costs fall back to the policy's request order, and the
+        # oldest waiting request always outranks yield so nothing starves.
+        if self.scheduler_config.policy != "cache" or len(blocked) < 2:
+            return list(blocked)
+        demand: dict[str, int] = {}
+        for pending in self.pending_acquires.values():
+            model_key = self._pending_model_key(pending)
+            if model_key is not None:
+                demand[model_key] = demand.get(model_key, 0) + 1
+        for candidate in near:
+            key = candidate.deployment.model_key
+            demand[key] = demand.get(key, 0) + 1
+        starvation_sec = 0.5 * self.scheduler_config.acquire_timeout_sec
+        ranked: list[tuple[float, int, tuple[PendingAcquire, PlacementDecision]]] = []
+        for order, entry in enumerate(blocked):
+            pending, decision = entry
+            model_key = self._pending_model_key(pending)
+            load_sec = decision.predicted_load_sec
+            if model_key is None or load_sec is None:
+                yield_score = 0.0
+            else:
+                yield_score = demand.get(model_key, 1) / load_sec
+            if now - pending.created_at > starvation_sec:
+                yield_score = inf
+            ranked.append((-yield_score, order, entry))
+        ranked.sort(key=lambda item: (item[0], item[1]))
+        return [item[2] for item in ranked]
+
+    def _expected_run_sec(
+        self,
+        *,
+        workflow_name: str,
+        node: AgentNodeConfig,
+        prediction: ResourceContract,
+        model_key: str,
+        gpu_kind: GpuKind,
+        batch_size: int,
+    ) -> float:
+        # Admission prices a forced full-length generation because VRAM must cover
+        # the worst case, but a request stops at its own EOS. Charging that bucket to
+        # the timing path overstates decode several-fold and desynchronises every ETA
+        # derived from it, so re-price at the node's observed output length instead.
+        predictions = self.predictions
+        if predictions is None:
+            return prediction.predicted_run_sec
+        history = self.history.get((workflow_name, node.name, model_key, gpu_kind))
+        if history is None or not history.samples:
+            return prediction.predicted_run_sec
+        expected_tokens = min(history.output_tokens_p90, node.execution.max_new_tokens)
+        if expected_tokens <= 0:
+            return prediction.predicted_run_sec
+        sequence_length = prediction.key.sequence_length
+        bucket = next(
+            (
+                candidate
+                for candidate in predictions.decode_output_lengths(
+                    node.model.name, gpu_kind, sequence_length, batch_size
+                )
+                if candidate >= expected_tokens
+            ),
+            None,
+        )
+        if bucket is None:
+            return prediction.predicted_run_sec
+        return predictions.lookup_decode(
+            model_name=node.model.name,
+            gpu_kind=gpu_kind,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            decode_output_length=bucket,
+        ).predicted_run_sec
 
     def _grant(
         self,
@@ -1686,7 +1840,14 @@ class SchedulerCore:
         self.grants[pending.acquire_id] = grant
         duration: float | None = None
         if self.scheduler_config.policy == "cache":
-            duration = prediction.predicted_run_sec
+            duration = self._expected_run_sec(
+                workflow_name=workflow_name,
+                node=node,
+                prediction=prediction,
+                model_key=replica.model_key,
+                gpu_kind=gpu_kind,
+                batch_size=admitted_batch_size,
+            )
         elif self.scheduler_config.policy == "history":
             history = self.duration_history.get(
                 (

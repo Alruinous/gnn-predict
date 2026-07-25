@@ -21,9 +21,9 @@ nodes:
     enable_thinking: false
     truncation_side: null
     serving:
-      max_model_len: 1024
+      max_model_len: 2048
       max_num_seqs: 3
-      max_num_batched_tokens: 3072
+      max_num_batched_tokens: 6144
       gpu_memory_utilization: 0.98
   prompt_template: 'Write a correct Python solution for the programming task.
 
