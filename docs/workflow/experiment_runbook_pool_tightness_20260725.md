@@ -87,7 +87,10 @@ Head 常驻 dev 容器且 `--num-gpus=0`，**每个 worker Pod 恰好一张卡**
 工作负载固定：3w = `qmsum1 + mbpp1 + gsm8k1`，各 40 session = 120，Poisson 聚合 0.075/s
 （到达跨度 ~1600s，与 6w r150 同速率同总量，因此两者可直接对照）。单 run 墙钟约 **35–50 分钟**。
 
-### Phase 1 — 主表：紧 pool + 3 个种子（必做）
+**种子固定为配置里的 `arrival_seed: 42`，不做重复跑。** 所有 arm 共用同一条到达序列，因此是
+成对（paired）对照——策略之间的差异不含到达抖动。代价是没有 run 间方差，见 §8 的口径说明。
+
+### Phase 1 — 主表：紧 pool（必做）
 
 **集群配置：4 个集群各 1×A100 + 2×V100** → 用掉 4×A100 + 8×V100（余 1 张 V100 备用）。
 
@@ -98,17 +101,21 @@ Head 常驻 dev 容器且 `--num-gpus=0`，**每个 worker Pod 恰好一张卡**
 | 6663 | 1×A100 + 2×V100（该端口现有 2 张 A100，只让 1 张加入） |
 | 6664 | 1×A100 + 2×V100（需从别处调 1 张 A100） |
 
-4 arm 并行、3 个种子串行 → **3 轮 ≈ 2.5 小时，12 个 run**。这是论文主表（mean/p95 + 跨 run CI）。
+4 arm 各占一个集群并行 → **1 轮 ≈ 45 分钟，4 个 run**。这是论文主表（makespan / mean / p50 /
+p95 + 生命週期指标）。
 
 ### Phase 2 — pool 紧度曲线（强烈建议）
 
 | 子阶段 | 每集群配卡 | 可并行集群数 | 卡账 | run 数 |
 |---|---|---|---|---|
-| N=3 | 1×A100 + 3×V100 | 3 | 3×A100 + 9×V100 | 4 arm × 1 种子 = 4（2 轮） |
-| N=4 | 1×A100 + 4×V100 | 2 | 2×A100 + 8×V100 | 4 arm × 1 种子 = 4（2 轮） |
+| N=3 | 1×A100 + 3×V100 | 3 | 3×A100 + 9×V100 | 4（2 轮） |
+| N=4 | 1×A100 + 4×V100 | 2 | 2×A100 + 8×V100 | 4（2 轮） |
 
 与 Phase 1 的 N=2 合成三点曲线：**cache 相对 fifo 的增益随 pool 收紧单调增长，并在工作集装得下
-时收敛到 0**。约 3.5 小时。
+时收敛到 0**。约 3 小时。
+
+**核心矩阵合计 12 个 run、5 轮、约 3.75 小时**（Phase 1 一轮 + Phase 2 四轮），期间需要重组卡
+两次（N=2 → N=3 → N=4）。
 
 ### Phase 3 — 匹配 pool 的异构对照（可选，论文 §5.1 提到）
 
@@ -128,21 +135,20 @@ Head 常驻 dev 容器且 `--num-gpus=0`，**每个 worker Pod 恰好一张卡**
 WFS=config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/gsm8k1.yaml
 ```
 
-### Phase 1（N=2，seed 42；换 seed 只改 `EXPERIMENT_CONFIG` 与 `RUN_ID`）
+### Phase 1（N=2）
 
 ```sh
-WORKFLOW_FILES=$WFS RAY_PORT=6661 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml  OUTPUT_DIR=output/serve_pool/3w_a1v2 RUN_ID=p1_a1v2_cache_s42  sh scripts/workflow/serve_submit.sh
+WORKFLOW_FILES=$WFS RAY_PORT=6661 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml  OUTPUT_DIR=output/serve_pool/3w_a1v2 RUN_ID=p1_a1v2_cache  sh scripts/workflow/serve_submit.sh
 
-WORKFLOW_FILES=$WFS RAY_PORT=6662 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml   OUTPUT_DIR=output/serve_pool/3w_a1v2 RUN_ID=p1_a1v2_fifo_s42   sh scripts/workflow/serve_submit.sh
+WORKFLOW_FILES=$WFS RAY_PORT=6662 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml   OUTPUT_DIR=output/serve_pool/3w_a1v2 RUN_ID=p1_a1v2_fifo   sh scripts/workflow/serve_submit.sh
 
-WORKFLOW_FILES=$WFS RAY_PORT=6663 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml OUTPUT_DIR=output/serve_pool/3w_a1v2 RUN_ID=p1_a1v2_kairos_s42 sh scripts/workflow/serve_submit.sh
+WORKFLOW_FILES=$WFS RAY_PORT=6663 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml OUTPUT_DIR=output/serve_pool/3w_a1v2 RUN_ID=p1_a1v2_kairos sh scripts/workflow/serve_submit.sh
 
-WORKFLOW_FILES=$WFS RAY_PORT=6664 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/tabular/predictions.yaml   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml  OUTPUT_DIR=output/serve_pool/3w_a1v2 RUN_ID=p1_a1v2_gbdt_s42   sh scripts/workflow/serve_submit.sh
+WORKFLOW_FILES=$WFS RAY_PORT=6664 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/tabular/predictions.yaml   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml  OUTPUT_DIR=output/serve_pool/3w_a1v2 RUN_ID=p1_a1v2_gbdt   sh scripts/workflow/serve_submit.sh
 ```
 
-第 2、3 轮把 `replay_3w_poisson_r150.yaml` → `replay_3w_poisson_r150_s43.yaml` /
-`_s44.yaml`，`RUN_ID` 后缀 `_s43` / `_s44`。**arm 与端口的绑定要在三轮之间保持不变**，这样每个
-arm 始终跑在同一批物理卡上。
+**arm 与端口的绑定在整个 runbook 内保持不变**，这样每个 arm 始终跑在同一批物理卡上；换 pool 时
+只增减该端口挂的 V100 Pod 数量，不要调换 arm 与端口的对应关系。
 
 ### Phase 2（N=3 与 N=4）
 
@@ -165,7 +171,7 @@ d=json.load(open(sys.argv[1]))
 print(d['run_id'], 'done',d['completed_session_count'],'failed',d['failed_session_count'],
       'oom',d['oom_count'],'infeasible',d['request_infeasible_count'],
       'loads',d['model_load_count'],'p50',round(d['session_latency_sec']['p50'],1))
-" output/serve_pool/3w_a1v2/p1_a1v2_cache_s42/run_summary.json
+" output/serve_pool/3w_a1v2/p1_a1v2_cache/run_summary.json
 ```
 
 四条必须成立，否则该 run 作废重跑：
@@ -183,7 +189,7 @@ for l in open(sys.argv[1]):
     e=json.loads(l)
     if e.get('accelerator_id'): a[e['accelerator_id']]+=1
 print(len(a)); [print(' ',k) for k in sorted(a)]
-" output/serve_pool/3w_a1v2/p1_a1v2_cache_s42/workflow_trace.jsonl
+" output/serve_pool/3w_a1v2/p1_a1v2_cache/workflow_trace.jsonl
 ```
 
 ---
@@ -191,7 +197,13 @@ print(len(a)); [print(' ',k) for k in sorted(a)]
 ## 8. 分析
 
 生命週期指标（loads / loading GPU-s / resident GPU-s / idle-resident GPU-s / makespan /
-mean·p50·p95 + bootstrap CI）用与 6w 相同的口径统计；跨 3 个种子给 run 间 CI。
+mean·p50·p95）用与 6w 相同的口径统计。
+
+**误差棒口径**：单种子意味着**没有 run 间方差**，只能报 120 个 session 之内的 bootstrap CI
+（即会话级变异，不是 run 间变异）。所有 arm 共用同一条到达序列，所以策略间差异是成对的、不含
+到达抖动，这本身就消掉了最大的一项噪声来源。但 `05-evaluation.tex` 现在写的是
+"error bars report 95% CIs across independent runs"，**这句话需要改成会话级 bootstrap 口径**，
+否则与实际做法不符。
 
 离线交叉检查（不占卡）：
 
@@ -212,7 +224,7 @@ Qwen3-4B 占 71% 的需求却只能占住一张 V100（`_replica_pairs` 以 `(�
 副本）。放开它是纯软件改动：每个 pair 存多个副本、按 inflight 最少选择、复制准入条件为
 "排队量 > 现有副本剩余 batch 槽位"。**每个副本仍独占整张卡，因此没有共置干扰、没有 OOM 风险。**
 
-落地后只需补跑 N=2 与 N=3 的 `cache` 臂（2 个 run），与 Phase 1/2 同 pool 同种子对照，即可给出
+落地后只需补跑 N=2 与 N=3 的 `cache` 臂（2 个 run），与 Phase 1/2 同 pool 同到达序列对照，即可给出
 "热点模型水平复制"的机制消融。判据：`cache` 应同时压过 `kairos`，并压过 6w 的历史最好值
 （mean 287s / p50 262s / p95 600s）。
 
