@@ -3,7 +3,9 @@
 # Rate matched to replay_6w_poisson_r150: same 120 sessions and the same model working set
 # (3w and 6w resolve to an identical 5-key set), so the two are directly comparable and this
 # reproduces the regime where the lifecycle policies separate.
-# arrival_seed differs only across the _s* variants, to get run-to-run confidence intervals.
+# One fixed arrival_seed shared by every policy: the comparison is paired, so differences
+# between arms carry no arrival jitter. Confidence intervals come from bootstrapping the 120
+# sessions within a run, not from repeated runs.
 timeout_sec: 5400
 arrival_seed: 42
 scenarios:
