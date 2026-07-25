@@ -244,6 +244,29 @@ def critical_path_remaining_latency(
     return remaining
 
 
+def critical_path_depth_to_node(
+    graph: WorkflowGraph,
+    node_run_costs: Mapping[str, float],
+) -> dict[str, float]:
+    """Earliest start time of each node under the static per-node cost model.
+
+    ``depth[v] = max(depth[u] + run_cost[u] for u in dependencies(v))``, sources at
+    zero. Reuse-distance eviction reads this to estimate how far in the future a node
+    that cannot run yet will demand its model, which is the only ordering signal
+    available before any of its upstream tasks start running.
+    """
+    depth: dict[str, float] = {}
+    for node_id in graph.topological_order:
+        depth[node_id] = max(
+            (
+                depth[dependency] + node_run_costs.get(dependency, 0.0)
+                for dependency in graph.dependencies[node_id]
+            ),
+            default=0.0,
+        )
+    return depth
+
+
 def _covering_sequence_length(
     predictions: ResourceContractCache,
     model_name: str,
