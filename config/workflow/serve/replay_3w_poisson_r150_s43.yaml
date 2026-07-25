@@ -1,0 +1,27 @@
+# Open-loop Poisson arrival, 3 workflows (qmsum1 + mbpp1 + gsm8k1).
+# Aggregate session rate ~= 0.075 session/s, per-workflow lambda = 0.075/3 = 0.025.
+# Rate matched to replay_6w_poisson_r150: same 120 sessions and the same model working set
+# (3w and 6w resolve to an identical 5-key set), so the two are directly comparable and this
+# reproduces the regime where the lifecycle policies separate.
+# arrival_seed differs only across the _s* variants, to get run-to-run confidence intervals.
+timeout_sec: 5400
+arrival_seed: 43
+scenarios:
+  - dataset: qmsum
+    workflow_name: qmsum1
+    dataset_path: dataset/QMSum/data/ALL
+    sample_count: 40
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.025
+  - dataset: mbpp
+    workflow_name: mbpp1
+    dataset_path: dataset/mbpp/sanitized-mbpp.json
+    sample_count: 40
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.025
+  - dataset: gsm8k
+    workflow_name: gsm8k1
+    dataset_path: dataset/gsm8k/data/test.jsonl
+    sample_count: 40
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.025
