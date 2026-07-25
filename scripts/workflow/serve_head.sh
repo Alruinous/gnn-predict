@@ -28,8 +28,10 @@ exec ray start --head \
   --port="$RAY_PORT" \
   --temp-dir="/tmp/ray_${RAY_PORT}" \
   --num-gpus=0 \
+  --num-cpus=0 \
   --include-dashboard=false \
   --metrics-export-port="$((RAY_PORT + 300))" \
   --dashboard-agent-listen-port="$((RAY_PORT + 400))" \
   --dashboard-agent-grpc-port="$((RAY_PORT + 500))" \
-  --disable-usage-stats
+  --disable-usage-stats \
+  --block

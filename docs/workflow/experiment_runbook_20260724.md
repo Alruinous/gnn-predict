@@ -63,7 +63,7 @@ sh scripts/workflow/serve_worker.sh   # 重复 N 次，N = MIN_GPUS
 > **命令格式（适配你的作业平台：一次提交 = 一个 master）**：下面每条命令是一个用 `\` 续行的
 > **单条自包含命令**，env 全部**内联**——不用 `for` 循环、不依赖跨提交的 `export`。逐条提交，
 > **一条命令 = 一个 RUN**。若一次提交里要顺序跑多个 master，用 `;` 串接并在中间插 `ray stop`
-> （serve_master 起 Ray Head 后不自动停）：`CMD1 ; ray stop ; CMD2`。
+> （serve_submit 起 Ray Head 后不自动停）：`CMD1 ; ray stop ; CMD2`。
 > 公共项：`MIN_GPUS`=A1V2 用 `3` / A1V1 用 `2`；`GPU_MEM=v100=32768,a100=81920`。
 > `WORKFLOW_FILES` 只需是 replay 里用到的 workflow 的**超集**（多注册不用的 workflow 无害）。
 
@@ -72,34 +72,36 @@ sh scripts/workflow/serve_worker.sh   # 重复 N 次，N = MIN_GPUS
 ## E1 —（主·机制 showcase）6w Poisson · A1V2 · 四策略
 
 **最能体现 Cache 三机制**：Poisson 的空闲期触发驱逐/重载 → Cache 的 reuse-distance 驱逐 + near-ready 预加载
-（`prefetch_count>0`）+ 跨-workflow 复用同时可见。先跑 r075（高负载、差距最大），再补 r050。
-
-四条命令（逐条提交）。r050 版本：把两处 `r075` → `r050` 即可（共 8 条）。
+（`prefetch_count>0`）+ 跨-workflow 复用同时可见。
 
 ```sh
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/gsm8k2.yaml \
-  OUTPUT_DIR=output/serve/6w_poisson EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r075.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_r075_cache_a1v2   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml   MIN_GPUS=3 sh scripts/workflow/serve_master.sh
+  RAY_PORT=6661 \
+  OUTPUT_DIR=output/serve/6w_poisson EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r150.yaml GPU_MEM=v100=32768,a100=81920 \
+  RUN_ID=hetero_r150_cache_a1v2   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml   MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/gsm8k2.yaml \
-  OUTPUT_DIR=output/serve/6w_poisson EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r075.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_r075_history_a1v2 SCHED_CONFIG=config/workflow/serve/scheduler_history.yaml MIN_GPUS=3 sh scripts/workflow/serve_master.sh
+  RAY_PORT=6662 \
+  OUTPUT_DIR=output/serve/6w_poisson EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r150.yaml GPU_MEM=v100=32768,a100=81920 \
+  RUN_ID=hetero_r150_history_a1v2 SCHED_CONFIG=config/workflow/serve/scheduler_history.yaml MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/gsm8k2.yaml \
-  OUTPUT_DIR=output/serve/6w_poisson EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r075.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_r075_fifo_a1v2    SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml    MIN_GPUS=3 sh scripts/workflow/serve_master.sh
+  RAY_PORT=6663 \
+  OUTPUT_DIR=output/serve/6w_poisson EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r150.yaml GPU_MEM=v100=32768,a100=81920 \
+  RUN_ID=hetero_r150_fifo_a1v2    SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml    MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/gsm8k2.yaml \
-  OUTPUT_DIR=output/serve/6w_poisson EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r075.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_r075_kairos_a1v2  SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml  MIN_GPUS=3 sh scripts/workflow/serve_master.sh
+  RAY_PORT=6664 \
+  OUTPUT_DIR=output/serve/6w_poisson EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r150.yaml GPU_MEM=v100=32768,a100=81920 \
+  RUN_ID=hetero_r150_kairos_a1v2  SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml  MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 ```
 
 四策略共用同一 `arrival_seed=42` → 逐字节相同到达轨迹（paired）。**sanity**：cache/history `prefetch_count>0`；
 kairos/fifo `prefetch_count==0`。
 
-## E2 —（主·结果/冷启动 + 受限放大）6w burst · A1V2 + A1V1 · 四策略
+## E2 —（主·结果/冷启动 + 受限放大）6w burst · A1V2
 
-burst 讲**冷启动排序 + 均衡**。A1V2 为主；**A1V1 是 Cache 相对增益最大点**（3 模型/1 V100 槽，legacy 曾达 −20%），
+burst 讲**冷启动排序 + 均衡**。A1V2 为主
 但 makespan 会明显变长。
 
 A1V2 四条（逐条提交）。**A1V1 版本**：只提交 1×A100+1×V100，把每条的 `MIN_GPUS=3`→`2`、
@@ -107,20 +109,24 @@ A1V2 四条（逐条提交）。**A1V1 版本**：只提交 1×A100+1×V100，�
 
 ```sh
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/gsm8k2.yaml \
+  RAY_PORT=6661 \
   OUTPUT_DIR=output/serve/6w EXPERIMENT_CONFIG=config/workflow/serve/replay_6w.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_cache_a1v2   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml   MIN_GPUS=3 sh scripts/workflow/serve_master.sh
+  RUN_ID=hetero_cache_a1v2   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml   MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/gsm8k2.yaml \
+  RAY_PORT=6662 \
   OUTPUT_DIR=output/serve/6w EXPERIMENT_CONFIG=config/workflow/serve/replay_6w.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_history_a1v2 SCHED_CONFIG=config/workflow/serve/scheduler_history.yaml MIN_GPUS=3 sh scripts/workflow/serve_master.sh
+  RUN_ID=hetero_history_a1v2 SCHED_CONFIG=config/workflow/serve/scheduler_history.yaml MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/gsm8k2.yaml \
+  RAY_PORT=6663 \
   OUTPUT_DIR=output/serve/6w EXPERIMENT_CONFIG=config/workflow/serve/replay_6w.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_fifo_a1v2    SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml    MIN_GPUS=3 sh scripts/workflow/serve_master.sh
+  RUN_ID=hetero_fifo_a1v2    SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml    MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/gsm8k2.yaml \
+  RAY_PORT=6664 \
   OUTPUT_DIR=output/serve/6w EXPERIMENT_CONFIG=config/workflow/serve/replay_6w.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_kairos_a1v2  SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml  MIN_GPUS=3 sh scripts/workflow/serve_master.sh
+  RUN_ID=hetero_kairos_a1v2  SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml  MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 ```
 
 ## E3 —（干净机制对比）3w burst · A1V2 · Cache vs History
@@ -129,38 +135,26 @@ workflow 少、噪声小，专讲 "Cache 冻结估计在冷启动阶段避免一
 
 ```sh
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/gsm8k1.yaml \
+  RAY_PORT=6661 \
   OUTPUT_DIR=output/serve/3w EXPERIMENT_CONFIG=config/workflow/serve/replay_3w.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_cache_a1v2   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml   MIN_GPUS=3 sh scripts/workflow/serve_master.sh
+  RUN_ID=hetero_cache_a1v2   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml   MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/gsm8k1.yaml \
+  RAY_PORT=6662 \
   OUTPUT_DIR=output/serve/3w EXPERIMENT_CONFIG=config/workflow/serve/replay_3w.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_history_a1v2 SCHED_CONFIG=config/workflow/serve/scheduler_history.yaml MIN_GPUS=3 sh scripts/workflow/serve_master.sh
+  RUN_ID=hetero_history_a1v2 SCHED_CONFIG=config/workflow/serve/scheduler_history.yaml MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/gsm8k1.yaml \
+  RAY_PORT=6663 \
   OUTPUT_DIR=output/serve/3w EXPERIMENT_CONFIG=config/workflow/serve/replay_3w.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_fifo_a1v2    SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml    MIN_GPUS=3 sh scripts/workflow/serve_master.sh
+  RUN_ID=hetero_fifo_a1v2    SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml    MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/gsm8k1.yaml \
+  RAY_PORT=6664 \
   OUTPUT_DIR=output/serve/3w EXPERIMENT_CONFIG=config/workflow/serve/replay_3w.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_kairos_a1v2  SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml  MIN_GPUS=3 sh scripts/workflow/serve_master.sh
+  RUN_ID=hetero_kairos_a1v2  SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml  MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 ```
 
-## E4 —（补缺口）8w Poisson r075 · A1V2 · 补 Cache
-
-`output/serve_0723/8w_poisson` 缺 Cache，补齐才能配对。沿用旧 2 数据集 8w（无 gsm8k）：
-
-```sh
-WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/qmsum3.yaml,config/workflow/serve/qmsum4.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/mbpp3.yaml,config/workflow/serve/mbpp4.yaml \
-  OUTPUT_DIR=output/serve/8w_poisson EXPERIMENT_CONFIG=config/workflow/serve/replay_8w_poisson_r075.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_r075_cache_a1v2 SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml MIN_GPUS=3 sh scripts/workflow/serve_master.sh
-```
-
-## E5 —（可选·负载扫描）3w/6w Poisson r050/r075/r100
-
-证明"Cache 优势随负载上升扩大"。把 E1 的 `EXPERIMENT_CONFIG` 依次换
-`replay_{3w,6w}_poisson_r{050,075,100}.yaml`，`RUN_ID` 加 `r0xx` 标识，画 ρ–延迟/驻留曲线。
-
----
 
 ## 重复与冷启动（拿置信区间）
 
@@ -191,18 +185,6 @@ print(json.dumps({k: s[k] for k in ('makespan_sec','completed_session_count','se
 **每个 RUN 的 sanity check**：`completed_session_count==120`、`oom_count==0`、
 `model_load_count + model_reuse_count == placement_count`；kairos/fifo `prefetch_count==0`；
 Poisson 下 cache/history `prefetch_count>0`（否则 policy 或到达轨迹未生效）。
-
----
-
-## 预期信号（诚实边界）
-
-- **Cache 结果轴（延迟/makespan）最优、跨配置最稳**（从不垫底）；相对增益 **A1V1 > A1V2**，**受限+多workflow > 低争用**。
-- **主要收益来源 = 少一次 ~200s 重载**（复用/驱逐）；**预加载表现为"更早启动、降低 acquire 等待"**，
-  因 14B 加载 257s ≫ solver 窗口 76s，**不宣称完全隐藏加载**（与 r050 边界一致）。
-- **驱逐质量**：对比 cache vs kairos/fifo 的 `model_eviction_count`、驱逐 reason 分布（trace `payload.reason`：
-  `ready_load`/`near_ready`/`requested`）与 avoidable-reload（同 model_key 短距重载）。
-- **边界（要如实报告，不藏）**：A1V3+/低负载/2w-burst 处 Cache 无优势；History 可能更省驻留但更慢（延迟型低占用，
-  须与延迟联合读，勿把低驻留当更快）。
 
 ---
 

@@ -12,6 +12,8 @@
 # VLLM_PYTHON. RAY_PORT selects which resident head to attach (default 6667).
 set -e
 
+umask 000
+
 export PROJECT_DIR=/home/wangjh/gnn_predict
 export VENV_DIR="$PROJECT_DIR/.venv"
 export RAY_PORT="${RAY_PORT:-6667}"
@@ -19,7 +21,7 @@ export RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
 export VLLM_PYTHON="${VLLM_PYTHON:-/home/wangjh/gnn_predict/envs/vllm-v100/.venv/bin/python}"
 export MIN_GPUS="${MIN_GPUS:-2}"
 export GPU_MEM="${GPU_MEM:-v100=32768,a100=81920}"
-export PREDICTIONS="${PREDICTIONS:-/home/wangjh/gnn_predict/cache/profile/predictions.yaml}"
+export PREDICTIONS="${PREDICTIONS:-/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml}"
 export SCHED_CONFIG="${SCHED_CONFIG:-config/workflow/serve/scheduler_cache.yaml}"
 export PRIORITY_WEIGHT="${PRIORITY_WEIGHT:-}"
 export EXPERIMENT_CONFIG="${EXPERIMENT_CONFIG:-config/workflow/serve/replay_4w.yaml}"

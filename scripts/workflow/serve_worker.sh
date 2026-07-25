@@ -12,9 +12,12 @@ sleep 5
 export PROJECT_DIR=/home/wangjh/gnn_predict
 export VENV_DIR="$PROJECT_DIR/.venv"
 export RAY_PORT="${RAY_PORT:-6667}"
-export RAY_HEAD_ADDR="${RAY_HEAD_ADDR:-${MASTER_ADDR:-localhost}}"
+export RAY_HEAD_ADDR="${RAY_HEAD_ADDR:-10.244.18.20}"
 
 cd "$PROJECT_DIR"
 . "$VENV_DIR/bin/activate"
 
-exec ray start --address="${RAY_HEAD_ADDR}:${RAY_PORT}" --disable-usage-stats --block
+exec ray start \
+    --address="${RAY_HEAD_ADDR}:${RAY_PORT}" \
+    --disable-usage-stats \
+    --block
