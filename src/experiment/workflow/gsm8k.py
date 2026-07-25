@@ -131,8 +131,6 @@ def build_gsm8k_workflow(
                 max_model_len=1024,
                 max_new_tokens=512,
                 max_num_seqs=max_num_seqs,
-                do_sample=True,
-                temperature=0.7,
             ),
             "prompt_template": GSM8K_SOLVE_PROMPT,
         }

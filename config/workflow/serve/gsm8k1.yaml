@@ -27,8 +27,8 @@ nodes:
     model_path: /data/Models/Qwen/Qwen3-4B
     max_new_tokens: 512
     dtype: float16
-    do_sample: true
-    temperature: 0.7
+    do_sample: false
+    temperature: null
     use_chat_template: true
     enable_thinking: false
     truncation_side: null
@@ -61,8 +61,8 @@ nodes:
     model_path: /data/Models/Qwen/Qwen3-4B
     max_new_tokens: 512
     dtype: float16
-    do_sample: true
-    temperature: 0.7
+    do_sample: false
+    temperature: null
     use_chat_template: true
     enable_thinking: false
     truncation_side: null
@@ -95,8 +95,8 @@ nodes:
     model_path: /data/Models/Qwen/Qwen3-4B
     max_new_tokens: 512
     dtype: float16
-    do_sample: true
-    temperature: 0.7
+    do_sample: false
+    temperature: null
     use_chat_template: true
     enable_thinking: false
     truncation_side: null
@@ -129,8 +129,8 @@ nodes:
     model_path: /data/Models/Qwen/Qwen3-4B
     max_new_tokens: 512
     dtype: float16
-    do_sample: true
-    temperature: 0.7
+    do_sample: false
+    temperature: null
     use_chat_template: true
     enable_thinking: false
     truncation_side: null
@@ -163,8 +163,8 @@ nodes:
     model_path: /data/Models/Qwen/Qwen3-4B
     max_new_tokens: 512
     dtype: float16
-    do_sample: true
-    temperature: 0.7
+    do_sample: false
+    temperature: null
     use_chat_template: true
     enable_thinking: false
     truncation_side: null

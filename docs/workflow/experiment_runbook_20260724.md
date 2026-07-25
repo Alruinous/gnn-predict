@@ -78,12 +78,14 @@ sh scripts/workflow/serve_worker.sh   # 重复 N 次，N = MIN_GPUS
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/gsm8k2.yaml \
   RAY_PORT=6661 \
   OUTPUT_DIR=output/serve/6w_poisson EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r150.yaml GPU_MEM=v100=32768,a100=81920 \
+  PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml \
   RUN_ID=hetero_r150_cache_a1v2   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml   MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/gsm8k2.yaml \
   RAY_PORT=6662 \
   OUTPUT_DIR=output/serve/6w_poisson EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r150.yaml GPU_MEM=v100=32768,a100=81920 \
-  RUN_ID=hetero_r150_history_a1v2 SCHED_CONFIG=config/workflow/serve/scheduler_history.yaml MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
+  PREDICTIONS=/home/wangjh/gnn_predict/cache/tabular/predictions.yaml \
+  RUN_ID=hetero_r150_gbdt_a1v2 SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/gsm8k2.yaml \
   RAY_PORT=6663 \
@@ -96,8 +98,7 @@ WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.ya
   RUN_ID=hetero_r150_kairos_a1v2  SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml  MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 ```
 
-四策略共用同一 `arrival_seed=42` → 逐字节相同到达轨迹（paired）。**sanity**：cache/history `prefetch_count>0`；
-kairos/fifo `prefetch_count==0`。
+四策略共用同一 `arrival_seed=42` → 逐字节相同到达轨迹（paired）。
 
 ## E2 —（主·结果/冷启动 + 受限放大）6w burst · A1V2
 
@@ -111,6 +112,7 @@ A1V2 四条（逐条提交）。**A1V1 版本**：只提交 1×A100+1×V100，�
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/gsm8k2.yaml \
   RAY_PORT=6661 \
   OUTPUT_DIR=output/serve/6w EXPERIMENT_CONFIG=config/workflow/serve/replay_6w.yaml GPU_MEM=v100=32768,a100=81920 \
+  PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml \
   RUN_ID=hetero_cache_a1v2   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml   MIN_GPUS=3 sh scripts/workflow/serve_submit.sh
 
 WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/gsm8k2.yaml \
