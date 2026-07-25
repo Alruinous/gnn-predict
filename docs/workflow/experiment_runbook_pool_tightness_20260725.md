@@ -98,8 +98,8 @@ Head 常驻 dev 容器且 `--num-gpus=0`，**每个 worker Pod 恰好一张卡**
 |---|---|
 | 6661 | 1×A100 + 2×V100 |
 | 6662 | 1×A100 + 2×V100 |
-| 6663 | 1×A100 + 2×V100（该端口现有 2 张 A100，只让 1 张加入） |
-| 6664 | 1×A100 + 2×V100（需从别处调 1 张 A100） |
+| 6663 | 1×A100 + 2×V100 |
+| 6664 | 1×A100 + 2×V100 |
 
 4 arm 各占一个集群并行 → **1 轮 ≈ 45 分钟，4 个 run**。这是论文主表（makespan / mean / p50 /
 p95 + 生命週期指标）。
@@ -138,13 +138,13 @@ WFS=config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/wo
 ### Phase 1（N=2）
 
 ```sh
-WORKFLOW_FILES=$WFS RAY_PORT=6661 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml  OUTPUT_DIR=output/serve_pool/3w_a1v2 RUN_ID=p1_a1v2_cache  sh scripts/workflow/serve_submit.sh
+WORKFLOW_FILES=$WFS RAY_PORT=6661 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml  OUTPUT_DIR=output/serve_0726/3w_a1v2 RUN_ID=p1_a1v2_cache  sh scripts/workflow/serve_submit.sh
 
-WORKFLOW_FILES=$WFS RAY_PORT=6662 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml   OUTPUT_DIR=output/serve_pool/3w_a1v2 RUN_ID=p1_a1v2_fifo   sh scripts/workflow/serve_submit.sh
+WORKFLOW_FILES=$WFS RAY_PORT=6662 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml   OUTPUT_DIR=output/serve_0726/3w_a1v2 RUN_ID=p1_a1v2_fifo   sh scripts/workflow/serve_submit.sh
 
-WORKFLOW_FILES=$WFS RAY_PORT=6663 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml OUTPUT_DIR=output/serve_pool/3w_a1v2 RUN_ID=p1_a1v2_kairos sh scripts/workflow/serve_submit.sh
+WORKFLOW_FILES=$WFS RAY_PORT=6663 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml OUTPUT_DIR=output/serve_0726/3w_a1v2 RUN_ID=p1_a1v2_kairos sh scripts/workflow/serve_submit.sh
 
-WORKFLOW_FILES=$WFS RAY_PORT=6664 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/tabular/predictions.yaml   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml  OUTPUT_DIR=output/serve_pool/3w_a1v2 RUN_ID=p1_a1v2_gbdt   sh scripts/workflow/serve_submit.sh
+WORKFLOW_FILES=$WFS RAY_PORT=6664 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/tabular/predictions.yaml   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml  OUTPUT_DIR=output/serve_0726/3w_a1v2 RUN_ID=p1_a1v2_gbdt   sh scripts/workflow/serve_submit.sh
 ```
 
 **arm 与端口的绑定在整个 runbook 内保持不变**，这样每个 arm 始终跑在同一批物理卡上；换 pool 时
