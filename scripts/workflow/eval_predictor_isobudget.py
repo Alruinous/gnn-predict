@@ -20,14 +20,18 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from experiment.workflow.artifacts import file_sha256  # noqa: E402
 from experiment.workflow.predictor_isobudget import (  # noqa: E402
+    CANONICAL_METRICS_PATH,
     HELD_OUT,
+    LOAD,
     LONG_DECODE,
     RUN,
     VRAM,
     ProfilingCost,
     SchemeResult,
     baseline_marginal_seconds,
+    canonical_payload,
     evaluate_scheme,
     graph_forward_seconds,
     index_cache,
@@ -41,11 +45,8 @@ from workflow.artifacts import load_resource_contract_cache  # noqa: E402
 Results = Mapping[str, SchemeResult]
 LABEL = {
     "sageradar": "SageRadar (ours)",
-    "analytical_cal": "Analytical+cal",
     "analytical": "Analytical",
-    "nearest_profile": "Nearest-profile",
-    "config_mean": "Config-mean",
-    "tabular": "Tabular-GBDT",
+    "tabular": "GBDT",
     "anchor_scaled": "Anchor-scaled (excluded)",
 }
 
@@ -75,21 +76,28 @@ def _accuracy_rows(result: SchemeResult, scheme: str) -> list[str]:
 
 def _vram_rows(result: SchemeResult, scheme: str) -> list[str]:
     lines = [
-        "| method | vram WAPE | under rate | max under (GB) | bound violation "
-        "| mean over-reservation | p95 over-reservation |",
-        "|---|---|---|---|---|---|---|",
+        "| method | deploy WAPE | vram WAPE | under rate | max under (GB) "
+        "| bound violation | mean over-reservation | p95 over-reservation |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for name, per_stratum in result.accuracy.items():
+        deploy = per_stratum[HELD_OUT][LOAD]
         held = per_stratum[HELD_OUT][VRAM]
         bound = result.bounds[name]
         lines.append(
-            f"| {LABEL[name]} | {held.wape:.4f} | {held.underestimate_rate:.3f} "
+            f"| {LABEL[name]} | {100 * deploy.wape:.1f}% | {100 * held.wape:.1f}% "
+            f"| {held.underestimate_rate:.3f} "
             f"| {held.max_underestimate / 1024:.2f} "
-            f"| {bound.violation_rate:.3f} "
+            f"| {100 * bound.violation_rate:.1f}% "
             f"| {100 * bound.mean_over_reservation:.1f}% "
             f"| {100 * bound.p95_over_reservation:.1f}% |"
         )
-    return [f"### {scheme} anchors — peak VRAM and admission bound", "", *lines, ""]
+    return [
+        f"### {scheme} anchors — deployment time, peak VRAM, admission bound",
+        "",
+        *lines,
+        "",
+    ]
 
 
 def _decision_rows(result: SchemeResult, scheme: str) -> list[str]:
@@ -241,12 +249,11 @@ def _write_csvs(
     )
 
     bounds = [
-        "scheme,method,quantile_level,violation_rate,mean_over_reservation,"
-        "p95_over_reservation"
+        "scheme,method,alpha,violation_rate,mean_over_reservation,p95_over_reservation"
     ]
     for scheme, result in results.items():
         bounds.extend(
-            f"{scheme},{name},{b.quantile_level:.2f},{b.violation_rate:.5f},"
+            f"{scheme},{name},{b.alpha:.2f},{b.violation_rate:.5f},"
             f"{b.mean_over_reservation:.5f},{b.p95_over_reservation:.5f}"
             for name, b in result.bounds.items()
         )
@@ -263,6 +270,7 @@ def _write_csvs(
     for name, per_stratum in primary.accuracy.items():
         if name not in marginal:
             continue
+        # The analytical formula is pure physics and consumes no measurements.
         hours = 0.0 if name == "analytical" else primary.anchor_cost.total_gpu_hours
         pareto.append(
             f"{name},{per_stratum[HELD_OUT][RUN].wape:.5f},"
@@ -294,6 +302,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--out-dir", type=Path, default=ROOT / "output/predictor_isobudget"
     )
+    parser.add_argument("--canonical", type=Path, default=ROOT / CANONICAL_METRICS_PATH)
+    parser.add_argument(
+        "--write-canonical",
+        action="store_true",
+        help="refresh the frozen metrics every table and figure quotes",
+    )
     args = parser.parse_args(argv)
 
     truth = index_cache(load_resource_contract_cache(args.profile_cache))
@@ -316,6 +330,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     measured = baseline_marginal_seconds(truth, recorded)
     measured["sageradar"] = graph_forward_seconds()
     marginal = {name: measured[name] for name in ordered_methods(measured)}
+
+    if args.write_canonical:
+        payload = canonical_payload(
+            _primary(results),
+            profile_cost,
+            marginal,
+            sources={
+                "profile_cache_sha256": file_sha256(args.profile_cache),
+                "gnn_cache_sha256": file_sha256(args.gnn_cache),
+                "anchor_scheme": "recorded",
+            },
+        )
+        args.canonical.write_text(
+            json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+        )
+        print(f"canonical metrics -> {args.canonical}")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     _write_tables(args.out_dir, results, profile_cost, marginal)

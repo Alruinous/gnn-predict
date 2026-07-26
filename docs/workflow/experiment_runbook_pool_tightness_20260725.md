@@ -67,21 +67,6 @@ Head 常驻 dev 容器且 `--num-gpus=0`，**每个 worker Pod 恰好一张卡**
 
 ---
 
-## 4. 四个 arm 的定义
-
-| arm | SCHED_CONFIG | PREDICTIONS |
-|---|---|---|
-| `fifo` | `scheduler_fifo.yaml` | `cache/profile_v2/predictions.yaml` |
-| `kairos` | `scheduler_kairos.yaml` | `cache/profile_v2/predictions.yaml` |
-| `gbdt` | `scheduler_cache.yaml` | `cache/tabular/predictions.yaml` |
-| `cache` | `scheduler_cache.yaml` | `cache/profile_v2/predictions.yaml` |
-
-`gbdt` 与 `cache` 是**同一调度策略、不同预测器**，用来把预测器质量和调度机制分开。两份缓存都已
-补过同样的 sub-128 输出桶（`scripts/workflow/extend_cache_output_buckets.py`），以免把桶分辨率
-混进预测器比较。
-
----
-
 ## 5. 实验矩阵
 
 工作负载固定：3w = `qmsum1 + mbpp1 + gsm8k1`，各 40 session = 120，Poisson 聚合 0.075/s
@@ -129,117 +114,44 @@ p95 + 生命週期指标）。
 每条是一条自包含单行命令（env 全内联，不用 for 循环，一条 = 一个 run）。逐条提交。
 `OUTPUT_DIR` 按 pool 分目录，便于分析脚本按 cohort 归组。
 
-公共前缀（下面用 `$WFS` 代指）：
-
-```sh
-WFS=config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/gsm8k1.yaml
-```
-
 ### Phase 1（N=2）
 
 ```sh
-WORKFLOW_FILES=$WFS RAY_PORT=6661 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml  OUTPUT_DIR=output/serve_0726/3w_a1v2 RUN_ID=p1_a1v2_cache  sh scripts/workflow/serve_submit.sh
+WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k2.yaml \
+RAY_PORT=6661 \
+PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 \
+EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r150.yaml \
+PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml \
+SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml \
+OUTPUT_DIR=output/serve_0726/6w_poisson_a1v2 RUN_ID=cache \
+sh scripts/workflow/serve_submit.sh
 
-WORKFLOW_FILES=$WFS RAY_PORT=6662 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml   OUTPUT_DIR=output/serve_0726/3w_a1v2 RUN_ID=p1_a1v2_fifo   sh scripts/workflow/serve_submit.sh
+WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k2.yaml \
+RAY_PORT=6662 \
+PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 \
+EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r150.yaml \
+PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml \
+SCHED_CONFIG=config/workflow/serve/scheduler_fifo.yaml  \
+OUTPUT_DIR=output/serve_0726/6w_poisson_a1v2 RUN_ID=fifo \
+sh scripts/workflow/serve_submit.sh
 
-WORKFLOW_FILES=$WFS RAY_PORT=6663 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml OUTPUT_DIR=output/serve_0726/3w_a1v2 RUN_ID=p1_a1v2_kairos sh scripts/workflow/serve_submit.sh
+WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k2.yaml \
+RAY_PORT=6663 \
+PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 \
+EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r150.yaml \
+PREDICTIONS=/home/wangjh/gnn_predict/cache/profile_v2/predictions.yaml \
+SCHED_CONFIG=config/workflow/serve/scheduler_kairos.yaml \
+OUTPUT_DIR=output/serve_0726/6w_poisson_a1v2 RUN_ID=kairos \
+sh scripts/workflow/serve_submit.sh
 
-WORKFLOW_FILES=$WFS RAY_PORT=6664 PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 EXPERIMENT_CONFIG=config/workflow/serve/replay_3w_poisson_r150.yaml PREDICTIONS=/home/wangjh/gnn_predict/cache/tabular/predictions.yaml   SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml  OUTPUT_DIR=output/serve_0726/3w_a1v2 RUN_ID=p1_a1v2_gbdt   sh scripts/workflow/serve_submit.sh
+WORKFLOW_FILES=config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/gsm8k1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp2.yaml,config/workflow/serve/gsm8k2.yaml \
+RAY_PORT=6664 \
+PYTHONHASHSEED=0 MIN_GPUS=3 GPU_MEM=v100=32768,a100=81920 \
+EXPERIMENT_CONFIG=config/workflow/serve/replay_6w_poisson_r150.yaml \
+PREDICTIONS=/home/wangjh/gnn_predict/cache/tabular/predictions.yaml \
+SCHED_CONFIG=config/workflow/serve/scheduler_cache.yaml \
+OUTPUT_DIR=output/serve_0726/6w_poisson_a1v2 RUN_ID=gbdt \
+sh scripts/workflow/serve_submit.sh
 ```
 
-**arm 与端口的绑定在整个 runbook 内保持不变**，这样每个 arm 始终跑在同一批物理卡上；换 pool 时
-只增减该端口挂的 V100 Pod 数量，不要调换 arm 与端口的对应关系。
-
-### Phase 2（N=3 与 N=4）
-
-同上，只改三处：`MIN_GPUS=4`（N=3）或 `MIN_GPUS=5`（N=4）、
-`OUTPUT_DIR=output/serve_pool/3w_a1v3`（或 `3w_a1v4`）、`RUN_ID` 前缀 `p2_a1v3_` / `p2_a1v4_`。
-N=3 时只有 3 个集群可用，先跑 cache/fifo/kairos，第二轮跑 gbdt；N=4 时 2 个集群，跑两轮。
-
-> `MIN_GPUS` 只是"等到这么多卡加入"，随后 `discover_accelerators`（`src/workflow/master.py:112`）
-> 会把集群里**所有**卡纳入 pool。所以 pool 大小由你挂多少 worker Pod 决定，`MIN_GPUS` 只是保证
-> 不在卡没到齐时就开跑——**务必设成该 pool 的实际卡数**。
-
----
-
-## 7. 每个 run 的验收
-
-```sh
-python3 -c "
-import json,sys
-d=json.load(open(sys.argv[1]))
-print(d['run_id'], 'done',d['completed_session_count'],'failed',d['failed_session_count'],
-      'oom',d['oom_count'],'infeasible',d['request_infeasible_count'],
-      'loads',d['model_load_count'],'p50',round(d['session_latency_sec']['p50'],1))
-" output/serve_pool/3w_a1v2/p1_a1v2_cache/run_summary.json
-```
-
-四条必须成立，否则该 run 作废重跑：
-
-- `completed_session_count == 120` 且 `failed_session_count == 0`
-- `oom_count == 0`
-- `request_infeasible_count == 0` —— 非 0 说明 pool 里没有 A100（14B 放不下）
-- trace 里的 `accelerator_id` 集合 == 该 pool 预期的卡集合，且**同 pool 各 arm 之间一致**：
-
-```sh
-python3 -c "
-import json,sys,collections
-a=collections.Counter()
-for l in open(sys.argv[1]):
-    e=json.loads(l)
-    if e.get('accelerator_id'): a[e['accelerator_id']]+=1
-print(len(a)); [print(' ',k) for k in sorted(a)]
-" output/serve_pool/3w_a1v2/p1_a1v2_cache/workflow_trace.jsonl
-```
-
----
-
-## 8. 分析
-
-生命週期指标（loads / loading GPU-s / resident GPU-s / idle-resident GPU-s / makespan /
-mean·p50·p95）用与 6w 相同的口径统计。
-
-**误差棒口径**：单种子意味着**没有 run 间方差**，只能报 120 个 session 之内的 bootstrap CI
-（即会话级变异，不是 run 间变异）。所有 arm 共用同一条到达序列，所以策略间差异是成对的、不含
-到达抖动，这本身就消掉了最大的一项噪声来源。但 `05-evaluation.tex` 现在写的是
-"error bars report 95% CIs across independent runs"，**这句话需要改成会话级 bootstrap 口径**，
-否则与实际做法不符。
-
-离线交叉检查（不占卡）：
-
-```sh
-PYTHONHASHSEED=0 uv run python scripts/workflow/replay_policy_sweep.py \
-  --cohort-dir output/serve_pool/3w_a1v2 --run-prefix p1_a1v2_ --expected-sessions 120
-```
-
-> **告警**：离线回放把每 task 服务时间当常量，因此**不建模副本吞吐**。它对"改变副本数量"的
-> 改动会给出反向结论（离线认为 key 越少越好：4 keys 143.8s < 5 keys 186.8s < 6 keys 207.9s；
-> 真机相反）。只用它筛排序/驱逐类改动与做回归检查，**pool 大小与副本数的结论必须以真机为准**。
-
----
-
-## 9. 可选追加：放开"每模型单副本"之后
-
-Qwen3-4B 占 71% 的需求却只能占住一张 V100（`_replica_pairs` 以 `(模型, 卡型)` 为键、值是单个
-副本）。放开它是纯软件改动：每个 pair 存多个副本、按 inflight 最少选择、复制准入条件为
-"排队量 > 现有副本剩余 batch 槽位"。**每个副本仍独占整张卡，因此没有共置干扰、没有 OOM 风险。**
-
-落地后只需补跑 N=2 与 N=3 的 `cache` 臂（2 个 run），与 Phase 1/2 同 pool 同到达序列对照，即可给出
-"热点模型水平复制"的机制消融。判据：`cache` 应同时压过 `kairos`，并压过 6w 的历史最好值
-（mean 287s / p50 262s / p95 600s）。
-
----
-
-## 10. 陷阱清单
-
-- **别在轮次之间重组卡**：同 pool 各 arm 必须同一批物理卡。我此前的 6w 对照里 cache 与 fifo 落在
-  不同物理卡上，虽然事后核算每 token 速度只差 2%（fifo 那组还略快），但这属于运气好。
-- **别合并 Qwen3-4B 的 key**（见 §3.3）。
-- **`serve_submit.sh` 默认用主检出**；若要跑 worktree 的代码，前缀 `PROJECT_DIR=<worktree>`
-  （`VENV_DIR` 保持主检出的 venv，vLLM 装在那里）。
-- **`PYTHONHASHSEED=0`**：集合迭代顺序会影响并列打破，不固定则同配置两次结果不同。
-- **run 之间不必停 head**：fleet 退出时会驱逐自己的副本但不动 head 与 worker raylet，下一个
-  `serve_submit` 直接复用。
-- **两个预设失败测试与本实验无关**：`test_load_committed_serve_workflows`（缺
-  `config/workflow/serve/qmsum.yaml`）与 `test_gemma4_arch_configs_expand_to_expected_counts`
-  （647 vs 639），在 `main` 上同样失败。
+3 workflow 效果十分不好，且有嚴重問題，不適合。

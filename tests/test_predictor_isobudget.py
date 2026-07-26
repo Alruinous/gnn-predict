@@ -9,7 +9,6 @@ from experiment.workflow.predictor_isobudget import (
     RUN,
     VRAM,
     bound_quality,
-    fit_cell_scale,
     load_recorded_anchors,
     pairwise_order_accuracy,
     profiling_cost,
@@ -97,20 +96,6 @@ def test_load_recorded_anchors_returns_the_recorded_keys(tmp_path: Path, truth) 
         encoding="utf-8",
     )
     assert load_recorded_anchors(metrics, truth) == (present,)
-
-
-def test_fit_cell_scale_recovers_a_known_multiplier(truth) -> None:
-    halved = {key: contract.predicted_run_sec / 2 for key, contract in truth.items()}
-    scales = fit_cell_scale(truth, halved, tuple(truth), RUN)
-    assert scales[("Qwen3-0.6B", "a100")] == pytest.approx(2.0)
-    assert scales[None] == pytest.approx(2.0)
-
-
-def test_fit_cell_scale_keeps_a_pooled_fallback_for_unanchored_cells(truth) -> None:
-    anchors = tuple(truth)[:2]
-    halved = {key: contract.predicted_run_sec / 2 for key, contract in truth.items()}
-    scales = fit_cell_scale(truth, halved, anchors, RUN)
-    assert None in scales
 
 
 def test_pairwise_order_accuracy_is_one_for_a_monotone_prediction(truth) -> None:

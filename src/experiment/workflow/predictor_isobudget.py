@@ -27,16 +27,8 @@ from pathlib import Path
 
 import numpy as np
 
-from experiment.workflow.prediction_calibration import (
-    Scope,
-    apply_linear,
-    fit_scoped_linear,
-    scope_of,
-    vram_features,
-)
+from experiment.workflow.prediction_calibration import Scope, scope_of
 from experiment.workflow.predictor_baselines import (
-    build_config_mean_cache,
-    build_nearest_profile_cache,
     build_tabular_cache,
     stratified_anchor_sample,
 )
@@ -49,7 +41,8 @@ from workflow.types import WorkflowModelFeatureKey
 
 RUN = "run_sec"
 VRAM = "peak_vram_mb"
-TARGETS = (RUN, VRAM)
+LOAD = "load_sec"
+TARGETS = (LOAD, RUN, VRAM)
 LONG_DECODE_OUTPUT = 1024  # anchors stop at 512, so this stratum is extrapolation
 ANCHORS_PER_CELL = 5
 PAIR_SAMPLE_LIMIT = 60_000
@@ -64,6 +57,8 @@ Truth = Mapping[WorkflowModelFeatureKey, ResourceContract]
 def target_value(contract: ResourceContract, target: str) -> float:
     if target == RUN:
         return contract.predicted_run_sec
+    if target == LOAD:
+        return contract.predicted_load_sec
     assert target == VRAM, f"unsupported target {target}"
     return contract.predicted_peak_vram_mb
 
@@ -111,73 +106,74 @@ def long_decode_keys(
 
 @dataclass(frozen=True, slots=True)
 class MethodPredictions:
+    load_sec: Predictions
     run_sec: Predictions
     peak_vram_mb: Predictions
 
     def of(self, target: str) -> Predictions:
-        return self.run_sec if target == RUN else self.peak_vram_mb
+        if target == RUN:
+            return self.run_sec
+        if target == LOAD:
+            return self.load_sec
+        assert target == VRAM, f"unsupported target {target}"
+        return self.peak_vram_mb
 
 
 def _from_cache(cache: ResourceContractCache) -> MethodPredictions:
     entries = cache.entries
     return MethodPredictions(
+        load_sec={e.key: e.predicted_load_sec for e in entries},
         run_sec={e.key: e.predicted_run_sec for e in entries},
         peak_vram_mb={e.key: e.predicted_peak_vram_mb for e in entries},
     )
 
 
-def fit_cell_scale(
-    truth: Truth,
+PREDICTION_FLOOR = 1e-6
+
+
+def anchor_affine(
     base: Predictions,
+    truth: Truth,
     anchors: Sequence[WorkflowModelFeatureKey],
     target: str,
-) -> dict[Scope | None, float]:
-    """Least-squares multiplier per model-GPU cell; `None` holds the pooled fallback."""
-    per_cell: dict[Scope, list[float]] = defaultdict(lambda: [0.0, 0.0])
-    pooled = [0.0, 0.0]
-    for key in anchors:
-        prediction = base[key]
-        observed = target_value(truth[key], target)
-        for accumulator in (per_cell[scope_of(key)], pooled):
-            accumulator[0] += prediction * observed
-            accumulator[1] += prediction * prediction
-    assert pooled[1] > 0.0, "analytical baseline produced only zero predictions"
-    scales: dict[Scope | None, float] = {None: pooled[0] / pooled[1]}
-    for scope, accumulator in per_cell.items():
-        if accumulator[1] > 0.0:
-            scales[scope] = accumulator[0] / accumulator[1]
-    return scales
-
-
-def _rescaled(base: Predictions, scales: Mapping[Scope | None, float]) -> Predictions:
-    fallback = scales[None]
-    return {
-        key: scales.get(scope_of(key), fallback) * value for key, value in base.items()
-    }
-
-
-def debias_vram(
-    raw: Predictions, truth: Truth, anchors: Sequence[WorkflowModelFeatureKey]
 ) -> Predictions:
-    """Scoped affine de-bias of the raw graph VRAM estimate, fit on the anchors only."""
-    rows: dict[Scope, list[tuple[Sequence[float], float]]] = defaultdict(list)
+    """Per-cell affine correction (scale and intercept) fit on that cell's anchors.
+
+    Two parameters per model-GPU cell is what a five-anchor budget supports, and
+    it is the one recipe every method receives, so the comparison is between
+    predictors rather than between calibration efforts. The richer scoped fit in
+    `prediction_calibration` needs eight rows per scope, so at this budget it
+    silently collapses to a single pooled correction."""
+    per_cell: dict[Scope, list[WorkflowModelFeatureKey]] = defaultdict(list)
     for key in anchors:
-        rows[scope_of(key)].append(
-            (vram_features(key, raw[key]), target_value(truth[key], VRAM))
-        )
-    coefficients = fit_scoped_linear(rows)
-    pooled = fit_scoped_linear(
-        {("pooled", "pooled"): [row for scoped in rows.values() for row in scoped]}
-    )[("pooled", "pooled")]
+        per_cell[scope_of(key)].append(key)
+
+    def solve(keys: Sequence[WorkflowModelFeatureKey]) -> np.ndarray:
+        design = np.array([[base[key], 1.0] for key in keys])
+        observed = np.array([target_value(truth[key], target) for key in keys])
+        return np.linalg.lstsq(design, observed, rcond=None)[0]
+
+    coefficients = {scope: solve(keys) for scope, keys in per_cell.items()}
+    pooled = solve(anchors)
     return {
         key: max(
-            apply_linear(
-                coefficients.get(scope_of(key), pooled), vram_features(key, value)
-            ),
-            1.0,
+            float(coefficients.get(scope_of(key), pooled) @ np.array([value, 1.0])),
+            PREDICTION_FLOOR,
         )
-        for key, value in raw.items()
+        for key, value in base.items()
     }
+
+
+def anchor_calibrated(
+    base: MethodPredictions, truth: Truth, anchors: Sequence[WorkflowModelFeatureKey]
+) -> MethodPredictions:
+    """Apply the shared per-cell affine correction to every target."""
+    return MethodPredictions(
+        **{
+            target: anchor_affine(base.of(target), truth, anchors, target)
+            for target in TARGETS
+        }
+    )
 
 
 def build_sageradar_predictions(
@@ -188,8 +184,9 @@ def build_sageradar_predictions(
     """Run time is the frozen calibrated cache; VRAM gets the same anchor budget."""
     raw_vram = {key: entry.predicted_peak_vram_mb for key, entry in gnn.items()}
     return MethodPredictions(
+        load_sec={key: entry.predicted_load_sec for key, entry in gnn.items()},
         run_sec={key: entry.predicted_run_sec for key, entry in gnn.items()},
-        peak_vram_mb=debias_vram(raw_vram, truth, anchors),
+        peak_vram_mb=anchor_affine(raw_vram, truth, anchors, VRAM),
     )
 
 
@@ -236,6 +233,9 @@ def build_anchor_scaled_predictions(
 
     donors = {key: nearest(key) for key in all_keys}
     return MethodPredictions(
+        load_sec={
+            key: target_value(truth[donor], LOAD) for key, donor in donors.items()
+        },
         run_sec={
             key: target_value(truth[donor], RUN)
             * key.decode_output_length
@@ -262,24 +262,14 @@ def build_method_predictions(
     include_heuristic: bool = False,
 ) -> dict[str, MethodPredictions]:
     all_keys = tuple(truth)
-    analytical = _from_cache(build_static_prediction_cache(all_keys))
     methods = {
         "sageradar": build_sageradar_predictions(gnn, truth, anchors),
-        "analytical": analytical,
-        "analytical_cal": MethodPredictions(
-            **{
-                target: _rescaled(
-                    analytical.of(target),
-                    fit_cell_scale(truth, analytical.of(target), anchors, target),
-                )
-                for target in TARGETS
-            }
+        "analytical": anchor_calibrated(
+            _from_cache(build_static_prediction_cache(all_keys)), truth, anchors
         ),
-        "nearest_profile": _from_cache(
-            build_nearest_profile_cache(truth, anchors, all_keys)
+        "tabular": anchor_calibrated(
+            _from_cache(build_tabular_cache(truth, anchors, all_keys)), truth, anchors
         ),
-        "config_mean": _from_cache(build_config_mean_cache(truth, anchors, all_keys)),
-        "tabular": _from_cache(build_tabular_cache(truth, anchors, all_keys)),
     }
     if include_heuristic:
         methods["anchor_scaled"] = build_anchor_scaled_predictions(
@@ -391,7 +381,7 @@ def decision_thresholds(
 
 @dataclass(frozen=True, slots=True)
 class BoundQuality:
-    quantile_level: float
+    alpha: float
     violation_rate: float
     mean_over_reservation: float
     p95_over_reservation: float
@@ -403,45 +393,53 @@ def bound_quality(
     anchors: Sequence[WorkflowModelFeatureKey],
     keys: Sequence[WorkflowModelFeatureKey],
     *,
-    target_violation: float = 0.05,
+    alpha: float = 0.05,
     floor_fraction: float = 0.02,
 ) -> BoundQuality:
     """Turn each point estimate into an admission bound with the same recipe — a
-    scoped upper residual quantile fit on the anchors — then compare safety
-    against wasted reservation at matched anchor-side violation."""
-    residuals: dict[Scope, list[float]] = defaultdict(list)
-    for key in anchors:
-        residuals[scope_of(key)].append(
-            target_value(truth[key], VRAM) - predictions[key]
-        )
+    split-conformal upper margin on the anchors — then compare safety against
+    wasted reservation.
 
-    def bound_at(level: float, key: WorkflowModelFeatureKey) -> float:
-        scoped = residuals.get(scope_of(key))
-        margin = float(np.quantile(scoped, level)) if scoped else 0.0
-        point = predictions[key]
-        return max(point + margin, point * (1.0 + floor_fraction))
-
-    level = 1.0
-    for candidate in np.arange(0.50, 1.0001, 0.01):
-        candidate = min(float(candidate), 1.0)
-        breached = sum(
-            1
-            for key in anchors
-            if target_value(truth[key], VRAM) > bound_at(candidate, key)
-        )
-        if breached / len(anchors) <= target_violation:
-            level = candidate
-            break
+    Residuals are pooled across cells after dividing by the cell's measured VRAM
+    scale. Pooling is what makes the target reachable: a distribution-free bound
+    from n points cannot miscover less than 1/(n+1), so the five anchors in one
+    cell floor at 17% while all fifty floor at 2%."""
+    scale = _anchor_scale(truth, anchors)
+    residuals = sorted(
+        (target_value(truth[key], VRAM) - predictions[key]) / scale[scope_of(key)]
+        for key in anchors
+    )
+    rank = min(math.ceil((len(residuals) + 1) * (1.0 - alpha)) - 1, len(residuals) - 1)
+    margin = residuals[rank]
+    pooled_scale = statistics.fmean(scale.values())
 
     observed = np.array([target_value(truth[key], VRAM) for key in keys])
-    bounds = np.array([bound_at(level, key) for key in keys])
+    bounds = np.array(
+        [
+            max(
+                predictions[key] + margin * scale.get(scope_of(key), pooled_scale),
+                predictions[key] * (1.0 + floor_fraction),
+            )
+            for key in keys
+        ]
+    )
     slack = (bounds - observed) / observed
     return BoundQuality(
-        quantile_level=level,
+        alpha=alpha,
         violation_rate=float((observed > bounds).mean()),
         mean_over_reservation=float(slack.mean()),
         p95_over_reservation=float(np.quantile(slack, 0.95)),
     )
+
+
+def _anchor_scale(
+    truth: Truth, anchors: Sequence[WorkflowModelFeatureKey]
+) -> dict[Scope, float]:
+    """Per-cell VRAM magnitude, so residuals from a 2GB and a 31GB cell pool."""
+    per_cell: dict[Scope, list[float]] = defaultdict(list)
+    for key in anchors:
+        per_cell[scope_of(key)].append(target_value(truth[key], VRAM))
+    return {scope: statistics.fmean(values) for scope, values in per_cell.items()}
 
 
 @dataclass(frozen=True, slots=True)
@@ -526,27 +524,19 @@ def baseline_marginal_seconds(
     count = len(all_keys)
     timings: dict[str, float] = {}
     builders = {
-        "analytical": lambda: build_static_prediction_cache(all_keys),
-        "config_mean": lambda: build_config_mean_cache(truth, anchors, all_keys),
-        "nearest_profile": lambda: build_nearest_profile_cache(
-            truth, anchors, all_keys
-        ),
-        "tabular": lambda: build_tabular_cache(truth, anchors, all_keys),
+        "analytical": lambda: _from_cache(build_static_prediction_cache(all_keys)),
+        "tabular": lambda: _from_cache(build_tabular_cache(truth, anchors, all_keys)),
     }
     for name, build in builders.items():
         start = time.perf_counter()
-        build()
+        anchor_calibrated(build(), truth, anchors)
         timings[name] = (time.perf_counter() - start) / count
-    timings["analytical_cal"] = timings["analytical"]
     return timings
 
 
 METHOD_ORDER = (
     "sageradar",
-    "analytical_cal",
     "analytical",
-    "nearest_profile",
-    "config_mean",
     "tabular",
     "anchor_scaled",
 )
@@ -630,3 +620,73 @@ def evaluate_scheme(
         decisions=decisions,
         bounds=bounds,
     )
+
+
+CANONICAL_METRICS_PATH = Path("cache/canonical_metrics.json")
+CANONICAL_SCHEMA = 1
+
+
+def canonical_payload(
+    result: SchemeResult,
+    profile_cost: ProfilingCost,
+    marginal_cost_sec: Mapping[str, float],
+    *,
+    sources: Mapping[str, str],
+) -> dict[str, object]:
+    """The frozen headline numbers every table and figure must quote.
+
+    Presentation reads this file; it never recomputes. Regenerate it only with
+    `eval_predictor_isobudget.py --write-canonical`."""
+    windows = result.run_windows_sec
+    median_window = windows[len(windows) // 2]
+    methods: dict[str, dict[str, float]] = {}
+    for name, per_stratum in result.accuracy.items():
+        if name not in marginal_cost_sec:  # excluded heuristic: never presented
+            continue
+        decisions = result.decisions[name][RUN]
+        fit = next(d for d in decisions if d.threshold == median_window)
+        methods[name] = {
+            "generate_wape": per_stratum[HELD_OUT][RUN].wape,
+            "generate_wape_long_output": per_stratum[LONG_DECODE][RUN].wape,
+            "generate_p95_relative_error": per_stratum[LONG_DECODE][
+                RUN
+            ].p95_relative_error,
+            "vram_wape": per_stratum[HELD_OUT][VRAM].wape,
+            "order_accuracy": result.ordering[name][HELD_OUT],
+            "bubble_fit_accuracy": fit.accuracy,
+            "bound_violation_rate": result.bounds[name].violation_rate,
+            "bound_mean_over_reservation": result.bounds[name].mean_over_reservation,
+            "bound_p95_over_reservation": result.bounds[name].p95_over_reservation,
+            "marginal_cost_sec": marginal_cost_sec[name],
+        }
+    return {
+        "schema": CANONICAL_SCHEMA,
+        "experiment": "predictor_isobudget",
+        "sources": dict(sources),
+        "grid": {
+            "configurations": profile_cost.config_count,
+            "held_out": result.stratum_counts[HELD_OUT],
+            "long_output": result.stratum_counts[LONG_DECODE],
+            "long_output_threshold": LONG_DECODE_OUTPUT,
+        },
+        "full_profiling": {
+            "gpu_hours": profile_cost.total_gpu_hours,
+            "marginal_sec_per_config": profile_cost.marginal_sec_per_config,
+        },
+        "anchor_budget": {
+            "measurements": result.anchor_count,
+            "gpu_hours": result.anchor_cost.total_gpu_hours,
+            "share_of_full_grid": result.anchor_cost.total_gpu_hours
+            / profile_cost.total_gpu_hours,
+        },
+        "median_bubble_window_sec": median_window,
+        "methods": methods,
+    }
+
+
+def load_canonical_metrics(path: Path = CANONICAL_METRICS_PATH) -> dict[str, object]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["schema"] == CANONICAL_SCHEMA, (
+        f"canonical metrics schema {payload['schema']} != {CANONICAL_SCHEMA}"
+    )
+    return payload

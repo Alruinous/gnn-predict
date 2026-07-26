@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "experiment": "predictor_isobudget",
+  "sources": {
+    "profile_cache_sha256": "da0925f58540c0b756bc372fe909ff66598029bb6d562a67e8d222c348820bac",
+    "gnn_cache_sha256": "cf5ea4b1b2c2b681c8b5deda63e55b3a83dbb79c8816399d8556e6605f31ee93",
+    "anchor_scheme": "recorded"
+  },
+  "grid": {
+    "configurations": 2848,
+    "held_out": 2798,
+    "long_output": 1138,
+    "long_output_threshold": 1024
+  },
+  "full_profiling": {
+    "gpu_hours": 63.47234222474534,
+    "marginal_sec_per_config": 80.23189326161629
+  },
+  "anchor_budget": {
+    "measurements": 50,
+    "gpu_hours": 0.9320187489714267,
+    "share_of_full_grid": 0.014683856248305732
+  },
+  "median_bubble_window_sec": 48.84889457607642,
+  "methods": {
+    "sageradar": {
+      "generate_wape": 0.07254034388313657,
+      "generate_wape_long_output": 0.07269661339161153,
+      "generate_p95_relative_error": 0.1872768637409531,
+      "vram_wape": 0.14084019918419435,
+      "order_accuracy": 0.9793833333333334,
+      "bubble_fit_accuracy": 0.9781987133666905,
+      "bound_violation_rate": 0.01929949964260186,
+      "bound_mean_over_reservation": 0.7581664856128235,
+      "bound_p95_over_reservation": 1.4768913376449344,
+      "marginal_cost_sec": 0.038011777214705944
+    },
+    "analytical": {
+      "generate_wape": 1.1537994944073753,
+      "generate_wape_long_output": 1.3040621796873944,
+      "generate_p95_relative_error": 4.124888855138274,
+      "vram_wape": 0.1198433978894626,
+      "order_accuracy": 0.83105,
+      "bubble_fit_accuracy": 0.8423874195854182,
+      "bound_violation_rate": 0.05968548963545389,
+      "bound_mean_over_reservation": 0.3153174041515695,
+      "bound_p95_over_reservation": 1.0221365458810676,
+      "marginal_cost_sec": 9.051111482314012e-05
+    },
+    "tabular": {
+      "generate_wape": 0.7417966400281699,
+      "generate_wape_long_output": 0.803547001828823,
+      "generate_p95_relative_error": 0.881250880496268,
+      "vram_wape": 0.156965189264664,
+      "order_accuracy": 0.5867,
+      "bubble_fit_accuracy": 0.5107219442458899,
+      "bound_violation_rate": 0.03252323087919943,
+      "bound_mean_over_reservation": 0.6819855795191114,
+      "bound_p95_over_reservation": 1.907922729667353,
+      "marginal_cost_sec": 0.0002948518236183425
+    }
+  }
+}
