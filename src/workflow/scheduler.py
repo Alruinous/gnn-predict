@@ -7,7 +7,7 @@ from collections import deque
 from collections.abc import Callable, Coroutine, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
-from math import ceil, inf
+from math import ceil, inf, isfinite
 from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import uuid4
@@ -38,7 +38,13 @@ from workflow.replica import (
     ModelReplicaActor,
     ReplicaLoadResult,
 )
-from workflow.schema import AgentNodeConfig, NodeConfig, Workflow
+from workflow.schema import (
+    AgentNodeConfig,
+    FunctionNodeConfig,
+    FusedAgentNodeConfig,
+    NodeConfig,
+    Workflow,
+)
 from workflow.types import (
     ModelReplicaState,
     NodeTaskState,
@@ -66,6 +72,14 @@ def _normalize_physical_gpu_id(value: int | str) -> int:
     if not value.isascii() or not value.isdecimal():
         raise ValueError("reported physical GPU id must be a numeric string")
     return int(value)
+
+
+def _finite_or_none(value: float | None) -> float | None:
+    # Trace payloads go through a bare json.dumps, which emits a non-standard
+    # Infinity token that strict readers reject.
+    if value is None or not isfinite(value):
+        return None
+    return value
 
 
 def _is_severe_cuda_failure(report: AgentTaskRuntimeReport) -> bool:
@@ -97,6 +111,18 @@ class FunctionTaskRuntimeReport(StrictFrozenModel):
     error_message: str | None = None
 
 
+class FusedStageReport(StrictFrozenModel):
+    node_id: NonEmptyStr
+    input_tokens: PositiveInt
+    max_new_tokens: PositiveInt
+    output_tokens: NonNegativeInt
+    hit_token_limit: bool
+    started_at: float
+    finished_at: float
+    duration_sec: float = Field(ge=0)
+    status: Literal["success", "failed", "oom", "cancelled"]
+
+
 class AgentTaskRuntimeReport(StrictFrozenModel):
     acquire_id: NonEmptyStr
     task_id: NonEmptyStr
@@ -120,6 +146,9 @@ class AgentTaskRuntimeReport(StrictFrozenModel):
     status: Literal["success", "failed", "oom", "cancelled"]
     engine_failed: bool = False
     error_type: str | None = None
+    # Populated by fused nodes only: one entry per stage, in execution order. The
+    # aggregate input_tokens above is the admitted envelope, not a stage measurement.
+    stage_reports: tuple[FusedStageReport, ...] = ()
 
 
 class ItemTraceReport(StrictFrozenModel):
@@ -177,11 +206,13 @@ class LoadReplicaAction(StrictFrozenModel):
     replica_id: NonEmptyStr
     deployment: ModelDeploymentConfig
     accelerator: AcceleratorConfig
-    reason: Literal["ready_load", "near_ready_prefetch"]
+    reason: Literal["ready_load", "near_ready_prefetch", "scale_out"]
     expected_load_sec: float = Field(gt=0)
     session_id: str | None = None
     node_id: str | None = None
     prefetch_at: float | None = None
+    scale_out_gain_sec: float | None = None
+    group_size: NonNegativeInt | None = None
 
 
 class EvictReplicaAction(StrictFrozenModel):
@@ -192,12 +223,30 @@ class EvictReplicaAction(StrictFrozenModel):
         "ready_load",
         "near_ready_prefetch",
         "requested",
+        "scale_out",
     ]
     reuse_distance_sec: float | None = None
     reload_cost_sec: float | None = None
     session_id: str | None = None
     node_id: str | None = None
     prefetch_at: float | None = None
+    scale_out_gain_sec: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ScaleOutBid:
+    pair: tuple[str, GpuKind]
+    gain_sec: float
+    requirements: Mapping[tuple[str, GpuKind], float]
+
+
+class DrainEvent(StrictFrozenModel):
+    replica_id: NonEmptyStr
+    model_key: NonEmptyStr
+    gpu_kind: GpuKind
+    accelerator_id: NonEmptyStr
+    active_acquire_count: NonNegativeInt
+    requested_by_model_key: NonEmptyStr
 
 
 class NearReadyTask(StrictFrozenModel):
@@ -305,6 +354,9 @@ class ModelReplicaRecord(MutableRecord):
     active_acquire_ids: set[str] = Field(default_factory=set)
     created_at: float
     idle_since: float | None = None
+    # Orthogonal to state: a draining replica keeps serving its in-flight leases but
+    # accepts no new ones, so it reaches IDLE on its own and becomes reclaimable.
+    drain_requested_at: float | None = None
     load_duration_sec: float | None = Field(default=None, ge=0)
     idle_vram_mb: float | None = Field(default=None, ge=0)
     vllm_version: str | None = None
@@ -315,6 +367,47 @@ class ModelReplicaRecord(MutableRecord):
     gpu_kv_tokens: int | None = Field(default=None, gt=0)
     eviction_error_type: str | None = None
     eviction_error_message: str | None = None
+
+
+class ReplicaGroups:
+    """Live replica ids per (model_key, gpu_kind), in creation order.
+
+    A group holds more than one member only when elastic scaling is enabled; the
+    capacity check lives at the load sites and in _validate_resource_ledger.
+    """
+
+    def __init__(self) -> None:
+        self._groups: dict[tuple[str, GpuKind], tuple[str, ...]] = {}
+
+    def members(self, pair: tuple[str, GpuKind]) -> tuple[str, ...]:
+        return self._groups.get(pair, ())
+
+    def size(self, pair: tuple[str, GpuKind]) -> int:
+        return len(self._groups.get(pair, ()))
+
+    def first(self, pair: tuple[str, GpuKind]) -> str | None:
+        members = self._groups.get(pair, ())
+        return members[0] if members else None
+
+    def add(self, pair: tuple[str, GpuKind], replica_id: str) -> None:
+        members = self._groups.get(pair, ())
+        if replica_id in members:
+            raise RuntimeError(f"replica is already in its group: {replica_id}")
+        self._groups[pair] = (*members, replica_id)
+
+    def discard(self, pair: tuple[str, GpuKind], replica_id: str) -> bool:
+        members = self._groups.get(pair, ())
+        if replica_id not in members:
+            return False
+        remaining = tuple(member for member in members if member != replica_id)
+        if remaining:
+            self._groups[pair] = remaining
+        else:
+            del self._groups[pair]
+        return True
+
+    def items(self) -> tuple[tuple[tuple[str, GpuKind], tuple[str, ...]], ...]:
+        return tuple(self._groups.items())
 
 
 class SchedulerCore:
@@ -333,6 +426,10 @@ class SchedulerCore:
         self.pending_acquires: dict[str, PendingAcquire] = {}
         self.pending_order: deque[str] = deque()
         self.grants: dict[str, GrantInfo] = {}
+        # Per-lease predicted finish time, keyed like self.grants. Kept out of
+        # GrantInfo because that model is frozen and crosses the Ray boundary to
+        # workers; elastic routing reads it to price an occupied replica.
+        self._grant_finish_at: dict[str, float] = {}
         self._inactive_acquires: dict[str, str] = {}
         self.accelerators = {
             accelerator.accelerator_id: AcceleratorRecord(config=accelerator)
@@ -365,10 +462,25 @@ class SchedulerCore:
         self._node_depth: dict[str, dict[str, float]] = {}
         # Keyed by (model_key, gpu_kind) only: a replica is shareable across
         # workflows whenever their deployment configs are byte-identical.
-        self._replica_pairs: dict[tuple[str, GpuKind], str] = {}
+        self._replica_groups = ReplicaGroups()
         self._actions: list[CancelSessionAction] = []
+        self._drain_events: list[DrainEvent] = []
         self._next_request_seq = 0
+        # select_eviction_victim tie-breaks on replica_id, so a random id makes the
+        # victim run-to-run nondeterministic whenever two candidates score equally
+        # (common: _future_reuse_distance returns inf for any unwanted model).
+        self._next_replica_seq = 0
         self.register_workflow(workflow, priority_weight=priority_weight)
+
+    def _new_replica_id(self) -> str:
+        self._next_replica_seq += 1
+        return f"r{self._next_replica_seq:04d}"
+
+    @property
+    def _replica_group_cap(self) -> int:
+        if not self.scheduler_config.elastic_replicas:
+            return 1
+        return self.scheduler_config.max_replicas_per_model
 
     def register_workflow(
         self,
@@ -424,6 +536,52 @@ class SchedulerCore:
                 costs[node_id] = 0.0
         return costs
 
+    @staticmethod
+    def _stage_outputs(node: AgentNodeConfig) -> tuple[int, ...]:
+        """Per-stage output limits: one entry for a plain node, k for a fused chain."""
+        if isinstance(node, FusedAgentNodeConfig):
+            return tuple(stage.max_new_tokens for stage in node.stages)
+        return (node.execution.max_new_tokens,)
+
+    def _chain_run_sec(
+        self,
+        node: AgentNodeConfig,
+        gpu_kind: GpuKind,
+        sequence_length: int,
+        batch_size: int,
+    ) -> float | None:
+        """Cost of running every stage of a node once, or None without coverage.
+
+        A fused node occupies its replica for the whole chain, so its ETA is the sum
+        of the stages rather than the single admission bucket, which only ever
+        describes the widest one.
+        """
+        predictions = self.predictions
+        if predictions is None:
+            return None
+        total = 0.0
+        for max_new_tokens in self._stage_outputs(node):
+            bucket = next(
+                (
+                    candidate
+                    for candidate in predictions.decode_output_lengths(
+                        node.model.name, gpu_kind, sequence_length, batch_size
+                    )
+                    if candidate >= max_new_tokens
+                ),
+                None,
+            )
+            if bucket is None:
+                return None
+            total += predictions.lookup_decode(
+                model_name=node.model.name,
+                gpu_kind=gpu_kind,
+                batch_size=batch_size,
+                sequence_length=sequence_length,
+                decode_output_length=bucket,
+            ).predicted_run_sec
+        return total
+
     def _representative_run_sec(self, node: AgentNodeConfig) -> float:
         # Cheapest feasible GPU (smallest memory with cache coverage), batch 1,
         # smallest covering input bucket, output bucket >= max_new_tokens —
@@ -450,25 +608,12 @@ class SchedulerCore:
             )
             if sequence_length is None:
                 continue
-            output_length = next(
-                (
-                    candidate
-                    for candidate in predictions.decode_output_lengths(
-                        node.model.name, accelerator.gpu_kind, sequence_length, 1
-                    )
-                    if candidate >= node.execution.max_new_tokens
-                ),
-                None,
+            run_sec = self._chain_run_sec(
+                node, accelerator.gpu_kind, sequence_length, 1
             )
-            if output_length is None:
+            if run_sec is None:
                 continue
-            return predictions.lookup_decode(
-                model_name=node.model.name,
-                gpu_kind=accelerator.gpu_kind,
-                batch_size=1,
-                sequence_length=sequence_length,
-                decode_output_length=output_length,
-            ).predicted_run_sec
+            return run_sec
         return 0.0
 
     def _workflow(self, workflow_name: str) -> Workflow:
@@ -489,7 +634,11 @@ class SchedulerCore:
                 task_id=task_id,
                 session_id=session_id,
                 node_id=node.name,
-                node_kind=node.type,
+                # A fused chain is still an agent task: it acquires, holds one grant
+                # and completes through _complete_agent like any other.
+                node_kind=(
+                    "function" if isinstance(node, FunctionNodeConfig) else "agent"
+                ),
             )
             session.task_ids[node.name] = task_id
             self.tasks[task_id] = task
@@ -676,14 +825,9 @@ class SchedulerCore:
             pending = self.pending_acquires.get(acquire_id)
             if pending is None:
                 continue
-            replica = self._replica_for_decision(pending, decisions[acquire_id])
-            if replica is None:
-                continue
-            prediction = self._admission_prediction(
-                decisions[acquire_id],
-                replica,
-            )
-            if prediction is not None:
+            admitted = self._admissible_replica(pending, decisions[acquire_id])
+            if admitted is not None:
+                replica, prediction = admitted
                 self._grant(
                     pending,
                     decisions[acquire_id],
@@ -701,24 +845,60 @@ class SchedulerCore:
             if pending is None:
                 continue
             decision = decisions[acquire_id]
-            if self._replica_for_decision(pending, decision) is not None:
+            # A resident replica normally settles the request, but when it cannot
+            # absorb the queue fast enough an extra replica is the cheaper answer.
+            # Anything granted above is already out of pending_acquires, so only
+            # unserved requests reach here and admission still beats loading.
+            if self._replica_for_decision(pending, decision) is not None and (
+                not self._scale_out_warranted(pending, decision, now)
+            ):
                 continue
             if self._free_accelerator(decision) is None:
                 blocked_ready.append((pending, decision))
                 continue
             loadable.append((pending, decision))
         near = self._collect_near_ready_tasks()
+        requirements = self._demand_requirements(decisions, near)
+        scaled_out = False
         for pending, decision in self._order_by_load_yield(loadable, near, now):
             accelerator = self._free_accelerator(decision)
             if accelerator is None:
                 continue
             # Reordering lets two queued requests for one model reach this loop; the
-            # pair registry admits a single replica per (model, gpu kind).
-            if (self._pending_model_key(pending), decision.gpu_kind) in (
-                self._replica_pairs
-            ):
+            # group registry caps how many replicas a (model, gpu kind) may hold.
+            gpu_kind = decision.gpu_kind
+            model_key = self._pending_model_key(pending)
+            if gpu_kind is None:
+                raise RuntimeError("feasible placement has no GPU kind")
+            if model_key is None:
                 continue
-            actions.append(self._start_ready_load(pending, decision, accelerator, now))
+            pair = (model_key, gpu_kind)
+            if self._replica_groups.size(pair) >= self._replica_group_cap:
+                continue
+            scale_out = self._replica_groups.size(pair) > 0
+            gain: float | None = None
+            if scale_out:
+                # Grants earlier in this tick shorten the queue, so the case for an
+                # extra replica has to be re-made against the state that remains.
+                gain = self._scale_out_gain(pending, decision, now)
+                if gain is None or gain <= self.scheduler_config.scale_out_margin_sec:
+                    continue
+                # One per tick keeps the reservation snapshot valid for the whole loop.
+                if scaled_out or not self._scale_out_preserves_feasibility(
+                    pair, accelerator.config.accelerator_id, requirements
+                ):
+                    continue
+                scaled_out = True
+            actions.append(
+                self._start_ready_load(
+                    pending,
+                    decision,
+                    accelerator,
+                    now,
+                    reason="scale_out" if scale_out else "ready_load",
+                    scale_out_gain_sec=gain,
+                )
+            )
         if actions:
             self._validate_resource_ledger()
             return actions
@@ -728,21 +908,34 @@ class SchedulerCore:
 
         protected_pairs = self._ready_pairs(decisions)
         eviction_actions: list[LoadReplicaAction | EvictReplicaAction] = []
+        starved: list[tuple[PendingAcquire, PlacementDecision]] = []
         for pending, decision in self._order_by_load_yield(blocked_ready, near, now):
             if pending.acquire_id not in self.pending_acquires:
                 continue
+            bid = self._scale_out_bid(pending, decision, requirements, now)
+            if bid is not None and scaled_out:
+                continue
             eviction = self._start_eviction_for_decision(
                 decision,
-                reason="ready_load",
+                reason="scale_out" if bid is not None else "ready_load",
                 now=now,
                 protected_pairs=protected_pairs,
                 near=near,
+                scale_out=bid,
             )
-            if eviction is not None:
-                eviction_actions.append(eviction)
+            if eviction is None:
+                if bid is None:
+                    starved.append((pending, decision))
+                continue
+            scaled_out = scaled_out or bid is not None
+            eviction_actions.append(eviction)
         if eviction_actions:
             self._validate_resource_ledger()
             return eviction_actions
+
+        # A drain has nothing to dispatch: it only stops a spare replica taking new
+        # leases so it reaches IDLE and becomes reclaimable on a later tick.
+        self._start_drain_for_starved(starved, now)
 
         policy_actions: list[LoadReplicaAction | EvictReplicaAction] = []
         for candidate in near:
@@ -866,13 +1059,13 @@ class SchedulerCore:
         if replica.state != ModelReplicaState.LOADING:
             raise ValueError(f"replica is not loading: {replica_id}")
         pair = (replica.model_key, replica.gpu_kind)
-        if self._replica_pairs.get(pair) != replica_id:
+        if replica_id not in self._replica_groups.members(pair):
             raise RuntimeError("replica pair changed during model load")
         for accelerator_id in replica.accelerator_ids:
             if self.accelerators[accelerator_id].replica_id != replica_id:
                 raise RuntimeError("accelerator ownership changed during model load")
 
-        del self._replica_pairs[pair]
+        self._replica_groups.discard(pair, replica_id)
         for accelerator_id in replica.accelerator_ids:
             self.accelerators[accelerator_id].replica_id = None
         del self.replicas[replica_id]
@@ -892,14 +1085,14 @@ class SchedulerCore:
         if replica.state != ModelReplicaState.EVICTING:
             raise ValueError(f"replica is not evicting: {replica_id}")
         pair = (replica.model_key, replica.gpu_kind)
-        if self._replica_pairs.get(pair) != replica_id:
+        if replica_id not in self._replica_groups.members(pair):
             raise RuntimeError("replica pair changed during eviction")
         accelerator_ids = replica.accelerator_ids
         for accelerator_id in accelerator_ids:
             if self.accelerators[accelerator_id].replica_id != replica_id:
                 raise RuntimeError("accelerator ownership changed during eviction")
 
-        del self._replica_pairs[pair]
+        self._replica_groups.discard(pair, replica_id)
         for accelerator_id in accelerator_ids:
             self.accelerators[accelerator_id].replica_id = None
         del self.replicas[replica_id]
@@ -1021,6 +1214,11 @@ class SchedulerCore:
         actions = self._actions
         self._actions = []
         return actions
+
+    def take_drain_events(self) -> list[DrainEvent]:
+        events = self._drain_events
+        self._drain_events = []
+        return events
 
     def drain_complete(self, workflow_name: str | None = None) -> bool:
         sessions = (
@@ -1359,8 +1557,265 @@ class SchedulerCore:
         if not isinstance(node, AgentNodeConfig):
             raise RuntimeError("pending acquire belongs to a function task")
         model_key = ModelDeploymentConfig.from_node(node).model_key
-        replica_id = self._replica_pairs.get((model_key, gpu_kind))
+        replica_id = self._replica_groups.first((model_key, gpu_kind))
         return self.replicas.get(replica_id) if replica_id is not None else None
+
+    def _group_replicas(
+        self,
+        pending: PendingAcquire,
+        decision: PlacementDecision,
+    ) -> tuple[ModelReplicaRecord, ...]:
+        gpu_kind = decision.gpu_kind
+        model_key = self._pending_model_key(pending)
+        if gpu_kind is None or model_key is None:
+            return ()
+        return tuple(
+            self.replicas[replica_id]
+            for replica_id in self._replica_groups.members((model_key, gpu_kind))
+            if replica_id in self.replicas
+        )
+
+    def _admissible_replica(
+        self,
+        pending: PendingAcquire,
+        decision: PlacementDecision,
+    ) -> tuple[ModelReplicaRecord, ResourceContract] | None:
+        # Non-elastic groups hold one member, so this is the historical
+        # "look up the replica, then price the batch" path verbatim.
+        if not self.scheduler_config.elastic_replicas:
+            replica = self._replica_for_decision(pending, decision)
+            if replica is None:
+                return None
+            prediction = self._admission_prediction(decision, replica)
+            return None if prediction is None else (replica, prediction)
+        scored: list[tuple[float, str, ModelReplicaRecord, ResourceContract]] = []
+        for replica in self._group_replicas(pending, decision):
+            if replica.drain_requested_at is not None:
+                continue
+            prediction = self._admission_prediction(decision, replica)
+            if prediction is None:
+                continue
+            scored.append(
+                (prediction.predicted_run_sec, replica.replica_id, replica, prediction)
+            )
+        if not scored:
+            return None
+        # A busier replica prices into a higher batch bucket, so the batched run
+        # estimate is itself the load signal. Ties break on the deterministic id.
+        best = min(scored, key=lambda entry: (entry[0], entry[1]))
+        return best[2], best[3]
+
+    def _is_redundant(self, replica: ModelReplicaRecord, now: float) -> bool:
+        """Whether reclaiming this replica leaves its model still resident somewhere.
+
+        Evicting one member drops the group to a single copy, which stops the rest of
+        the group qualifying, so this cannot cascade a model out of residency.
+        """
+        if not self.scheduler_config.elastic_replicas:
+            return False
+        if replica.drain_requested_at is not None:
+            return True
+        if replica.state != ModelReplicaState.IDLE:
+            return False
+        if self._replica_groups.size((replica.model_key, replica.gpu_kind)) < 2:
+            return False
+        idle_since = replica.idle_since
+        if idle_since is None:
+            return False
+        return now - idle_since >= self.scheduler_config.scale_in_idle_sec
+
+    def _lease_finish_times(self, replica: ModelReplicaRecord) -> list[float]:
+        return [
+            self._grant_finish_at[acquire_id]
+            for acquire_id in replica.active_acquire_ids
+            if acquire_id in self._grant_finish_at
+        ]
+
+    def _admissible_slots(
+        self,
+        replica: ModelReplicaRecord,
+        decision: PlacementDecision,
+    ) -> int:
+        """Requests this replica can serve at once, as the cache actually covers them.
+
+        max_num_seqs is only an upper bound: admission needs an exact batch-k contract
+        and the memory to hold it, so a model whose cache stops at batch 1 for this
+        prompt length really does serve one request at a time.
+        """
+        predictions = self.predictions
+        key = decision.prediction_key
+        gpu_kind = decision.gpu_kind
+        if predictions is None or key is None or gpu_kind is None:
+            return 1
+        accelerator = self.accelerators[replica.accelerator_ids[0]].config
+        slots = 0
+        for batch_size in range(1, replica.deployment.serving.max_num_seqs + 1):
+            try:
+                prediction = predictions.lookup_decode(
+                    model_name=replica.deployment.model_name,
+                    gpu_kind=gpu_kind,
+                    batch_size=batch_size,
+                    sequence_length=key.sequence_length,
+                    decode_output_length=key.decode_output_length,
+                )
+            except KeyError:
+                break
+            effective_vram_mb = (
+                prediction.peak_vram_mb_upper_bound
+                + self.scheduler_config.eps_mem_mb
+                + self.oom_penalties.get(prediction.key, 0.0)
+            )
+            if effective_vram_mb > accelerator.total_mem_mb:
+                break
+            slots = batch_size
+        return max(1, slots)
+
+    def _pair_queue_depth(
+        self,
+        pending: PendingAcquire,
+        decision: PlacementDecision,
+        replicas: Sequence[ModelReplicaRecord],
+    ) -> int:
+        """Requests contending for this model ahead of, and including, this one."""
+        model_key = self._pending_model_key(pending)
+        waiting = sum(
+            1
+            for other in self.pending_acquires.values()
+            if other.request_seq <= pending.request_seq
+            and self._pending_model_key(other) == model_key
+        )
+        inflight = sum(len(replica.active_acquire_ids) for replica in replicas)
+        return waiting + inflight
+
+    def _best_existing_ect(
+        self,
+        pending: PendingAcquire,
+        decision: PlacementDecision,
+        now: float,
+    ) -> float | None:
+        """When this request would finish if it waits for the resident replicas.
+
+        The queue ahead of it is the term that justifies an extra replica: a fan-out
+        node puts many requests on one model at once, and they drain a service round
+        at a time. Rounds are priced with the cache's own run estimate, and the first
+        turnover uses the live lease estimates rather than a full round.
+        """
+        run_sec = decision.predicted_run_sec
+        if run_sec is None:
+            return None
+        replicas = [
+            replica
+            for replica in self._group_replicas(pending, decision)
+            if replica.drain_requested_at is None
+            and replica.state
+            not in (ModelReplicaState.EVICTING, ModelReplicaState.SUSPECT)
+        ]
+        if not replicas:
+            return None
+        slots = sum(self._admissible_slots(replica, decision) for replica in replicas)
+        depth = self._pair_queue_depth(pending, decision, replicas)
+        rounds_ahead = max(0, (depth - 1) // max(1, slots))
+        if rounds_ahead == 0:
+            return now + run_sec
+        finishes = [
+            finish
+            for replica in replicas
+            for finish in self._lease_finish_times(replica)
+        ]
+        first_turnover = max(now, min(finishes)) if finishes else now + run_sec
+        return first_turnover + (rounds_ahead - 1) * run_sec + run_sec
+
+    def _scale_out_gain(
+        self,
+        pending: PendingAcquire,
+        decision: PlacementDecision,
+        now: float,
+    ) -> float | None:
+        load_sec = decision.predicted_load_sec
+        run_sec = decision.predicted_run_sec
+        if load_sec is None or run_sec is None:
+            return None
+        best_existing = self._best_existing_ect(pending, decision, now)
+        if best_existing is None:
+            return None
+        return best_existing - (now + load_sec + run_sec)
+
+    def _scale_out_warranted(
+        self,
+        pending: PendingAcquire,
+        decision: PlacementDecision,
+        now: float,
+    ) -> bool:
+        if not self.scheduler_config.elastic_replicas:
+            return False
+        gain = self._scale_out_gain(pending, decision, now)
+        return gain is not None and gain > self.scheduler_config.scale_out_margin_sec
+
+    def _demand_requirements(
+        self,
+        decisions: Mapping[str, PlacementDecision],
+        near: Sequence[NearReadyTask],
+    ) -> dict[tuple[str, GpuKind], float]:
+        """Memory each model with queued or imminent work needs, keyed by pair."""
+        requirements: dict[tuple[str, GpuKind], float] = {}
+        for acquire_id, decision in decisions.items():
+            pending = self.pending_acquires.get(acquire_id)
+            if pending is None:
+                continue
+            model_key = self._pending_model_key(pending)
+            gpu_kind = decision.gpu_kind
+            vram = decision.effective_vram_mb
+            if model_key is None or gpu_kind is None or vram is None:
+                continue
+            pair = (model_key, gpu_kind)
+            requirements[pair] = max(requirements.get(pair, 0.0), vram)
+        for candidate in near:
+            gpu_kind = candidate.decision.gpu_kind
+            vram = candidate.decision.effective_vram_mb
+            if gpu_kind is None or vram is None:
+                continue
+            pair = (candidate.deployment.model_key, gpu_kind)
+            requirements[pair] = max(requirements.get(pair, 0.0), vram)
+        return requirements
+
+    def _scale_out_preserves_feasibility(
+        self,
+        scaling_pair: tuple[str, GpuKind],
+        consumed_accelerator_id: str,
+        requirements: Mapping[tuple[str, GpuKind], float],
+    ) -> bool:
+        """Reject a scale-out that would leave some demanding model with nowhere to go.
+
+        Only models that are not resident anywhere need a slot reserved: a resident
+        model already has a home this scale-out cannot take (its replica is not an
+        eviction candidate while it holds leases, and if it is idle it still counts).
+        """
+        for pair, vram_mb in requirements.items():
+            if pair == scaling_pair:
+                continue
+            model_key, gpu_kind = pair
+            if self._replica_groups.size(pair) > 0:
+                continue
+            usable = 0
+            for accelerator in self.accelerators.values():
+                if accelerator.config.gpu_kind != gpu_kind:
+                    continue
+                if accelerator.config.total_mem_mb < vram_mb:
+                    continue
+                if accelerator.config.accelerator_id == consumed_accelerator_id:
+                    continue
+                if accelerator.replica_id is None:
+                    usable += 1
+                    continue
+                resident = self.replicas[accelerator.replica_id]
+                if resident.model_key != model_key and resident.state in (
+                    ModelReplicaState.IDLE,
+                    ModelReplicaState.SUSPECT,
+                ):
+                    usable += 1
+            if usable == 0:
+                return False
+        return True
 
     def _free_accelerator(
         self,
@@ -1392,6 +1847,9 @@ class SchedulerCore:
         decision: PlacementDecision,
         accelerator: AcceleratorRecord,
         now: float,
+        *,
+        reason: Literal["ready_load", "scale_out"] = "ready_load",
+        scale_out_gain_sec: float | None = None,
     ) -> LoadReplicaAction:
         gpu_kind = decision.gpu_kind
         if gpu_kind is None:
@@ -1403,8 +1861,8 @@ class SchedulerCore:
             raise RuntimeError("pending acquire belongs to a function task")
         deployment = ModelDeploymentConfig.from_node(node)
         pair = (deployment.model_key, gpu_kind)
-        if pair in self._replica_pairs:
-            raise RuntimeError(f"replica pair already exists: {pair}")
+        if self._replica_groups.size(pair) >= self._replica_group_cap:
+            raise RuntimeError(f"replica group is at capacity: {pair}")
         if accelerator.replica_id is not None:
             raise RuntimeError("accelerator is already reserved")
         expected_load_sec = decision.predicted_load_sec
@@ -1416,7 +1874,7 @@ class SchedulerCore:
             expected_load_sec,
         )
 
-        replica_id = str(uuid4())
+        replica_id = self._new_replica_id()
         replica = ModelReplicaRecord(
             replica_id=replica_id,
             deployment=deployment,
@@ -1429,14 +1887,16 @@ class SchedulerCore:
         )
         accelerator.replica_id = replica_id
         self.replicas[replica_id] = replica
-        self._replica_pairs[pair] = replica_id
+        self._replica_groups.add(pair, replica_id)
         self._validate_resource_ledger()
         return LoadReplicaAction(
             replica_id=replica_id,
             deployment=deployment,
             accelerator=accelerator.config,
-            reason="ready_load",
+            reason=reason,
             expected_load_sec=expected_load_sec,
+            scale_out_gain_sec=_finite_or_none(scale_out_gain_sec),
+            group_size=self._replica_groups.size(pair),
         )
 
     def _start_prefetch_load(
@@ -1449,12 +1909,12 @@ class SchedulerCore:
         if gpu_kind is None:
             raise RuntimeError("feasible placement has no GPU kind")
         pair = (near.deployment.model_key, gpu_kind)
-        if pair in self._replica_pairs:
-            raise RuntimeError(f"replica pair already exists: {pair}")
+        if self._replica_groups.size(pair) >= self._replica_group_cap:
+            raise RuntimeError(f"replica group is at capacity: {pair}")
         if accelerator.replica_id is not None:
             raise RuntimeError("accelerator is already reserved")
 
-        replica_id = str(uuid4())
+        replica_id = self._new_replica_id()
         replica = ModelReplicaRecord(
             replica_id=replica_id,
             deployment=near.deployment,
@@ -1467,7 +1927,7 @@ class SchedulerCore:
         )
         accelerator.replica_id = replica_id
         self.replicas[replica_id] = replica
-        self._replica_pairs[pair] = replica_id
+        self._replica_groups.add(pair, replica_id)
         self._validate_resource_ledger()
         return LoadReplicaAction(
             replica_id=replica_id,
@@ -1487,7 +1947,7 @@ class SchedulerCore:
         gpu_kind = near.decision.gpu_kind
         if gpu_kind is None:
             raise RuntimeError("feasible placement has no GPU kind")
-        replica_id = self._replica_pairs.get((near.deployment.model_key, gpu_kind))
+        replica_id = self._replica_groups.first((near.deployment.model_key, gpu_kind))
         return self.replicas.get(replica_id) if replica_id is not None else None
 
     def _ready_pairs(
@@ -1531,11 +1991,12 @@ class SchedulerCore:
         self,
         decision: PlacementDecision,
         *,
-        reason: Literal["ready_load", "near_ready_prefetch"],
+        reason: Literal["ready_load", "near_ready_prefetch", "scale_out"],
         now: float,
         protected_pairs: set[tuple[str, GpuKind]],
         near: list[NearReadyTask],
         prefetch_candidate: NearReadyTask | None = None,
+        scale_out: _ScaleOutBid | None = None,
     ) -> EvictReplicaAction | None:
         gpu_kind = decision.gpu_kind
         effective_vram_mb = decision.effective_vram_mb
@@ -1552,7 +2013,11 @@ class SchedulerCore:
                 continue
             replica = self.replicas[replica_id]
             pair = (replica.model_key, replica.gpu_kind)
-            if pair in protected_pairs:
+            redundant = self._is_redundant(replica, now)
+            # Protection covers a pair's residency, not every copy of it: a scaled-out
+            # group that still has queued work would otherwise shield its own spare
+            # replicas and make them unreclaimable.
+            if pair in protected_pairs and not redundant:
                 continue
             if replica.state not in (ModelReplicaState.IDLE, ModelReplicaState.SUSPECT):
                 continue
@@ -1573,10 +2038,15 @@ class SchedulerCore:
                         near,
                     ),
                     reload_cost_sec=self._reload_cost(replica),
+                    redundant=redundant,
                 )
             )
         victim = select_eviction_victim(candidates)
         if victim is None:
+            return None
+        if scale_out is not None and not self._scale_out_clears_gates(
+            scale_out, victim
+        ):
             return None
         return self._mark_evicting(
             self.replicas[victim.replica_id],
@@ -1584,7 +2054,112 @@ class SchedulerCore:
             reuse_distance_sec=victim.reuse_distance_sec,
             reload_cost_sec=victim.reload_cost_sec,
             prefetch_candidate=prefetch_candidate,
+            scale_out_gain_sec=None if scale_out is None else scale_out.gain_sec,
         )
+
+    def _scale_out_clears_gates(
+        self,
+        bid: _ScaleOutBid,
+        victim: EvictionCandidate,
+    ) -> bool:
+        """Charge a contended scale-out for the disruption it causes.
+
+        Gate 2 makes the extra replica save more time than the victim spends coming
+        back; a redundant sibling costs nothing to displace. Marginal gain shrinks with
+        every copy of a model while reload cost does not, so replica counts settle
+        without a quota doing the work. Gate 3 then refuses to take the last card a
+        model with waiting work could have run on.
+        """
+        if not victim.redundant:
+            if victim.reload_cost_sec is None:
+                return False
+            if bid.gain_sec <= victim.reload_cost_sec:
+                return False
+        accelerator_id = self.replicas[victim.replica_id].accelerator_ids[0]
+        return self._scale_out_preserves_feasibility(
+            bid.pair, accelerator_id, bid.requirements
+        )
+
+    def _start_drain_for_starved(
+        self,
+        starved: Sequence[tuple[PendingAcquire, PlacementDecision]],
+        now: float,
+    ) -> None:
+        """Free a card for a model that has queued work but no legal eviction victim.
+
+        Every candidate card is busy, so nothing can be evicted outright. A model
+        holding more than one replica can give one up instead: stop feeding it new
+        leases and it drains to IDLE, where normal eviction reclaims it.
+        """
+        if not self.scheduler_config.elastic_replicas:
+            return
+        for pending, decision in starved:
+            gpu_kind = decision.gpu_kind
+            effective_vram_mb = decision.effective_vram_mb
+            model_key = self._pending_model_key(pending)
+            if gpu_kind is None or effective_vram_mb is None or model_key is None:
+                continue
+            candidates: list[ModelReplicaRecord] = []
+            for accelerator in self.accelerators.values():
+                if accelerator.config.gpu_kind != gpu_kind:
+                    continue
+                if accelerator.config.total_mem_mb < effective_vram_mb:
+                    continue
+                if accelerator.replica_id is None:
+                    continue
+                replica = self.replicas[accelerator.replica_id]
+                if replica.model_key == model_key:
+                    continue
+                if replica.drain_requested_at is not None:
+                    continue
+                if replica.state != ModelReplicaState.BUSY:
+                    continue
+                if self._replica_groups.size((replica.model_key, replica.gpu_kind)) < 2:
+                    continue
+                candidates.append(replica)
+            if not candidates:
+                continue
+            victim = min(
+                candidates,
+                key=lambda replica: (
+                    len(replica.active_acquire_ids),
+                    replica.replica_id,
+                ),
+            )
+            victim.drain_requested_at = now
+            self._drain_events.append(
+                DrainEvent(
+                    replica_id=victim.replica_id,
+                    model_key=victim.model_key,
+                    gpu_kind=victim.gpu_kind,
+                    accelerator_id=victim.accelerator_ids[0],
+                    active_acquire_count=len(victim.active_acquire_ids),
+                    requested_by_model_key=model_key,
+                )
+            )
+            return
+
+    def _scale_out_bid(
+        self,
+        pending: PendingAcquire,
+        decision: PlacementDecision,
+        requirements: Mapping[tuple[str, GpuKind], float],
+        now: float,
+    ) -> _ScaleOutBid | None:
+        """The case for giving this request a second replica, or None if it has none."""
+        gpu_kind = decision.gpu_kind
+        model_key = self._pending_model_key(pending)
+        if gpu_kind is None or model_key is None:
+            return None
+        pair = (model_key, gpu_kind)
+        if not 0 < self._replica_groups.size(pair) < self._replica_group_cap:
+            return None
+        if not self._scale_out_warranted(pending, decision, now):
+            return None
+        gain = self._scale_out_gain(pending, decision, now)
+        if gain is None:
+            return None
+        return _ScaleOutBid(pair=pair, gain_sec=gain, requirements=requirements)
 
     def _mark_evicting(
         self,
@@ -1595,10 +2170,12 @@ class SchedulerCore:
             "ready_load",
             "near_ready_prefetch",
             "requested",
+            "scale_out",
         ],
         reuse_distance_sec: float | None,
         reload_cost_sec: float | None,
         prefetch_candidate: NearReadyTask | None = None,
+        scale_out_gain_sec: float | None = None,
     ) -> EvictReplicaAction:
         if replica.state not in (ModelReplicaState.IDLE, ModelReplicaState.SUSPECT):
             raise ValueError(f"replica is not evictable: {replica.replica_id}")
@@ -1626,6 +2203,7 @@ class SchedulerCore:
                 if prefetch_candidate is not None
                 else None
             ),
+            scale_out_gain_sec=_finite_or_none(scale_out_gain_sec),
         )
 
     def _future_reuse_distance(
@@ -1769,13 +2347,23 @@ class SchedulerCore:
         predictions = self.predictions
         if predictions is None:
             return prediction.predicted_run_sec
+        sequence_length = prediction.key.sequence_length
+        # A fused node holds its lease across every stage, so the admission bucket
+        # (the widest single stage) is not the occupancy; the stage sum is.
+        cold = prediction.predicted_run_sec
+        if isinstance(node, FusedAgentNodeConfig):
+            cold = (
+                self._chain_run_sec(node, gpu_kind, sequence_length, batch_size) or cold
+            )
         history = self.history.get((workflow_name, node.name, model_key, gpu_kind))
         if history is None or not history.samples:
-            return prediction.predicted_run_sec
-        expected_tokens = min(history.output_tokens_p90, node.execution.max_new_tokens)
+            return cold
+        # Observed output tokens already sum across a fused chain, so re-pricing them
+        # as one generation tracks the whole occupancy.
+        chain_limit = sum(self._stage_outputs(node))
+        expected_tokens = min(history.output_tokens_p90, chain_limit)
         if expected_tokens <= 0:
-            return prediction.predicted_run_sec
-        sequence_length = prediction.key.sequence_length
+            return cold
         bucket = next(
             (
                 candidate
@@ -1787,7 +2375,7 @@ class SchedulerCore:
             None,
         )
         if bucket is None:
-            return prediction.predicted_run_sec
+            return cold
         return predictions.lookup_decode(
             model_name=node.model.name,
             gpu_kind=gpu_kind,
@@ -1861,6 +2449,7 @@ class SchedulerCore:
             if history is not None:
                 duration = history.duration_sec_ema
         if duration is not None:
+            self._grant_finish_at[pending.acquire_id] = now + duration
             self.running_estimates[(task.session_id, task.node_id)] = (
                 RunningTaskEstimate(
                     session_id=task.session_id,
@@ -2035,6 +2624,7 @@ class SchedulerCore:
         if not replica.active_acquire_ids:
             replica.idle_since = report.finished_at
         del self.grants[grant.acquire_id]
+        self._grant_finish_at.pop(grant.acquire_id, None)
         self._validate_resource_ledger()
 
     def _record_oom(self, task: NodeTaskRecord, grant: GrantInfo) -> None:
@@ -2059,20 +2649,20 @@ class SchedulerCore:
 
     def _validate_resource_ledger(self) -> None:
         seen_accelerators: set[str] = set()
-        seen_pairs: set[tuple[str, GpuKind]] = set()
         active_acquires: set[str] = set()
-        for pair, replica_id in self._replica_pairs.items():
-            replica = self.replicas.get(replica_id)
-            if replica is None or (replica.model_key, replica.gpu_kind) != pair:
+        for pair, members in self._replica_groups.items():
+            if len(set(members)) != len(members):
                 raise RuntimeError("model replica pairs index is inconsistent")
+            for replica_id in members:
+                replica = self.replicas.get(replica_id)
+                if replica is None or (replica.model_key, replica.gpu_kind) != pair:
+                    raise RuntimeError("model replica pairs index is inconsistent")
+            if len(members) > self._replica_group_cap:
+                raise RuntimeError("model replica pairs must be unique")
         for replica in self.replicas.values():
             pair = (replica.model_key, replica.gpu_kind)
-            if (
-                pair in seen_pairs
-                or self._replica_pairs.get(pair) != replica.replica_id
-            ):
+            if replica.replica_id not in self._replica_groups.members(pair):
                 raise RuntimeError("model replica pairs must be unique")
-            seen_pairs.add(pair)
             if (
                 replica.state == ModelReplicaState.BUSY
                 and not replica.active_acquire_ids
@@ -2101,6 +2691,8 @@ class SchedulerCore:
                 raise RuntimeError("accelerator and replica ledgers disagree")
         if active_acquires != set(self.grants):
             raise RuntimeError("active requests and grant ledger disagree")
+        if not set(self._grant_finish_at) <= set(self.grants):
+            raise RuntimeError("grant finish estimates outlive their grants")
         for acquire_id, grant in self.grants.items():
             replica = self.replicas.get(grant.replica_id)
             if replica is None or acquire_id not in replica.active_acquire_ids:
@@ -2944,6 +3536,13 @@ class _SchedulerActor:
                     "predicted_power_watts": prediction.predicted_power_watts,
                 }
             )
+            if report.stage_reports:
+                # Fused runs report one task per chain; keeping the per-stage rows
+                # lets analysis bucket them under their original node ids so a fused
+                # arm stays comparable with an unfused one.
+                payload["stages"] = [
+                    stage.model_dump(mode="json") for stage in report.stage_reports
+                ]
         else:
             payload["input_item_count"] = len(report.input_item_ids)
         if report.error_type is not None:
@@ -3124,6 +3723,7 @@ class _SchedulerActor:
         self._record_infeasible_decisions(pending_before, now)
         self._record_new_grants()
         self._record_scheduler_decisions(actions, now)
+        self._record_drain_decisions(now)
         self._record_prefetch_skips(near_before, actions, now)
         self._manual_actions.extend(actions)
 
@@ -3175,6 +3775,8 @@ class _SchedulerActor:
                     payload={
                         "action_type": "load_replica",
                         "reason": action.reason,
+                        "group_size": action.group_size,
+                        "scale_out_gain_sec": action.scale_out_gain_sec,
                     },
                 )
                 continue
@@ -3191,6 +3793,24 @@ class _SchedulerActor:
                 payload={
                     "action_type": "evict_replica",
                     "reason": action.reason,
+                    "scale_out_gain_sec": action.scale_out_gain_sec,
+                },
+            )
+
+    def _record_drain_decisions(self, now: float) -> None:
+        for event in self.core.take_drain_events():
+            self._record_trace(
+                "scheduler_decision",
+                ts=now,
+                replica_id=event.replica_id,
+                accelerator_id=event.accelerator_id,
+                gpu_kind=event.gpu_kind,
+                model_key=event.model_key,
+                payload={
+                    "action_type": "drain_replica",
+                    "reason": "reclaim_for_starved_model",
+                    "active_acquire_count": event.active_acquire_count,
+                    "requested_by_model_key": event.requested_by_model_key,
                 },
             )
 
@@ -3205,7 +3825,9 @@ class _SchedulerActor:
             for action in actions
             if action.reason == "near_ready_prefetch"
         }
-        ready_work_priority = any(action.reason == "ready_load" for action in actions)
+        ready_work_priority = any(
+            action.reason in ("ready_load", "scale_out") for action in actions
+        )
         for candidate in near:
             identity = (
                 candidate.session_id,

@@ -433,10 +433,32 @@ def _stage_intervals(
     for event in events:
         if event.get("event_type") != "task_execution_finished":
             continue
+        # A fused node runs several original nodes under one task id; unpacking its
+        # stages keeps per-node timings comparable with an unfused run.
+        stages = _stage_payloads(event)
+        if stages:
+            for stage in stages:
+                intervals[str(stage["node_id"])].append(_stage_interval(stage))
+            continue
         node_id = event.get("node_id")
         if isinstance(node_id, str):
             intervals[node_id].append(_execution_interval(event))
     return intervals
+
+
+def _stage_payloads(event: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    stages = _payload(event).get("stages")
+    if not isinstance(stages, list):
+        return []
+    return [stage for stage in stages if isinstance(stage, Mapping)]
+
+
+def _stage_interval(stage: Mapping[str, Any]) -> tuple[float, float]:
+    start = _number(stage["started_at"])
+    end = _number(stage["finished_at"])
+    if end < start:
+        raise ValueError("fused stage finish precedes its start")
+    return start, end
 
 
 def _execution_interval(event: Mapping[str, Any]) -> tuple[float, float]:
@@ -584,7 +606,14 @@ def _inference_payload_metrics(
         if event.get("event_type") != "task_execution_finished":
             continue
         payload = _payload(event)
-        input_value = payload.get("input_tokens")
+        # A fused task reports the admitted envelope, not what it actually read, so
+        # sum the stages when they are present.
+        stages = _stage_payloads(event)
+        input_value = (
+            sum(_integer(stage["input_tokens"]) for stage in stages)
+            if stages
+            else payload.get("input_tokens")
+        )
         output_value = payload.get("output_tokens")
         if input_value is None and output_value is None:
             continue

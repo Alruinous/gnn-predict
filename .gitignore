@@ -22,7 +22,8 @@ CLAUDE.md
 .cursor
 .omc/
 
-
+dev.md
+paper/*.pdf
 .ruff_cache/
 ruff.toml
 

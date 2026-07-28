@@ -1,0 +1,23 @@
+# Calibration run: 15 sessions per workflow, used to fix the scale of replay_main.yaml.
+# Same arrival_seed as replay_main so the pilot's arrival prefix is comparable.
+timeout_sec: 5400
+arrival_seed: 42
+scenarios:
+  - dataset: gsm8k
+    workflow_name: moa_gsm8k
+    dataset_path: dataset/gsm8k/data/test.jsonl
+    sample_count: 15
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.025
+  - dataset: mbpp
+    workflow_name: repair_mbpp
+    dataset_path: dataset/mbpp/sanitized-mbpp.json
+    sample_count: 15
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.025
+  - dataset: qmsum
+    workflow_name: mapreduce_qmsum
+    dataset_path: dataset/QMSum/data/ALL
+    sample_count: 15
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.025

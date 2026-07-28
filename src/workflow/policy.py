@@ -57,6 +57,7 @@ class EvictionCandidate(PolicyModel):
     idle_since: NonNegativeFloat
     reuse_distance_sec: NonNegativeFloat | None
     reload_cost_sec: NonNegativeFloat | None
+    redundant: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +203,10 @@ def select_eviction_victim(
     ]
     if not legal:
         return None
+    # A redundant replica is a sibling copy of a model that keeps another live copy,
+    # so reclaiming it costs no residency at all. Ranking it ahead of the distance
+    # score keeps inf meaning "nobody wants this model" and nothing else; when no
+    # candidate is redundant the key is order-isomorphic to the distance-only one.
     computable = [
         candidate
         for candidate in legal
@@ -212,13 +217,18 @@ def select_eviction_victim(
         return min(
             computable,
             key=lambda candidate: (
+                not candidate.redundant,
                 -(candidate.reuse_distance_sec - candidate.reload_cost_sec),
                 candidate.replica_id,
             ),
         )
     return min(
         legal,
-        key=lambda candidate: (candidate.idle_since, candidate.replica_id),
+        key=lambda candidate: (
+            not candidate.redundant,
+            candidate.idle_since,
+            candidate.replica_id,
+        ),
     )
 
 

@@ -65,11 +65,36 @@ def build_qmsum_session_inputs(sample: TaskSample) -> dict[str, JsonValue]:
     query = sample.metadata.get("query")
     if not isinstance(query, str):
         raise TypeError(f"QMSum query must be text: {sample.sample_id}")
-    return {
+    # slice_* lets a rolling-summary workflow address one chunk per node without a
+    # fan-out function in front of it; the fan-out workflows read transcript instead.
+    inputs: dict[str, JsonValue] = {
         "sample_id": sample.sample_id,
         "query": query,
         "transcript": sample.input_text,
     }
+    for index, chunk in enumerate(_transcript_slices(sample.input_text)):
+        inputs[f"slice_{index}"] = chunk
+    return inputs
+
+
+def _transcript_slices(
+    text: str, part_count: int = QMSUM_CHUNK_COUNT
+) -> tuple[str, ...]:
+    """One addressable transcript slice per rolling-summary node.
+
+    Turn boundaries are the natural split, but a transcript shorter than the node
+    count still has to yield one slice per node or the chain's prompts lose a field,
+    so those fall back to an even character split.
+    """
+    turns = text.split("\n\n")
+    if len(turns) >= part_count:
+        return tuple("\n\n".join(part) for part in _split_evenly(turns, part_count))
+    return tuple(
+        text[
+            (len(text) * index) // part_count : (len(text) * (index + 1)) // part_count
+        ]
+        for index in range(part_count)
+    )
 
 
 def split_qmsum_session(
@@ -97,7 +122,10 @@ def evaluate_qmsum_output(sample: TaskSample, output: str) -> SummaryEvaluation:
 
 
 def qmsum_functions() -> dict[str, Callable[..., object]]:
-    return {"split_qmsum": split_qmsum_session}
+    return {
+        "split_qmsum": split_qmsum_session,
+        "fanout_qmsum_lanes": fanout_qmsum_lanes,
+    }
 
 
 def build_qmsum_workflow(
@@ -212,4 +240,24 @@ def _execution(
             "max_num_batched_tokens": max_model_len * max_num_seqs,
             "gpu_memory_utilization": 0.98,
         },
+    }
+
+
+QMSUM_LANE_NAMES = ("lane_a", "lane_b")
+
+
+def fanout_qmsum_lanes(
+    session_inputs: Mapping[str, object],
+    states: Mapping[str, AgentState],
+    parameters: Mapping[str, object],
+) -> dict[str, AgentState]:
+    """Start each rolling lane; stages read their own slice_* from session inputs."""
+    if states or parameters:
+        raise ValueError("QMSum lane fanout expects no input states or parameters")
+    query = session_inputs.get("query")
+    if not isinstance(query, str):
+        raise TypeError("QMSum query must be text")
+    return {
+        f"{lane}_0": AgentState(messages=[AIMessage(content=query)])
+        for lane in QMSUM_LANE_NAMES
     }

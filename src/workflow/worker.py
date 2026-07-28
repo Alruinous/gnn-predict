@@ -17,12 +17,14 @@ from langchain_core.messages import AIMessage
 from ray.exceptions import RayActorError
 
 from workflow.actor_support import invoke
+from workflow.fusion import FUSED_NAME_SEPARATOR
 from workflow.replica import PromptEncoding, ReplicaInferenceResult
 from workflow.scheduler import (
     AcquireAlreadyGrantedError,
     AgentTaskRuntimeReport,
     CompleteDecision,
     FunctionTaskRuntimeReport,
+    FusedStageReport,
     InputTraceReport,
     ItemTraceReport,
     OutputReport,
@@ -33,6 +35,7 @@ from workflow.schema import (
     AgentNodeConfig,
     ExecutionConfig,
     FunctionNodeConfig,
+    FusedAgentNodeConfig,
     NodeConfig,
 )
 from workflow.storage import ResultPersistenceError
@@ -287,6 +290,161 @@ async def execute_agent(
         output_text = tokenizer.decode(result_value.output_token_ids)
         output = AgentState(messages=[AIMessage(content=output_text)])
     return AgentExecutionResult(report=report, output=output)
+
+
+def estimate_chain_input_tokens(
+    node: FusedAgentNodeConfig,
+    first_input_tokens: int,
+) -> int:
+    """Admission envelope for a fused chain.
+
+    Every stage after the first replaces the upstream output in its prompt, so the
+    widest prompt is bounded by the first one plus the largest upstream generation.
+    Admission reserves VRAM against this bound, so overshooting is the safe error.
+    """
+    upstream = max(
+        (stage.max_new_tokens for stage in node.stages[:-1]),
+        default=0,
+    )
+    return first_input_tokens + upstream
+
+
+async def execute_fused_agent(
+    *,
+    node: FusedAgentNodeConfig,
+    task_id: str,
+    session_id: str,
+    input_item_ids: list[str],
+    prompt_context: Mapping[str, object],
+    session_inputs: Mapping[str, object],
+    scheduler: object,
+    tokenizer: PromptTokenizerProtocol,
+    acquire_timeout_sec: float,
+    grant_poll_interval_sec: float,
+    grant_observer: Callable[[GrantInfoProtocol], None] | None = None,
+    grant_finished: Callable[[], None] | None = None,
+    stage_observer: Callable[[str], None] | None = None,
+) -> AgentExecutionResult:
+    """Run a fused chain under one grant, handing each stage's output to the next.
+
+    Holding the lease across stages is what removes the per-hop acquire handshake,
+    and it also pins the replica: eviction refuses a replica with live leases, so no
+    stage boundary can lose the model and pay a reload.
+    """
+    prompt = tokenizer.build_prompt(
+        _render_prompt(node.stages[0].prompt_template, prompt_context),
+        system_prompt=node.stages[0].system_prompt,
+    )
+    admitted_tokens = estimate_chain_input_tokens(node, prompt.input_tokens)
+    acquire_value = await invoke(
+        scheduler,
+        "request_acquire",
+        task_id,
+        admitted_tokens,
+        time.time(),
+    )
+    if not isinstance(acquire_value, str):
+        raise TypeError("request_acquire must return an acquire id")
+    grant = await _wait_for_grant(
+        scheduler,
+        acquire_value,
+        acquire_timeout_sec=acquire_timeout_sec,
+        grant_poll_interval_sec=grant_poll_interval_sec,
+    )
+    _validate_grant(
+        grant,
+        acquire_value,
+        task_id,
+        admitted_tokens,
+        node.execution.max_new_tokens,
+    )
+    if grant_observer is not None:
+        grant_observer(grant)
+
+    stage_reports: list[FusedStageReport] = []
+    output: AgentState | None = None
+    context = dict(prompt_context)
+    try:
+        for index, stage in enumerate(node.stages):
+            if index > 0:
+                prompt = tokenizer.build_prompt(
+                    _render_prompt(stage.prompt_template, context),
+                    system_prompt=stage.system_prompt,
+                )
+            request_id = f"{acquire_value}#{index}"
+            if stage_observer is not None:
+                stage_observer(request_id)
+            result_value = await invoke(
+                grant.backend_handle,
+                "invoke",
+                request_id,
+                prompt.token_ids,
+                max_new_tokens=stage.max_new_tokens,
+                generation=node.execution.model_copy(
+                    update={"max_new_tokens": stage.max_new_tokens}
+                ),
+            )
+            if not isinstance(result_value, ReplicaInferenceResult):
+                raise TypeError("replica invoke must return ReplicaInferenceResult")
+            if result_value.request_id != request_id:
+                raise ValueError("replica result does not match the stage request")
+            stage_reports.append(
+                FusedStageReport(
+                    node_id=stage.name,
+                    input_tokens=result_value.input_tokens,
+                    max_new_tokens=stage.max_new_tokens,
+                    output_tokens=result_value.output_tokens,
+                    hit_token_limit=result_value.hit_token_limit,
+                    started_at=result_value.started_at,
+                    finished_at=result_value.finished_at,
+                    duration_sec=result_value.duration_sec,
+                    status=result_value.status,
+                )
+            )
+            if result_value.status != "success":
+                break
+            output = AgentState(
+                messages=[
+                    AIMessage(content=tokenizer.decode(result_value.output_token_ids))
+                ]
+            )
+            context = build_prompt_context(session_inputs, {stage.name: output})
+    finally:
+        if grant_finished is not None:
+            grant_finished()
+
+    last = result_value
+    report = AgentTaskRuntimeReport(
+        acquire_id=acquire_value,
+        task_id=task_id,
+        session_id=session_id,
+        node_id=node.name,
+        input_item_ids=input_item_ids,
+        model_key=grant.model_key,
+        accelerator_id=grant.accelerator_ids[0],
+        gpu_kind=grant.gpu_kind,
+        input_tokens=admitted_tokens,
+        max_new_tokens=node.execution.max_new_tokens,
+        output_tokens=sum(stage.output_tokens for stage in stage_reports),
+        hit_token_limit=any(stage.hit_token_limit for stage in stage_reports),
+        finish_reason=last.finish_reason,
+        queue_time_sec=last.queue_time_sec,
+        time_to_first_token_sec=stage_reports[0].duration_sec
+        if last.time_to_first_token_sec is None
+        else last.time_to_first_token_sec,
+        replica_inflight_at_start=last.replica_inflight_at_start,
+        started_at=stage_reports[0].started_at,
+        finished_at=stage_reports[-1].finished_at,
+        duration_sec=sum(stage.duration_sec for stage in stage_reports),
+        status=last.status,
+        engine_failed=last.engine_failed,
+        error_type=last.error_type,
+        stage_reports=tuple(stage_reports),
+    )
+    return AgentExecutionResult(
+        report=report,
+        output=output if last.status == "success" else None,
+    )
 
 
 class NodeWorker:
@@ -608,21 +766,42 @@ class NodeWorker:
         timeout_attempts = 0
         while True:
             try:
-                execution = await execute_agent(
-                    node=node,
-                    task_id=task_id,
-                    session_id=session_id,
-                    input_item_ids=ready.input_item_ids,
-                    prompt_context=prompt_context,
-                    scheduler=self.scheduler,
-                    tokenizer=tokenizer,
-                    acquire_timeout_sec=self.acquire_timeout_sec,
-                    grant_poll_interval_sec=self.grant_poll_interval_sec,
-                    grant_observer=lambda grant: self._track_replica_request(
-                        session_id, grant
-                    ),
-                    grant_finished=lambda: self._forget_replica_request(session_id),
-                )
+                if isinstance(node, FusedAgentNodeConfig):
+                    execution = await execute_fused_agent(
+                        node=node,
+                        task_id=task_id,
+                        session_id=session_id,
+                        input_item_ids=ready.input_item_ids,
+                        prompt_context=prompt_context,
+                        session_inputs=session_inputs,
+                        scheduler=self.scheduler,
+                        tokenizer=tokenizer,
+                        acquire_timeout_sec=self.acquire_timeout_sec,
+                        grant_poll_interval_sec=self.grant_poll_interval_sec,
+                        grant_observer=lambda grant: self._track_replica_request(
+                            session_id, grant
+                        ),
+                        grant_finished=lambda: self._forget_replica_request(session_id),
+                        stage_observer=lambda request_id: self._track_stage_request(
+                            session_id, request_id
+                        ),
+                    )
+                else:
+                    execution = await execute_agent(
+                        node=node,
+                        task_id=task_id,
+                        session_id=session_id,
+                        input_item_ids=ready.input_item_ids,
+                        prompt_context=prompt_context,
+                        scheduler=self.scheduler,
+                        tokenizer=tokenizer,
+                        acquire_timeout_sec=self.acquire_timeout_sec,
+                        grant_poll_interval_sec=self.grant_poll_interval_sec,
+                        grant_observer=lambda grant: self._track_replica_request(
+                            session_id, grant
+                        ),
+                        grant_finished=lambda: self._forget_replica_request(session_id),
+                    )
             except TimeoutError as error:
                 timeout_attempts += 1
                 if timeout_attempts < node.retry.max_attempts:
@@ -691,6 +870,14 @@ class NodeWorker:
             grant.backend_handle,
             grant.acquire_id,
         )
+
+    def _track_stage_request(self, session_id: str, request_id: str) -> None:
+        # Only one stage of a fused chain is in flight at a time, so cancellation has
+        # to abort the current stage's id rather than the chain-wide acquire id.
+        active = self._active_replica_requests.get(session_id)
+        if active is None:
+            raise RuntimeError("fused stage has no tracked replica request")
+        self._active_replica_requests[session_id] = (active[0], request_id)
 
     def _forget_replica_request(self, session_id: str) -> None:
         self._active_replica_requests.pop(session_id, None)
@@ -877,18 +1064,37 @@ def _route_function_output(
             raise TypeError("targeted function must return target-to-state mapping")
         if any(not isinstance(target, str) for target in output):
             raise TypeError("targeted function keys must be strings")
-        if set(output) != set(successors):
-            raise ValueError("targeted function output must match static successors")
         typed_output = cast(dict[str, object], output)
-        return {
-            target: _validate_agent_state(value)
+        routed = {
+            _resolve_target(target, successors): value
             for target, value in typed_output.items()
+        }
+        if set(routed) != set(successors):
+            raise ValueError("targeted function output must match static successors")
+        return {
+            target: _validate_agent_state(value) for target, value in routed.items()
         }
 
     state = _validate_agent_state(output)
     if successors:
         return {successor: state for successor in successors}
     return {"": state}
+
+
+def _resolve_target(target: str, successors: tuple[str, ...]) -> str:
+    """Map a routing key onto a successor, following chains that were fused.
+
+    Fusion renames a chain to its stage names joined by FUSED_NAME_SEPARATOR, so a
+    targeted function written against the original head name would otherwise stop
+    matching the graph the moment its downstream chain is fused.
+    """
+    if target in successors:
+        return target
+    prefix = f"{target}{FUSED_NAME_SEPARATOR}"
+    matches = [successor for successor in successors if successor.startswith(prefix)]
+    if len(matches) != 1:
+        raise ValueError(f"targeted function key matches no unique successor: {target}")
+    return matches[0]
 
 
 def _validate_agent_state(value: object) -> AgentState:

@@ -1,0 +1,7 @@
+# Parrot's request ordering: first-come-first-served over the global arrival sequence.
+# Only the ordering rule is taken; Semantic Variables, prefix sharing and DAG-level joint
+# optimisation are deliberately not implemented, because they act on dimensions other
+# than model lifecycle and would confound the measurement (see
+# 见 docs/workflow/motivation_20260727_heterogeneity_residency.md 第 2 节)。
+policy: fifo
+acquire_timeout_sec: 1800.0

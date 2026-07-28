@@ -1,0 +1,20 @@
+# Paired workload for the fusion + elastic-replica arms.
+# qmsum_lane1 keeps both mechanisms alive in one graph: two parallel rolling lanes
+# of three Qwen3-4B stages each (fusable, and still 2-way concurrent so scale-out
+# retains a trigger) feeding a three-node Qwen3-8B chain. mbpp1 competes for the
+# same cards so the anti-monopoly gates are exercised rather than merely enabled.
+timeout_sec: 5400
+arrival_seed: 42
+scenarios:
+  - dataset: qmsum
+    workflow_name: qmsum_lane1
+    dataset_path: dataset/QMSum/data/ALL
+    sample_count: 10
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.02
+  - dataset: mbpp
+    workflow_name: mbpp1
+    dataset_path: dataset/mbpp/sanitized-mbpp.json
+    sample_count: 10
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.02

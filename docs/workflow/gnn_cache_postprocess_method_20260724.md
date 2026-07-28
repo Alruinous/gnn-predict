@@ -51,21 +51,6 @@ GNN 原始预测
 
 **冷加载单列**：首次 cold load 的跨 run 方差来自共享存储/页缓存/并发读，即使最佳校准 held-out 仍 67.33%——不得用 cold 更新 warm 预测。正式调度实验采用 **warm-storage、cold-GPU 起点**把不可控存储冷读移出计时；或在契约中分列 `cold_load_sec`/`warm_reload_sec`。`cache` 的淘汰评分需要的是未来重部署成本，语义上优先消费 `warm_reload_sec`。
 
-## 4. 运行时长
-
-GNN 缓存的 `predicted_run_sec` 已由稀疏 profile 锚点校准（held-out WAPE ≈0.076，10× 优于静态解析），v2 保留之；可选叠加 `cache_replay.calibrate_prediction_cache` 的 trace 比例校准。
-
-## 5. v2 缓存产物与 provenance
-
-后处理是通用的，对**两份缓存都产出 v2**（均非破坏，base 不可变，其 SHA256 记入 v2 环境）：
-
-- **`cache/gnn_v2/predictions.yaml`（full）**：`predicted_load_sec`=四档加载校准；`predicted_peak_vram_mb`=去偏点；`peak_vram_mb_upper_bound`=去偏点+Q⁺（校准上界预留）；`vram_source=scoped_debias_plus_upper_quantile`。
-- **`cache/profile_v2/predictions.yaml`（load-only）**：只重写 `predicted_load_sec`；显存/运行时长保留经验实测值（profile 显存本身就是参考系，对自身去偏无意义）；`vram_source=unchanged_base`、`vram_calibrated=false`。
-
-**为什么 profile 也必须出 v2**：GNN 缓存的 `predicted_load_sec` 直接**继承自 profile**，两者加载值逐条相同，因此对稳定 vLLM 重载**同样高估 1.4–4.1×**。profile_v2 的加载 held-out WAPE 同样由 **243.69% 降至 2.07%**（MAE 1.20s）。凡以 profile 作为 `profile_cache` 策略基线或参考系喂入调度器/回放（如 `cache_replay.py`）的实验，都应改用 profile_v2，否则其预取与驱逐计时会被继承自 profile 的高估加载值污染。
-
-每条记录 `predictor_metadata.postprocess` 记 `load_tier`/`load_run_count`/`load_sample_count`/`load_source`/`vram_source`；环境记 `base_cache_sha256`/`vram_reference_sha256`/`vram_calibrated`/`load_trace_sha256[]`/warm·cold 样本总数。伴生 `<cache>_v2/calibration_report.json`（模型×GPU 与 deployment 校准值、样本证据、gpu_scale）。
-
 ## 6. 可复用实现（供后续缓存生成）
 
 - `src/experiment/workflow/cache_postprocess.py`：`extract_load_calibration`、`fit_vram_calibration`、`postprocess_cache`、`build_v2_cache`；复用 `cache_replay` 的 trace 解析与 `prediction_calibration` 的显存原语。

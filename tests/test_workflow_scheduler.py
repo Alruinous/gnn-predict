@@ -479,6 +479,7 @@ def test_agent_runtime_report_uses_the_plan_contract() -> None:
         "status": "success",
         "engine_failed": False,
         "error_type": None,
+        "stage_reports": (),
     }
 
     report = AgentTaskRuntimeReport.model_validate(payload)

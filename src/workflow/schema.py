@@ -84,6 +84,43 @@ class AgentNodeConfig(NodeConfigBase):
     system_prompt: NonEmptyStr | None = None
 
 
+class FusedStage(SchemaModel):
+    name: NonEmptyStr
+    prompt_template: NonEmptyStr
+    system_prompt: NonEmptyStr | None = None
+    max_new_tokens: PositiveInt
+
+
+class FusedAgentNodeConfig(AgentNodeConfig):
+    """A chain of same-model agent nodes collapsed into one runtime node.
+
+    Subclassing AgentNodeConfig is deliberate: every ``isinstance(node,
+    AgentNodeConfig)`` branch in the scheduler — placement, model_key, prefetch,
+    critical-path costing — then applies unchanged. ``execution.max_new_tokens``
+    carries the per-stage maximum so admission reserves for the worst stage.
+    """
+
+    type: Literal["fused_agent"] = "fused_agent"  # type: ignore[assignment]
+    stages: tuple[FusedStage, ...]
+
+    @field_validator("stages")
+    @classmethod
+    def validate_stages(cls, value: tuple[FusedStage, ...]) -> tuple[FusedStage, ...]:
+        if len(value) < 2:
+            raise ValueError("a fused node must carry at least two stages")
+        names = [stage.name for stage in value]
+        if len(names) != len(set(names)):
+            raise ValueError("fused stage names must be unique")
+        return value
+
+    @model_validator(mode="after")
+    def validate_output_envelope(self) -> Self:
+        widest = max(stage.max_new_tokens for stage in self.stages)
+        if self.execution.max_new_tokens != widest:
+            raise ValueError("fused execution must reserve the widest stage output")
+        return self
+
+
 class FunctionNodeConfig(NodeConfigBase):
     type: Literal["function"]
     function: NonEmptyStr
@@ -93,7 +130,7 @@ class FunctionNodeConfig(NodeConfigBase):
 
 
 NodeConfig = Annotated[
-    AgentNodeConfig | FunctionNodeConfig,
+    AgentNodeConfig | FusedAgentNodeConfig | FunctionNodeConfig,
     Field(discriminator="type"),
 ]
 

@@ -612,8 +612,8 @@ def test_prefetch_trace_records_capacity_skip(
     )
     accelerator.replica_id = replica.replica_id
     actor.core.replicas[replica.replica_id] = replica
-    actor.core._replica_pairs[(replica.model_key, replica.gpu_kind)] = (
-        replica.replica_id
+    actor.core._replica_groups.add(
+        (replica.model_key, replica.gpu_kind), replica.replica_id
     )
     monkeypatch.setattr(scheduler_module.time, "time", lambda: 14.5)
 

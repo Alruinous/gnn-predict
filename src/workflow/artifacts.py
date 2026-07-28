@@ -55,6 +55,20 @@ class SchedulerConfig(ArtifactModel):
     grant_poll_interval_sec: PositiveFloat = 0.05
     eviction_timeout_sec: PositiveFloat = 30.0
     history_ema_alpha: OpenUnitInterval = 0.2
+    elastic_replicas: bool = False
+    max_replicas_per_model: PositiveInt = 2
+    scale_out_margin_sec: NonNegativeFloat = 5.0
+    scale_in_idle_sec: NonNegativeFloat = 30.0
+
+    @model_validator(mode="after")
+    def validate_elastic_policy(self) -> Self:
+        # Scale-out prices a new replica against the queue it would drain, which needs
+        # the frozen cache's run/load estimates: _expected_run_sec only runs under
+        # "cache" and _reload_cost returns None for fifo/kairos. Rejecting the
+        # combination keeps the baseline policies provably unaffected.
+        if self.elastic_replicas and self.policy != "cache":
+            raise ValueError("elastic_replicas requires the cache policy")
+        return self
 
     @field_validator("vllm_python_executable")
     @classmethod

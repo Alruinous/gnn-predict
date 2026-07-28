@@ -1,0 +1,419 @@
+workflow_name: qmsum_lane1
+nodes:
+- name: split
+  type: function
+  function: fanout_qmsum_lanes
+  routing: targeted
+  queue_capacity: 16
+  max_concurrency: 1
+- name: lane_a_0
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Summarize transcript details relevant to the query.
+
+    Preserve decisions, reasons, participants, and concrete outcomes.
+
+    Return only the running summary.
+
+
+    Query:
+
+    {query}
+
+
+    Transcript chunk:
+
+    {slice_0}'
+  system_prompt: null
+- name: lane_a_1
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Update the running summary with the next transcript chunk.
+
+    Keep every query-relevant fact already present and add what the new chunk contributes.
+
+    Return only the updated running summary.
+
+
+    Query:
+
+    {query}
+
+
+    Running summary:
+
+    {previous_output}
+
+
+    Next chunk:
+
+    {slice_1}'
+  system_prompt: null
+- name: lane_a_2
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Update the running summary with the next transcript chunk.
+
+    Keep every query-relevant fact already present and add what the new chunk contributes.
+
+    Return only the updated running summary.
+
+
+    Query:
+
+    {query}
+
+
+    Running summary:
+
+    {previous_output}
+
+
+    Next chunk:
+
+    {slice_2}'
+  system_prompt: null
+- name: lane_b_0
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Summarize transcript details relevant to the query.
+
+    Preserve decisions, reasons, participants, and concrete outcomes.
+
+    Return only the running summary.
+
+
+    Query:
+
+    {query}
+
+
+    Transcript chunk:
+
+    {slice_3}'
+  system_prompt: null
+- name: lane_b_1
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Update the running summary with the next transcript chunk.
+
+    Keep every query-relevant fact already present and add what the new chunk contributes.
+
+    Return only the updated running summary.
+
+
+    Query:
+
+    {query}
+
+
+    Running summary:
+
+    {previous_output}
+
+
+    Next chunk:
+
+    {slice_4}'
+  system_prompt: null
+- name: lane_b_2
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-4B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-4B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 8192
+      max_num_seqs: 3
+      max_num_batched_tokens: 24576
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Update the running summary with the next transcript chunk.
+
+    Keep every query-relevant fact already present and add what the new chunk contributes.
+
+    Return only the updated running summary.
+
+
+    Query:
+
+    {query}
+
+
+    Running summary:
+
+    {previous_output}
+
+
+    Next chunk:
+
+    {slice_5}'
+  system_prompt: null
+- name: merge
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-8B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-8B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 4096
+      max_num_seqs: 3
+      max_num_batched_tokens: 12288
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Merge the lane summaries into one answer to the query.
+
+    Remove duplication, preserve query-relevant facts, keep the answer grounded.
+
+    Return only the answer.
+
+
+    Query:
+
+    {query}
+
+
+    Lane summaries:
+
+    {node_outputs_json}'
+  system_prompt: null
+- name: expand
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-8B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-8B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 4096
+      max_num_seqs: 3
+      max_num_batched_tokens: 12288
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Verify the draft answer against the partial answers and expand any point that is thin
+    or unsupported.
+
+    Do not introduce facts that the partial answers do not support.
+
+    Return only the revised answer.
+
+
+    Query:
+
+    {query}
+
+
+    Draft answer:
+
+    {previous_output}'
+  system_prompt: null
+- name: finalize
+  task: text_generation
+  description: null
+  queue_capacity: 16
+  retry:
+    max_attempts: 1
+    retry_delay_sec: 0
+  type: agent
+  model:
+    name: Qwen3-8B
+    parameters: {}
+  execution:
+    model_path: /data/Models/Qwen/Qwen3-8B
+    max_new_tokens: 384
+    dtype: float16
+    do_sample: false
+    temperature: null
+    use_chat_template: true
+    enable_thinking: false
+    truncation_side: null
+    serving:
+      max_model_len: 4096
+      max_num_seqs: 3
+      max_num_batched_tokens: 12288
+      gpu_memory_utilization: 0.98
+  prompt_template: 'Tighten the revised answer into its final form.
+
+    Remove hedging and repetition, keep every query-relevant fact.
+
+    Return only the final answer.
+
+
+    Query:
+
+    {query}
+
+
+    Revised answer:
+
+    {previous_output}'
+  system_prompt: null
+edges:
+- source: split
+  target: lane_a_0
+- source: lane_a_0
+  target: lane_a_1
+- source: lane_a_1
+  target: lane_a_2
+- source: lane_a_2
+  target: merge
+- source: split
+  target: lane_b_0
+- source: lane_b_0
+  target: lane_b_1
+- source: lane_b_1
+  target: lane_b_2
+- source: lane_b_2
+  target: merge
+- source: merge
+  target: expand
+- source: expand
+  target: finalize

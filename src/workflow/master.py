@@ -15,6 +15,7 @@ import yaml
 
 from workflow.artifacts import AcceleratorConfig, SchedulerConfig
 from workflow.fleet import NodeFunction, WorkflowFleet
+from workflow.fusion import fuse_workflow
 from workflow.schema import Workflow
 
 
@@ -204,6 +205,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--priority-weight", default=None, help="workflow_name=weight,..."
     )
     parser.add_argument(
+        "--fuse-nodes",
+        action="store_true",
+        help="collapse adjacent same-model agent chains into one node",
+    )
+    parser.add_argument(
         "--output-dir",
         required=True,
         help="run root; fleet dir is <output-dir>/<run-id>",
@@ -243,6 +249,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         functions = resolve_functions(args.functions)
         workflows = load_workflows(workflow_paths)
+        if args.fuse_nodes:
+            workflows = [fuse_workflow(workflow) for workflow in workflows]
         weights = parse_float_mapping(args.priority_weight)
         experiment = resolve_dotted(args.experiment)
         if not callable(experiment):

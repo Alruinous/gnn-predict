@@ -199,6 +199,8 @@ def write_run_summary(
     model_load_count = 0
     model_reuse_count = 0
     model_evict_count = 0
+    scale_out_count = 0
+    drain_count = 0
     batched_admission_count = 0
     peak_replica_inflight = 0
     active_intervals: dict[str, list[tuple[float, float]]] = {}
@@ -260,6 +262,12 @@ def write_run_summary(
                 batched_admission_count += 1
         elif event.event_type == "request_infeasible":
             request_infeasible_count += 1
+        elif event.event_type == "scheduler_decision":
+            # A scale-out load is otherwise indistinguishable from a cold load here.
+            if event.payload.get("reason") == "scale_out":
+                scale_out_count += 1
+            elif event.payload.get("action_type") == "drain_replica":
+                drain_count += 1
         elif event.event_type == "model_load_started":
             if event.replica_id is not None:
                 residency_starts.setdefault(event.replica_id, event.ts)
@@ -300,6 +308,8 @@ def write_run_summary(
         "model_load_count": model_load_count,
         "model_reuse_count": model_reuse_count,
         "model_evict_count": model_evict_count,
+        "scale_out_count": scale_out_count,
+        "drain_count": drain_count,
         "batched_admission_count": batched_admission_count,
         "peak_replica_inflight": peak_replica_inflight,
         "active_gpu_seconds": active_gpu_seconds,

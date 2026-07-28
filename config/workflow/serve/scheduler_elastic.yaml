@@ -1,0 +1,10 @@
+# Sweep variant: scheduler_cache plus elastic model replicas.
+# Elasticity requires the cache policy — scale-out prices a new replica against the
+# queue it drains, which needs the frozen cache's run/load estimates.
+policy: cache
+acquire_timeout_sec: 1800.0
+elastic_replicas: true
+max_replicas_per_model: 2
+# Qwen3-4B loads in ~50s on V100, so a shorter margin would scale out on noise.
+scale_out_margin_sec: 10.0
+scale_in_idle_sec: 60.0

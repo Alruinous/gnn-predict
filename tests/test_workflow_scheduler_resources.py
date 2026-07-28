@@ -842,7 +842,7 @@ def test_severe_cuda_failure_marks_replica_suspect() -> None:
 
 def test_resource_ledger_rejects_extra_replica_pair_index() -> None:
     core = resource_core()
-    core._replica_pairs[("missing-model", "v100")] = "missing-replica"
+    core._replica_groups.add(("missing-model", "v100"), "missing-replica")
 
     with pytest.raises(RuntimeError, match="pairs"):
         core.tick_once(now=1.0)

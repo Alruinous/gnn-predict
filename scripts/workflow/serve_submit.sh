@@ -9,7 +9,8 @@
 #
 # Env interface is identical to serve_master.sh: RUN_ID / SCHED_CONFIG / EXPERIMENT_CONFIG /
 # WORKFLOW_FILES / OUTPUT_DIR / MIN_GPUS / GPU_MEM / PREDICTIONS / PRIORITY_WEIGHT /
-# VLLM_PYTHON. RAY_PORT selects which resident head to attach (default 6667).
+# VLLM_PYTHON. RAY_PORT selects which resident head to attach (default 6667). Set
+# FUSE_NODES=1 to collapse adjacent same-model agent chains before registration.
 set -e
 
 umask 000
@@ -30,11 +31,17 @@ export PRIORITY_WEIGHT="${PRIORITY_WEIGHT:-}"
 export EXPERIMENT_CONFIG="${EXPERIMENT_CONFIG:-config/workflow/serve/replay_4w.yaml}"
 export WORKFLOW_FILES="${WORKFLOW_FILES:-config/workflow/serve/qmsum1.yaml,config/workflow/serve/mbpp1.yaml,config/workflow/serve/qmsum2.yaml,config/workflow/serve/mbpp2.yaml}"
 export OUTPUT_DIR="${OUTPUT_DIR:-output/serve_4workflow}"
+export FUSE_NODES="${FUSE_NODES:-}"
 export PYTHONPATH="$PROJECT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
 
 PRIORITY_ARG=""
 if [ -n "$PRIORITY_WEIGHT" ]; then
   PRIORITY_ARG="--priority-weight $PRIORITY_WEIGHT"
+fi
+
+FUSE_ARG=""
+if [ -n "$FUSE_NODES" ]; then
+  FUSE_ARG="--fuse-nodes"
 fi
 
 cd "$PROJECT_DIR"
@@ -53,4 +60,4 @@ exec python -m workflow.master \
   --output-dir "$OUTPUT_DIR" \
   --run-id "$RUN_ID" \
   --ray-address "127.0.0.1:$RAY_PORT" \
-  $PRIORITY_ARG
+  $PRIORITY_ARG $FUSE_ARG

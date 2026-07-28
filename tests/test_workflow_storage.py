@@ -296,6 +296,8 @@ def test_write_run_summary_aggregates_trace_and_results(tmp_path: Path) -> None:
         "model_load_count": 1,
         "model_reuse_count": 1,
         "model_evict_count": 1,
+        "scale_out_count": 0,
+        "drain_count": 0,
         "batched_admission_count": 2,
         "peak_replica_inflight": 3,
         "active_gpu_seconds": 3.0,

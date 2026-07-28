@@ -1,0 +1,13 @@
+# The full system: locality-first admission, near-ready prefetch and reuse-distance
+# eviction (policy: cache), plus elastic replicas. Node fusion is a graph rewrite and is
+# switched on separately with --fuse-nodes.
+#
+# elastic_replicas requires the cache policy: scale-out prices a new replica against the
+# queue it would drain, which needs the frozen cache's run and load estimates, and
+# _reload_cost returns None under fifo/kairos.
+policy: cache
+acquire_timeout_sec: 1800.0
+elastic_replicas: true
+max_replicas_per_model: 2
+scale_out_margin_sec: 10.0
+scale_in_idle_sec: 60.0
