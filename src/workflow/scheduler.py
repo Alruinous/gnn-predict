@@ -208,6 +208,7 @@ class LoadReplicaAction(StrictFrozenModel):
     accelerator: AcceleratorConfig
     reason: Literal["ready_load", "near_ready_prefetch", "scale_out"]
     expected_load_sec: float = Field(gt=0)
+    owner_workflow: str | None = None
     session_id: str | None = None
     node_id: str | None = None
     prefetch_at: float | None = None
@@ -237,6 +238,7 @@ class EvictReplicaAction(StrictFrozenModel):
 class _ScaleOutBid:
     pair: tuple[str, GpuKind]
     gain_sec: float
+    load_sec: float
     requirements: Mapping[tuple[str, GpuKind], float]
 
 
@@ -348,6 +350,9 @@ class ModelReplicaRecord(MutableRecord):
     gpu_kind: GpuKind
     accelerator_ids: tuple[NonEmptyStr, ...]
     state: ModelReplicaState
+    # Workflow whose demand triggered this load. Replicas stay shared regardless —
+    # this only scopes the lifecycle signals when cross_workflow_lifecycle is off.
+    owner_workflow: str | None = None
     expected_load_sec: float = Field(gt=0)
     backend_handle: object | None = None
     physical_gpu_id: int | str | None = None
@@ -937,6 +942,13 @@ class SchedulerCore:
         # leases so it reaches IDLE and becomes reclaimable on a later tick.
         self._start_drain_for_starved(starved, now)
 
+        # Only the speculative loads are switched off: `near` still feeds reuse-distance
+        # eviction, the scale-out reservation and the load-yield ordering above, so this
+        # ablation removes prefetch alone rather than silently degrading eviction too.
+        if not self.scheduler_config.enable_prefetch:
+            self._validate_resource_ledger()
+            return []
+
         policy_actions: list[LoadReplicaAction | EvictReplicaAction] = []
         for candidate in near:
             if now < candidate.prefetch_at:
@@ -1304,14 +1316,55 @@ class SchedulerCore:
         task = self.tasks[pending.task_id]
         return self.sessions[task.session_id].workflow_name
 
-    def _intra_workflow_key(self, pending: PendingAcquire) -> tuple[int, int] | int:
+    def _demand_key(self, workflow_name: str, model_key: str) -> tuple[str | None, str]:
+        """Bucket a model's demand: pooled, or one bucket per workflow."""
+        if self.scheduler_config.cross_workflow_lifecycle:
+            return (None, model_key)
+        return (workflow_name, model_key)
+
+    def _resident_model_keys(self) -> frozenset[str]:
+        return frozenset(
+            replica.model_key
+            for replica in self.replicas.values()
+            if replica.state in (ModelReplicaState.IDLE, ModelReplicaState.BUSY)
+        )
+
+    def _needs_load(
+        self,
+        pending: PendingAcquire,
+        resident: frozenset[str],
+        now: float,
+    ) -> bool:
+        """Whether serving this request costs a load, once aging stops protecting it."""
+        starvation_sec = 0.5 * self.scheduler_config.acquire_timeout_sec
+        return (
+            now - pending.created_at <= starvation_sec
+            and self._pending_model_key(pending) not in resident
+        )
+
+    def _intra_workflow_key(
+        self,
+        pending: PendingAcquire,
+        *,
+        resident: frozenset[str],
+        now: float,
+    ) -> tuple[int, int]:
         if self.scheduler_config.policy == "fifo":
-            return pending.request_seq
+            return (0, pending.request_seq)
+        if self.scheduler_config.policy == "cache":
+            # Locality-first, but only over this workflow's own queue. Reached when
+            # cross_workflow_lifecycle is off: each workflow still drains a residency
+            # before giving it up, it just no longer yields to another workflow's.
+            return (
+                int(self._needs_load(pending, resident, now)),
+                pending.request_seq,
+            )
         return (self._pending_node_order(pending), pending.request_seq)
 
     def _interleave_by_workflow(
         self,
         pending_values: Sequence[PendingAcquire],
+        now: float,
     ) -> list[PendingAcquire]:
         # Weighted fair queueing across workflows: each workflow's own pending
         # acquires keep today's single-workflow ordering rule internally (via
@@ -1319,11 +1372,16 @@ class SchedulerCore:
         # a virtual rank of k / weight before merging across workflows. Equal
         # weights (the default) reduce this to plain global request order, so
         # a single registered workflow's ordering is unchanged.
+        resident = self._resident_model_keys()
         grouped: dict[str, list[PendingAcquire]] = {}
         for pending in pending_values:
             grouped.setdefault(self._pending_workflow_name(pending), []).append(pending)
         for group in grouped.values():
-            group.sort(key=self._intra_workflow_key)
+            group.sort(
+                key=lambda pending: self._intra_workflow_key(
+                    pending, resident=resident, now=now
+                )
+            )
 
         ranked: list[tuple[float, int, str, PendingAcquire]] = []
         for workflow_name, group in grouped.items():
@@ -1349,28 +1407,24 @@ class SchedulerCore:
                     pending.request_seq,
                 ),
             )
-        if self.scheduler_config.policy == "cache":
+        if self.scheduler_config.policy == "cache" and (
+            self.scheduler_config.cross_workflow_lifecycle
+        ):
             # Weighted-fair interleaving spreads admission across workflows, which
             # fragments model locality: consecutive grants keep landing on different
             # models and each switch costs a full load. Serve work whose model is
             # already resident first, oldest-first within each class, so a residency
             # is drained before it is given up. Aging bounds the delay a request can
             # accumulate from being on the unlucky side of that split.
-            resident = {
-                replica.model_key
-                for replica in self.replicas.values()
-                if replica.state in (ModelReplicaState.IDLE, ModelReplicaState.BUSY)
-            }
-            starvation_sec = 0.5 * self.scheduler_config.acquire_timeout_sec
+            resident = self._resident_model_keys()
             return sorted(
                 pending_values,
                 key=lambda pending: (
-                    now - pending.created_at <= starvation_sec
-                    and self._pending_model_key(pending) not in resident,
+                    self._needs_load(pending, resident, now),
                     pending.request_seq,
                 ),
             )
-        return self._interleave_by_workflow(pending_values)
+        return self._interleave_by_workflow(pending_values, now)
 
     def _pending_remaining_latency(self, pending: PendingAcquire) -> float:
         task = self.tasks[pending.task_id]
@@ -1882,6 +1936,7 @@ class SchedulerCore:
             gpu_kind=gpu_kind,
             accelerator_ids=(accelerator.config.accelerator_id,),
             state=ModelReplicaState.LOADING,
+            owner_workflow=workflow_name,
             expected_load_sec=expected_load_sec,
             created_at=now,
         )
@@ -1895,6 +1950,7 @@ class SchedulerCore:
             accelerator=accelerator.config,
             reason=reason,
             expected_load_sec=expected_load_sec,
+            owner_workflow=workflow_name,
             scale_out_gain_sec=_finite_or_none(scale_out_gain_sec),
             group_size=self._replica_groups.size(pair),
         )
@@ -1914,6 +1970,7 @@ class SchedulerCore:
         if accelerator.replica_id is not None:
             raise RuntimeError("accelerator is already reserved")
 
+        workflow_name = self.sessions[near.session_id].workflow_name
         replica_id = self._new_replica_id()
         replica = ModelReplicaRecord(
             replica_id=replica_id,
@@ -1922,6 +1979,7 @@ class SchedulerCore:
             gpu_kind=gpu_kind,
             accelerator_ids=(accelerator.config.accelerator_id,),
             state=ModelReplicaState.LOADING,
+            owner_workflow=workflow_name,
             expected_load_sec=near.load_sec,
             created_at=now,
         )
@@ -1935,6 +1993,7 @@ class SchedulerCore:
             accelerator=accelerator.config,
             reason="near_ready_prefetch",
             expected_load_sec=near.load_sec,
+            owner_workflow=workflow_name,
             session_id=near.session_id,
             node_id=near.node_id,
             prefetch_at=near.prefetch_at,
@@ -1987,6 +2046,28 @@ class SchedulerCore:
             )
         return actions
 
+    def _min_residency_sec(self, replica: ModelReplicaRecord) -> float:
+        """How long this replica must hold its device before it may be displaced.
+
+        Priced in what the replica itself cost to load, so it scales with the model
+        rather than needing a constant: a 6s load earns 6s of tenure, a 257s load earns
+        257s. A replica with no measured load duration is not protected, because
+        blocking eviction on a missing field would strand the device indefinitely.
+        """
+        multiple = self.scheduler_config.min_residency_load_multiple
+        load_duration_sec = replica.load_duration_sec
+        if multiple <= 0 or load_duration_sec is None:
+            return 0.0
+        return multiple * load_duration_sec
+
+    def _within_min_residency(self, replica: ModelReplicaRecord, now: float) -> bool:
+        # created_at is when the device was committed to this model, so the load time is
+        # inside the window: tenure is counted from the moment the card stopped being
+        # available to anyone else. A zero minimum short-circuits rather than comparing,
+        # so a disabled guard cannot react to a replica whose clock reads ahead of now.
+        minimum_sec = self._min_residency_sec(replica)
+        return minimum_sec > 0 and now - replica.created_at < minimum_sec
+
     def _start_eviction_for_decision(
         self,
         decision: PlacementDecision,
@@ -2022,6 +2103,8 @@ class SchedulerCore:
             if replica.state not in (ModelReplicaState.IDLE, ModelReplicaState.SUSPECT):
                 continue
             if replica.active_acquire_ids:
+                continue
+            if not redundant and self._within_min_residency(replica, now):
                 continue
             candidates.append(
                 EvictionCandidate(
@@ -2074,6 +2157,15 @@ class SchedulerCore:
             if victim.reload_cost_sec is None:
                 return False
             if bid.gain_sec <= victim.reload_cost_sec:
+                return False
+            # The victim must not be wanted back before the new replica has even
+            # finished loading. Pricing the gain alone let a scale-out take the card
+            # of a model whose reuse distance was zero, which relocates the queue
+            # instead of draining it and leaves the pool permanently over-subscribed.
+            horizon = self.scheduler_config.min_residency_load_multiple * bid.load_sec
+            if horizon > 0 and (
+                victim.reuse_distance_sec is None or victim.reuse_distance_sec < horizon
+            ):
                 return False
         accelerator_id = self.replicas[victim.replica_id].accelerator_ids[0]
         return self._scale_out_preserves_feasibility(
@@ -2157,9 +2249,15 @@ class SchedulerCore:
         if not self._scale_out_warranted(pending, decision, now):
             return None
         gain = self._scale_out_gain(pending, decision, now)
-        if gain is None:
+        load_sec = decision.predicted_load_sec
+        if gain is None or load_sec is None:
             return None
-        return _ScaleOutBid(pair=pair, gain_sec=gain, requirements=requirements)
+        return _ScaleOutBid(
+            pair=pair,
+            gain_sec=gain,
+            load_sec=load_sec,
+            requirements=requirements,
+        )
 
     def _mark_evicting(
         self,
@@ -2215,6 +2313,14 @@ class SchedulerCore:
         # A high-weight workflow's demand shrinks the effective distance (more
         # protected from eviction); a low-weight workflow's demand shrinks it
         # less. Equal weights (the default) leave raw distances unchanged.
+        # Under the scoped ablation only the workflow that loaded this replica can
+        # keep it alive, so another workflow wanting the same model no longer
+        # extends its residency.
+        scope = (
+            None
+            if self.scheduler_config.cross_workflow_lifecycle
+            else replica.owner_workflow
+        )
         distances = [
             max(0.0, candidate.upstream_eta - now)
             / self._workflow_weights.get(
@@ -2223,6 +2329,10 @@ class SchedulerCore:
             for candidate in near
             if candidate.deployment.model_key == replica.model_key
             and candidate.decision.gpu_kind == replica.gpu_kind
+            and (
+                scope is None
+                or self.sessions[candidate.session_id].workflow_name == scope
+            )
         ]
         if distances:
             return min(distances)
@@ -2233,6 +2343,8 @@ class SchedulerCore:
         # by how far its session has already progressed.
         for session in self.sessions.values():
             if session.state != SessionState.ACTIVE:
+                continue
+            if scope is not None and session.workflow_name != scope:
                 continue
             nodes = self._nodes[session.workflow_name]
             depth = self._node_depth.get(session.workflow_name, {})
@@ -2306,13 +2418,20 @@ class SchedulerCore:
         # oldest waiting request always outranks yield so nothing starves.
         if self.scheduler_config.policy != "cache" or len(blocked) < 2:
             return list(blocked)
-        demand: dict[str, int] = {}
+        # Scoping the tally makes a load pay for itself out of one workflow's queue
+        # only, so a model two workflows both want stops outranking a model one
+        # workflow wants just as badly.
+        demand: dict[tuple[str | None, str], int] = {}
         for pending in self.pending_acquires.values():
             model_key = self._pending_model_key(pending)
             if model_key is not None:
-                demand[model_key] = demand.get(model_key, 0) + 1
+                key = self._demand_key(self._pending_workflow_name(pending), model_key)
+                demand[key] = demand.get(key, 0) + 1
         for candidate in near:
-            key = candidate.deployment.model_key
+            key = self._demand_key(
+                self.sessions[candidate.session_id].workflow_name,
+                candidate.deployment.model_key,
+            )
             demand[key] = demand.get(key, 0) + 1
         starvation_sec = 0.5 * self.scheduler_config.acquire_timeout_sec
         ranked: list[tuple[float, int, tuple[PendingAcquire, PlacementDecision]]] = []
@@ -2323,7 +2442,8 @@ class SchedulerCore:
             if model_key is None or load_sec is None:
                 yield_score = 0.0
             else:
-                yield_score = demand.get(model_key, 1) / load_sec
+                key = self._demand_key(self._pending_workflow_name(pending), model_key)
+                yield_score = demand.get(key, 1) / load_sec
             if now - pending.created_at > starvation_sec:
                 yield_score = inf
             ranked.append((-yield_score, order, entry))
@@ -3794,6 +3914,13 @@ class _SchedulerActor:
                     "action_type": "evict_replica",
                     "reason": action.reason,
                     "scale_out_gain_sec": action.scale_out_gain_sec,
+                    # The score the victim actually lost on. Without it, scoping the
+                    # reuse distance to one workflow leaves no trace evidence at all,
+                    # and the cross_workflow_lifecycle arm cannot be audited.
+                    # inf means "nobody in scope wants this model" and is not JSON.
+                    "owner_workflow": replica.owner_workflow,
+                    "reuse_distance_sec": _finite_or_none(action.reuse_distance_sec),
+                    "reload_cost_sec": _finite_or_none(action.reload_cost_sec),
                 },
             )
 
@@ -3837,7 +3964,11 @@ class _SchedulerActor:
             if now < candidate.prefetch_at or identity in started:
                 continue
             replica = self.core._replica_for_near(candidate)
-            if replica is not None:
+            if not self._config.enable_prefetch:
+                # Counts the prefetches the full system would have issued here, which
+                # is what the ablation is measured against.
+                reason = "disabled"
+            elif replica is not None:
                 reason = (
                     "already_loading"
                     if replica.state == ModelReplicaState.LOADING
@@ -4004,6 +4135,10 @@ class _SchedulerActor:
             model_key=action.deployment.model_key,
             payload={
                 "reason": action.reason,
+                # model_key is a hash of the whole deployment; carrying the name keeps
+                # residency tables groupable by model without reversing it.
+                "model_name": action.deployment.model_name,
+                "owner_workflow": action.owner_workflow,
                 "max_model_len": action.deployment.serving.max_model_len,
                 "max_num_seqs": action.deployment.serving.max_num_seqs,
                 "max_num_batched_tokens": (

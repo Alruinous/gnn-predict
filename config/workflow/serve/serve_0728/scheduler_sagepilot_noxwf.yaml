@@ -1,0 +1,28 @@
+# Ablation: scheduler_sagepilot with model lifecycle decided per workflow instead of
+# across all of them. Three decision inputs get scoped to one workflow:
+#
+#   1. reuse-distance eviction reads only the owning workflow's demand, so another
+#      workflow wanting the same model no longer extends its residency;
+#   2. admission falls back to weighted-fair interleaving across workflows, with
+#      locality-first ordering applied inside each workflow's own queue;
+#   3. load-yield ranking tallies demand per workflow rather than pooling it.
+#
+# Replicas stay physically shared: model_key is unchanged, so a resident model still
+# serves whoever asks. Splitting the key instead would turn this workload's 5 model
+# keys into 11 (5 + 4 + 2) and the pool cannot hold that.
+#
+# Deliberately NOT scoped: _demand_requirements and _scale_out_preserves_feasibility.
+# Those are feasibility reservations, not preferences — narrowing them would let the
+# scale-out gate admit decisions it should refuse and manufacture a difference that
+# has nothing to do with lifecycle management.
+policy: cache
+acquire_timeout_sec: 1800.0
+elastic_replicas: true
+max_replicas_per_model: 2
+scale_out_margin_sec: 10.0
+scale_in_idle_sec: 60.0
+enable_prefetch: true
+cross_workflow_lifecycle: false
+# Must match scheduler_sagepilot, or this arm differs from the reference in two
+# factors and the lifecycle-scoping effect cannot be attributed.
+min_residency_load_multiple: 1.0

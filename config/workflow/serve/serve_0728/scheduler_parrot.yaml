@@ -1,0 +1,9 @@
+# Parrot's request ordering: first-come-first-served over the global arrival sequence.
+# Only the ordering rule is taken; Semantic Variables, prefix sharing and DAG-level
+# joint optimisation are deliberately not implemented, because they act on dimensions
+# other than model lifecycle and would confound the measurement.
+#
+# fifo already has no prefetch and no reuse-distance eviction, so the two ablation
+# switches are inert here and stay at their defaults.
+policy: fifo
+acquire_timeout_sec: 1800.0

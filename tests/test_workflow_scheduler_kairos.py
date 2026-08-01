@@ -266,7 +266,9 @@ def test_non_kairos_policy_keeps_weighted_interleave_ordering() -> None:
     values = tuple(core.pending_acquires.values())
 
     # A non-Kairos policy must not apply global SRPT; it keeps weighted interleave.
-    assert core._order_pending(values, now=3.0) == core._interleave_by_workflow(values)
+    assert core._order_pending(values, now=3.0) == core._interleave_by_workflow(
+        values, 3.0
+    )
 
 
 # --- Kairos disables prefetch and predictive eviction (fifo-equivalent) --------

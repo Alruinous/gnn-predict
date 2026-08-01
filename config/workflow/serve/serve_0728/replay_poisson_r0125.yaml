@@ -1,0 +1,25 @@
+# Poisson arrival, 0.0125 session/s per workflow. Arrival span ~1836s — the sparse end,
+# where the pool is never contended and lifecycle gains should shrink towards zero.
+#
+# Same arrival sequence as replay_poisson_r025 at half speed; see that file for why.
+timeout_sec: 7200
+arrival_seed: 42
+scenarios:
+  - dataset: gsm8k
+    workflow_name: moa_gsm8k
+    dataset_path: dataset/gsm8k/data/test.jsonl
+    sample_count: 20
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.0125
+  - dataset: mbpp
+    workflow_name: repair_mbpp
+    dataset_path: dataset/mbpp/sanitized-mbpp.json
+    sample_count: 20
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.0125
+  - dataset: qmsum
+    workflow_name: chain_qmsum
+    dataset_path: dataset/QMSum/data/ALL
+    sample_count: 20
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.0125

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
 import pytest
+import yaml
 
 from langchain.agents import AgentState
 from langchain_core.messages import AIMessage
 
 from experiment.workflow.experiments import dataset_replay, static_inputs
+from workflow import master
 from workflow.artifacts import SchedulerConfig
 from workflow.fleet import WorkflowFleet
 from workflow.schema import Workflow
@@ -22,6 +25,11 @@ def echo(
     parameters: Mapping[str, object],
 ) -> AgentState:
     return AgentState(messages=[AIMessage(content=str(inputs["text"]))])
+
+
+def build_registry() -> dict[str, object]:
+    """Resolved by --functions; must live in a module the Ray workers can import."""
+    return {"echo": echo}
 
 
 def echo_workflow(workflow_name: str) -> Workflow:
@@ -66,6 +74,67 @@ def test_static_inputs_experiment_drives_two_workflows(
 
     assert (tmp_path / "fleet" / "workflow_trace.jsonl").is_file()
     assert (tmp_path / "fleet" / "run_summary.json").is_file()
+
+
+def test_master_main_writes_a_run_manifest_beside_the_trace(
+    ray_session: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Covers the call site, not just write_run_manifest: a sweep recovers its factors
+    # from this file, so a main() that forgets to emit it loses them for good.
+    # ray.init/shutdown are stubbed because main() would otherwise tear down the
+    # session-scoped cluster the rest of the suite shares.
+    workflow_path = tmp_path / "wf.yaml"
+    workflow_path.write_text(yaml.safe_dump(echo_workflow("wf-a").model_dump(mode="json")))
+    experiment_path = tmp_path / "experiment.yaml"
+    experiment_path.write_text(
+        yaml.safe_dump(
+            {
+                "timeout_sec": 30,
+                "sessions": [
+                    {"workflow": "wf-a", "session_id": "a-1", "inputs": {"text": "alpha"}}
+                ],
+            }
+        )
+    )
+    scheduler_path = tmp_path / "scheduler.yaml"
+    scheduler_path.write_text(
+        yaml.safe_dump({"policy": "cache", "enable_prefetch": False})
+    )
+    monkeypatch.setattr(master.ray, "init", lambda **_: None)
+    monkeypatch.setattr(master.ray, "shutdown", lambda: None)
+
+    exit_code = master.main(
+        [
+            "--workflow-files",
+            str(workflow_path),
+            "--functions",
+            "test_workflow_master_experiment:build_registry",
+            "--experiment",
+            "experiment.workflow.experiments.static_inputs:run",
+            "--experiment-config",
+            str(experiment_path),
+            "--scheduler-config",
+            str(scheduler_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--run-id",
+            "r1",
+            "--fuse-nodes",
+        ]
+    )
+
+    assert exit_code == 0
+    run_dir = tmp_path / "out" / "r1"
+    assert (run_dir / "workflow_trace.jsonl").is_file()
+    manifest = json.loads((run_dir / master.MANIFEST_FILENAME).read_text())
+    assert manifest["run_id"] == "r1"
+    assert manifest["fuse_nodes"] is True
+    assert manifest["scheduler_config"]["enable_prefetch"] is False
+    assert manifest["experiment"]["timeout_sec"] == 30
+    assert [entry["path"] for entry in manifest["workflow_files"]] == [str(workflow_path)]
+    assert manifest["predictions"] is None
 
 
 def test_static_inputs_requires_sessions() -> None:

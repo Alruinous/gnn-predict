@@ -107,12 +107,8 @@ def main(argv: list[str] | None = None) -> int:
             variants=variant_results,
             summary=summarize_variant_results(variant_results),
         )
-        result_path = (
-            output_layout.results_dir
-            / (
-                f"{config_path.stem}_{args.gpu_node}_"
-                f"{int(config_started_at)}_results.json"
-            )
+        result_path = output_layout.results_dir / (
+            f"{config_path.stem}_{args.gpu_node}_{int(config_started_at)}_results.json"
         )
         write_result_document(result_path, document)
         logger.info("wrote result document to %s", result_path)

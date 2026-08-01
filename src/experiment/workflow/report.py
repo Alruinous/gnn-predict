@@ -1008,11 +1008,9 @@ def _validate_pair(
         _string(reference.get("strategy")),
         _string(candidate.get("strategy")),
     }
-    if (
-        "lg-batch" not in strategies
-        and reference_alignment.get("prediction_cache_sha256")
-        != candidate_alignment.get("prediction_cache_sha256")
-    ):
+    if "lg-batch" not in strategies and reference_alignment.get(
+        "prediction_cache_sha256"
+    ) != candidate_alignment.get("prediction_cache_sha256"):
         mismatched.append("prediction_cache_sha256")
     if mismatched:
         raise ValueError(f"paired trial alignment mismatch: {mismatched}")

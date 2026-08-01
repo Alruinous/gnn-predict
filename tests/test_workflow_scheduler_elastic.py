@@ -14,9 +14,11 @@ from workflow.artifacts import (
 from workflow.policy import EvictionCandidate, select_eviction_victim
 from workflow.replica import ReplicaLoadResult
 from workflow.scheduler import (
+    EvictReplicaAction,
     GrantInfo,
     LoadReplicaAction,
     SchedulerCore,
+    _ScaleOutBid,
 )
 from workflow.schema import Workflow
 from workflow.types import ModelReplicaState
@@ -130,6 +132,7 @@ def elastic_core(
     predictions: ResourceContractCache | None = None,
     max_num_seqs: int = 1,
     max_replicas_per_model: int = 2,
+    min_residency_load_multiple: float = 0.0,
 ) -> SchedulerCore:
     accelerators = tuple(
         AcceleratorConfig(
@@ -149,6 +152,7 @@ def elastic_core(
             max_replicas_per_model=max_replicas_per_model,
             scale_out_margin_sec=0.0,
             scale_in_idle_sec=0.0,
+            min_residency_load_multiple=min_residency_load_multiple,
         ),
         predictions=predictions or _predictions(max_num_seqs=max_num_seqs),
     )
@@ -418,3 +422,198 @@ def test_scale_out_gain_grows_with_queue_depth() -> None:
     # marginal gain shrinks once a second replica doubles the slots.
     assert gains == sorted(gains)
     assert gains[-1] > gains[0]
+
+
+# --- anti-flap: a placement must stand for as long as it cost to make ----------
+#
+# Without this guard a pool whose device count equals its model count thrashes: one
+# scale-out turns N residency claims on N devices into N+1, and the homeless model
+# then displaces someone else forever. A measured 5-device run evicted 35 replicas,
+# 74% of them inside 60s, against loads costing 45-165s.
+
+TENURE_MULTIPLE = 10.0
+TENURE_SEC = TENURE_MULTIPLE * LOAD_SEC
+
+
+def _seed_resident(core: SchedulerCore, *, now: float = 2.0) -> tuple[str, float]:
+    """Load "test-model" for one request and release it, leaving an idle replica."""
+    _, acquire_id = request_agent(
+        core, "seed", workflow_name="two-model-workflow", node_id="left", now=now - 1.0
+    )
+    grant, _ = load_and_grant(core, acquire_id, now=now)
+    core.complete(grant.task_id, agent_report(core, grant), acquire_id=acquire_id)
+    replica = core.replicas[grant.replica_id]
+    assert replica.state == ModelReplicaState.IDLE
+    return grant.replica_id, replica.created_at
+
+
+def _demand_other_model(core: SchedulerCore, *, now: float) -> None:
+    request_agent(
+        core, "seed", workflow_name="two-model-workflow", node_id="right", now=now
+    )
+
+
+def test_young_replica_is_not_displaced_but_becomes_evictable_once_it_has_tenure() -> (
+    None
+):
+    # One device, two models: serving the second one requires evicting the first.
+    core = elastic_core(
+        v100_count=1,
+        workflow=two_model_workflow(),
+        predictions=_predictions(("test-model", "other-model")),
+        min_residency_load_multiple=TENURE_MULTIPLE,
+    )
+    replica_id, created_at = _seed_resident(core)
+    _demand_other_model(core, now=created_at + 0.1)
+
+    # Still inside its tenure: the device stays committed and nothing is dispatched.
+    assert core.tick_once(now=created_at + TENURE_SEC - 0.1) == []
+    assert core.replicas[replica_id].state == ModelReplicaState.IDLE
+
+    # Tenure served: the same request now displaces it. Bounded wait, not deadlock.
+    actions = core.tick_once(now=created_at + TENURE_SEC + 0.1)
+
+    assert [action.replica_id for action in actions] == [replica_id]
+    assert core.replicas[replica_id].state == ModelReplicaState.EVICTING
+
+
+def test_guard_disabled_displaces_the_replica_immediately() -> None:
+    # Regression pin: the default must reproduce the unguarded behaviour exactly.
+    core = elastic_core(
+        v100_count=1,
+        workflow=two_model_workflow(),
+        predictions=_predictions(("test-model", "other-model")),
+    )
+    replica_id, created_at = _seed_resident(core)
+    _demand_other_model(core, now=created_at + 0.1)
+
+    actions = core.tick_once(now=created_at + 0.2)
+
+    assert [action.replica_id for action in actions] == [replica_id]
+
+
+def test_tenure_never_blocks_reclaiming_a_redundant_spare() -> None:
+    # A spare that has idled past scale_in_idle_sec costs no residency to reclaim, so
+    # holding it for tenure would strand a device that nothing needs.
+    core = elastic_core(
+        v100_count=2,
+        workflow=two_model_workflow(),
+        predictions=_predictions(("test-model", "other-model")),
+        min_residency_load_multiple=TENURE_MULTIPLE,
+    )
+    _, first_acquire = request_agent(
+        core, "s1", workflow_name="two-model-workflow", node_id="left", now=1.0
+    )
+    grant, _ = load_and_grant(core, first_acquire, now=2.0)
+    _, second_acquire = request_agent(
+        core, "s2", workflow_name="two-model-workflow", node_id="left", now=3.0
+    )
+    scale_out = next(
+        action
+        for action in core.tick_once(now=4.0)
+        if isinstance(action, LoadReplicaAction)
+    )
+    complete_load(core, scale_out, 5.0)
+    core.tick_once(now=5.0)
+    spare = core.replicas[scale_out.replica_id]
+    core.complete(grant.task_id, agent_report(core, grant), acquire_id=first_acquire)
+    second_grant = core.poll_grant(second_acquire)
+    assert second_grant is not None
+    core.complete(
+        second_grant.task_id,
+        agent_report(core, second_grant),
+        acquire_id=second_acquire,
+    )
+    assert core._is_redundant(spare, 6.0)
+
+    request_agent(
+        core, "s3", workflow_name="two-model-workflow", node_id="right", now=6.0
+    )
+    actions = core.tick_once(now=6.0)
+
+    # Both copies are redundant once the group holds two, so either may be taken; what
+    # matters is that a copy younger than its tenure was still reclaimed.
+    assert 6.0 - spare.created_at < TENURE_SEC
+    evicted = [action for action in actions if isinstance(action, EvictReplicaAction)]
+    assert len(evicted) == 1
+    reclaimed = core.replicas[evicted[0].replica_id]
+    assert reclaimed.deployment.model_name == "test-model"
+    assert 6.0 - reclaimed.created_at < TENURE_SEC
+
+
+def test_explicit_eviction_ignores_tenure() -> None:
+    # evict_all runs this path at shutdown; a tenure hold there would stall teardown.
+    core = elastic_core(
+        v100_count=1, workflow=two_model_workflow(),
+        predictions=_predictions(("test-model", "other-model")),
+        min_residency_load_multiple=TENURE_MULTIPLE,
+    )
+    replica_id, _ = _seed_resident(core)
+
+    action = core.request_eviction(replica_id)
+
+    assert action.replica_id == replica_id
+    assert core.replicas[replica_id].state == ModelReplicaState.EVICTING
+
+
+def test_suspect_cleanup_ignores_tenure() -> None:
+    core = elastic_core(
+        v100_count=1, workflow=two_model_workflow(),
+        predictions=_predictions(("test-model", "other-model")),
+        min_residency_load_multiple=TENURE_MULTIPLE,
+    )
+    replica_id, _ = _seed_resident(core)
+    core.replicas[replica_id].state = ModelReplicaState.SUSPECT
+
+    actions = core._start_suspect_cleanup()
+
+    assert [action.replica_id for action in actions] == [replica_id]
+
+
+def _bid_and_victim(
+    core: SchedulerCore, replica_id: str, *, reuse_distance_sec: float
+) -> tuple[_ScaleOutBid, EvictionCandidate]:
+    replica = core.replicas[replica_id]
+    bid = _ScaleOutBid(
+        pair=("other-key", "v100"),
+        gain_sec=1_000.0,
+        load_sec=LOAD_SEC,
+        requirements={},
+    )
+    victim = EvictionCandidate(
+        replica_id=replica_id,
+        state=replica.state,
+        idle_since=0.0,
+        reuse_distance_sec=reuse_distance_sec,
+        reload_cost_sec=LOAD_SEC,
+        redundant=False,
+    )
+    return bid, victim
+
+
+def test_scale_out_refuses_a_victim_wanted_before_the_new_replica_can_load() -> None:
+    # The observed bad decision: evict a model with reuse distance 0 for a gain of
+    # 22s. Pricing the gain alone relocates the queue instead of draining it.
+    core = elastic_core(
+        v100_count=1, workflow=two_model_workflow(),
+        predictions=_predictions(("test-model", "other-model")),
+        min_residency_load_multiple=TENURE_MULTIPLE,
+    )
+    replica_id, _ = _seed_resident(core)
+    bid, victim = _bid_and_victim(core, replica_id, reuse_distance_sec=0.0)
+
+    assert not core._scale_out_clears_gates(bid, victim)
+
+
+def test_scale_out_accepts_a_victim_nobody_needs_soon() -> None:
+    core = elastic_core(
+        v100_count=1, workflow=two_model_workflow(),
+        predictions=_predictions(("test-model", "other-model")),
+        min_residency_load_multiple=TENURE_MULTIPLE,
+    )
+    replica_id, _ = _seed_resident(core)
+    bid, victim = _bid_and_victim(
+        core, replica_id, reuse_distance_sec=TENURE_SEC + 1.0
+    )
+
+    assert core._scale_out_clears_gates(bid, victim)

@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
+import json
 import signal
+import subprocess
 import time
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -266,6 +270,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             prediction_path=args.predictions,
         )
         fleet.start()
+        write_run_manifest(
+            run_dir,
+            run_id=run_id,
+            scheduler_config=scheduler_config,
+            workflow_paths=workflow_paths,
+            predictions=args.predictions,
+            experiment_config_path=args.experiment_config,
+            experiment_config=experiment_config,
+            fuse_nodes=args.fuse_nodes,
+            priority_weight=weights,
+        )
         _install_signal_handlers()
         try:
             for workflow in workflows:
@@ -284,6 +299,79 @@ def main(argv: Sequence[str] | None = None) -> int:
         if ray.is_initialized():
             ray.shutdown()
     return 0
+
+
+MANIFEST_FILENAME = "run_manifest.json"
+
+
+def _file_digest(path: str | Path) -> dict[str, object]:
+    resolved = Path(path)
+    return {
+        "path": str(resolved),
+        "sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+    }
+
+
+def _git_revision() -> dict[str, object] | None:
+    # Provenance is nice to have; a checkout without git must not fail an experiment.
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return {"commit": commit, "dirty": bool(status.strip())}
+
+
+def write_run_manifest(
+    run_dir: Path,
+    *,
+    run_id: str,
+    scheduler_config: SchedulerConfig,
+    workflow_paths: Sequence[Path],
+    predictions: str | None,
+    experiment_config_path: str | None,
+    experiment_config: Mapping[str, object],
+    fuse_nodes: bool,
+    priority_weight: Mapping[str, float],
+) -> Path:
+    """Record every factor that distinguishes this run from its neighbours.
+
+    The trace records what happened, not what was asked for: the accelerator
+    inventory, the prediction cache and the fusion flag appear nowhere in it. A
+    factorial sweep has to recover those from somewhere other than the directory
+    name, which is what this file is for.
+    """
+    manifest: dict[str, object] = {
+        "run_id": run_id,
+        "started_at": datetime.now(UTC).isoformat(),
+        "git": _git_revision(),
+        "scheduler_config": scheduler_config.model_dump(mode="json"),
+        "predictions": None if predictions is None else _file_digest(predictions),
+        "workflow_files": [_file_digest(path) for path in workflow_paths],
+        "fuse_nodes": fuse_nodes,
+        "experiment_config": (
+            None
+            if experiment_config_path is None
+            else _file_digest(experiment_config_path)
+        ),
+        "experiment": dict(experiment_config),
+        "priority_weight": dict(priority_weight),
+    }
+    path = run_dir / MANIFEST_FILENAME
+    with path.open("x", encoding="utf-8") as stream:
+        json.dump(manifest, stream, indent=2, sort_keys=True)
+        stream.write("\n")
+    return path
 
 
 def _load_experiment_config(path: str | None) -> dict[str, object]:

@@ -668,6 +668,51 @@ def test_prefetch_eviction_is_not_recorded_as_a_skip() -> None:
     assert events(actor, "prefetch_skipped") == []
 
 
+def test_eviction_decision_records_the_score_the_victim_lost_on() -> None:
+    # Without these the cross_workflow_lifecycle arm cannot be audited: scoping the
+    # reuse distance to the owning workflow would leave no trace evidence at all.
+    actor = trace_actor(agent_workflow(), predictions=predictions())
+    deployment = ModelDeploymentConfig(
+        model_name="model",
+        model_path="/models/model",
+        dtype="float16",
+        serving=ServingConfig(
+            max_model_len=1024, max_num_seqs=1, max_num_batched_tokens=1024
+        ),
+    )
+    accelerator = next(iter(actor.core.accelerators.values()))
+    replica = ModelReplicaRecord(
+        replica_id="victim",
+        deployment=deployment,
+        model_key=deployment.model_key,
+        gpu_kind="v100",
+        accelerator_ids=(accelerator.config.accelerator_id,),
+        state=ModelReplicaState.IDLE,
+        owner_workflow="owner-wf",
+        created_at=1.0,
+        expected_load_sec=5.0,
+    )
+    actor.core.replicas[replica.replica_id] = replica
+    action = EvictReplicaAction(
+        replica_id="victim",
+        accelerator_ids=(accelerator.config.accelerator_id,),
+        reason="ready_load",
+        reuse_distance_sec=float("inf"),
+        reload_cost_sec=5.0,
+    )
+
+    actor._record_scheduler_decisions([action], 9.0)
+
+    payload = events(actor, "scheduler_decision")[-1].payload
+    assert payload["action_type"] == "evict_replica"
+    assert payload["owner_workflow"] == "owner-wf"
+    assert payload["reload_cost_sec"] == 5.0
+    # inf means "nobody in scope wants this model"; json.dumps would emit a bare
+    # Infinity token that strict readers reject, so it must surface as null.
+    assert payload["reuse_distance_sec"] is None
+    json.dumps(payload)
+
+
 @pytest.mark.parametrize(
     "payload",
     [

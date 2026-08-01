@@ -1469,10 +1469,10 @@ def replace_fc_structure(
 
 
 def replace_conv_kernel(
-    model: nn.Module, 
-    layer_name: str, 
-    new_kernel: list[int], 
-    padding: int | tuple[int, int] | str
+    model: nn.Module,
+    layer_name: str,
+    new_kernel: list[int],
+    padding: int | tuple[int, int] | str,
 ) -> nn.Module:
     if len(new_kernel) != 2:
         raise ValueError("new_kernel must contain two integers")

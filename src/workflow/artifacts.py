@@ -59,6 +59,16 @@ class SchedulerConfig(ArtifactModel):
     max_replicas_per_model: PositiveInt = 2
     scale_out_margin_sec: NonNegativeFloat = 5.0
     scale_in_idle_sec: NonNegativeFloat = 30.0
+    # Anti-flap: a placement decision must stand for at least this multiple of what it
+    # cost to load. Measured runs without it evicted 74% of replicas inside 60s while a
+    # load costs 45-165s, so residency was shorter than the load that created it.
+    # Zero reproduces the unguarded behaviour exactly.
+    min_residency_load_multiple: NonNegativeFloat = 0.0
+    # Ablation switches. Both gate decisions only; neither changes what a replica is
+    # or which deployments share one, so a run with either off stays comparable to
+    # the full system on every trace metric.
+    enable_prefetch: bool = True
+    cross_workflow_lifecycle: bool = True
 
     @model_validator(mode="after")
     def validate_elastic_policy(self) -> Self:

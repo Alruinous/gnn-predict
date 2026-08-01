@@ -1,0 +1,20 @@
+# Ablation: scheduler_sagepilot with speculative loading removed.
+#
+# Only the prefetch *actions* are gated. The near-ready set is still computed, because
+# reuse-distance eviction, the scale-out feasibility reservation and the load-yield
+# ordering all read it; suppressing the set instead would degrade eviction to its
+# static-depth fallback and this arm would no longer isolate prefetch.
+#
+# Evidence the switch took effect: prefetch_started == 0 and every prefetch_skipped
+# event carries reason "disabled".
+policy: cache
+acquire_timeout_sec: 1800.0
+elastic_replicas: true
+max_replicas_per_model: 2
+scale_out_margin_sec: 10.0
+scale_in_idle_sec: 60.0
+enable_prefetch: false
+cross_workflow_lifecycle: true
+# Must match scheduler_sagepilot, or this arm differs from the reference in two
+# factors and the prefetch effect cannot be attributed.
+min_residency_load_multiple: 1.0

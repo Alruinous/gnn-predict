@@ -9,6 +9,7 @@ from .service import run_monitoring
 
 logger = logging.getLogger(__name__)
 
+
 def parse_models_arg(raw_models: str) -> tuple[str, ...]:
     normalized_models: list[str] = []
     seen_models: set[str] = set()

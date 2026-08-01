@@ -143,6 +143,7 @@ def policy_core(
     *,
     accelerator_count: int = 1,
     policy: Literal["fifo", "history", "cache"] = "cache",
+    enable_prefetch: bool = True,
 ) -> SchedulerCore:
     model_names = tuple(
         node.model.name for node in workflow.nodes if isinstance(node, AgentNodeConfig)
@@ -163,6 +164,7 @@ def policy_core(
             accelerators=accelerators,
             eps_time_sec=0.5,
             history_ema_alpha=0.5,
+            enable_prefetch=enable_prefetch,
         ),
         predictions=ResourceContractCache(
             version=1,
@@ -354,6 +356,24 @@ def test_fifo_disables_near_ready_prefetch() -> None:
 
     assert core.near_ready_tasks() == ()
     assert core.tick_once(now=20.0) == []
+
+
+def test_disabled_prefetch_issues_no_load_but_keeps_the_near_ready_signal() -> None:
+    # The ablation must remove speculative loading only. near_ready_tasks() also feeds
+    # reuse-distance eviction and the load-yield ordering, so an empty set here would
+    # silently degrade eviction and the arm would measure two changes, not one.
+    core = policy_core(near_workflow(), enable_prefetch=False)
+    core.register_session("near-session", NEAR_WORKFLOW_NAME)
+    core.begin_node("near-session", "upstream", ["input-near"])
+    core.record_running_upstream("near-session", "upstream", finish_at=20.0)
+
+    near = core.near_ready_tasks()
+
+    assert len(near) == 1
+    assert near[0].prefetch_at == 14.5
+    assert core.tick_once(now=14.5) == []
+    assert core.tick_once(now=25.0) == []
+    assert core.replicas == {}
 
 
 def test_history_prefetch_requires_observed_load_history() -> None:

@@ -346,9 +346,7 @@ def draw_qmsum_schedule_panel(
         bold=True,
         align="right",
     )
-    draw_text(
-        pdf, x0, 184.0, "Session-at-a-time", size=MIN_FONT_SIZE, bold=True
-    )
+    draw_text(pdf, x0, 184.0, "Session-at-a-time", size=MIN_FONT_SIZE, bold=True)
     draw_text(
         pdf,
         x0 + 91.0,
@@ -452,9 +450,7 @@ def draw_qmsum_schedule_panel(
 
 
 def draw_qmsum_cdf_panel(pdf: Canvas, summary: dict[str, Any]) -> None:
-    draw_text(
-        pdf, 252.0, 211.0, "(b) Bubble ratio", size=PANEL_FONT_SIZE, bold=True
-    )
+    draw_text(pdf, 252.0, 211.0, "(b) Bubble ratio", size=PANEL_FONT_SIZE, bold=True)
     draw_text(
         pdf,
         252.0,

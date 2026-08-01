@@ -22,4 +22,3 @@ class DataItem(BaseModel):
             varient_name=varient_name,
             varient_path=varient_path,
         )
-        

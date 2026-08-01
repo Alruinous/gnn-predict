@@ -1,0 +1,31 @@
+# Poisson arrival, 0.025 session/s per workflow (0.075 aggregate). Arrival span ~918s.
+#
+# Rate-matched to config/workflow/serve/motivation_20260727/replay_eval.yaml, so this
+# cell is directly comparable to the eval_20260727 runs.
+#
+# The three replay_poisson_* files are the SAME arrival sequence at three speeds, not
+# three different random draws: poisson_arrival_offsets seeds its RNG from
+# (arrival_seed, "arrival", workflow_name) only, and expovariate(lambda) = -ln(U)/lambda
+# consumes an identical U stream, so offsets scale exactly by the rate ratio. The rate
+# dimension is therefore a paired comparison with no arrival jitter between cells.
+timeout_sec: 7200
+arrival_seed: 42
+scenarios:
+  - dataset: gsm8k
+    workflow_name: moa_gsm8k
+    dataset_path: dataset/gsm8k/data/test.jsonl
+    sample_count: 20
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.025
+  - dataset: mbpp
+    workflow_name: repair_mbpp
+    dataset_path: dataset/mbpp/sanitized-mbpp.json
+    sample_count: 20
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.025
+  - dataset: qmsum
+    workflow_name: chain_qmsum
+    dataset_path: dataset/QMSum/data/ALL
+    sample_count: 20
+    arrival_process: poisson
+    arrival_rate_per_sec: 0.025

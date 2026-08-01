@@ -75,11 +75,67 @@ def test_scheduler_config_merge_with_discovered_accelerators() -> None:
 
 def test_load_committed_serve_workflows() -> None:
     paths = [
-        ROOT / "config" / "workflow" / "serve" / "qmsum.yaml",
-        ROOT / "config" / "workflow" / "serve" / "mbpp.yaml",
+        ROOT / "config" / "workflow" / "serve" / "qmsum1.yaml",
+        ROOT / "config" / "workflow" / "serve" / "mbpp1.yaml",
     ]
     workflows = master.load_workflows(paths)
-    assert {workflow.workflow_name for workflow in workflows} == {"qmsum", "mbpp"}
+    assert {workflow.workflow_name for workflow in workflows} == {"qmsum1", "mbpp1"}
+
+
+def test_run_manifest_records_every_experiment_factor(tmp_path: Path) -> None:
+    predictions = tmp_path / "predictions.yaml"
+    predictions.write_text("version: 2\nentries: []\n")
+    experiment = tmp_path / "replay.yaml"
+    experiment.write_text("arrival_seed: 42\n")
+    workflow_path = tmp_path / "wf.yaml"
+    workflow_path.write_text(yaml.safe_dump(build_qmsum_workflow().model_dump(mode="json")))
+    accelerators = master.discover_accelerators([_node("w0", 1, "V100")], gpu_mem_mb={"v100": 32768})
+    scheduler_config = SchedulerConfig.model_validate(
+        {
+            "policy": "cache",
+            "enable_prefetch": False,
+            "cross_workflow_lifecycle": False,
+            "accelerators": [acc.model_dump() for acc in accelerators],
+        }
+    )
+
+    path = master.write_run_manifest(
+        tmp_path,
+        run_id="r1",
+        scheduler_config=scheduler_config,
+        workflow_paths=[workflow_path],
+        predictions=str(predictions),
+        experiment_config_path=str(experiment),
+        experiment_config={"arrival_seed": 42},
+        fuse_nodes=True,
+        priority_weight={"qmsum": 1.0},
+    )
+    manifest = yaml.safe_load(path.read_text())
+
+    assert manifest["run_id"] == "r1"
+    assert manifest["fuse_nodes"] is True
+    assert manifest["scheduler_config"]["enable_prefetch"] is False
+    assert manifest["scheduler_config"]["cross_workflow_lifecycle"] is False
+    assert manifest["scheduler_config"]["accelerators"][0]["gpu_kind"] == "v100"
+    assert len(manifest["predictions"]["sha256"]) == 64
+    assert manifest["experiment"] == {"arrival_seed": 42}
+    assert [entry["path"] for entry in manifest["workflow_files"]] == [str(workflow_path)]
+
+
+def test_run_manifest_refuses_to_overwrite(tmp_path: Path) -> None:
+    kwargs: dict[str, object] = {
+        "run_id": "r1",
+        "scheduler_config": SchedulerConfig(),
+        "workflow_paths": [],
+        "predictions": None,
+        "experiment_config_path": None,
+        "experiment_config": {},
+        "fuse_nodes": False,
+        "priority_weight": {},
+    }
+    master.write_run_manifest(tmp_path, **kwargs)  # type: ignore[arg-type]
+    with pytest.raises(FileExistsError):
+        master.write_run_manifest(tmp_path, **kwargs)  # type: ignore[arg-type]
 
 
 def test_load_workflows_rejects_duplicate_names(tmp_path: Path) -> None:
