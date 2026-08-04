@@ -15,6 +15,7 @@ from experiment.workflow.cache_replay import (
     TraceRun,
     calibrate_prediction_cache,
     read_trace_run,
+    resolve_agent_duration,
 )
 from workflow.artifacts import (
     ResourceContract,
@@ -24,6 +25,39 @@ from workflow.artifacts import (
 )
 from workflow.schema import Workflow
 from workflow.types import WorkflowModelFeatureKey
+
+
+@pytest.mark.parametrize(
+    ("batch_size", "expected"),
+    (
+        (1, (3.0, "node_batch")),
+        (2, (2.0, "exact")),
+        (3, (4.0, "model_batch")),
+        (4, (5.0, "task_any_batch")),
+    ),
+)
+def test_resolve_agent_duration_preserves_replay_fallback_order(
+    batch_size: int,
+    expected: tuple[float, str],
+) -> None:
+    table = AgentDurationTable(
+        exact={("s", "node", 2): 2.0},
+        node_batch={("wf", "node", 1): 3.0},
+        model_batch={("model-key", "v100", 3): 4.0},
+        task_any_batch={("s", "node"): 5.0},
+    )
+
+    observed = resolve_agent_duration(
+        table,
+        session_id="s",
+        workflow_name="wf",
+        node_id="node",
+        batch_size=batch_size,
+        model_key="model-key",
+        gpu_kind="v100",
+    )
+
+    assert observed == expected
 
 
 def prediction(

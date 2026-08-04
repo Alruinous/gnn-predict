@@ -1,0 +1,20 @@
+# The baseline harness for serve_0729: first-come-first-served admission and nothing
+# else. Shared by the parrot, formula_baseline and gbdt_baseline arms so that the
+# prediction cache is the only factor separating those three.
+#
+# Under policy fifo every SagePilot mechanism is off structurally, not by switch:
+# _collect_near_ready_tasks returns [] so prefetch has no input, _reload_cost returns
+# None so eviction is not cost-aware, _order_by_load_yield returns its input unchanged,
+# the locality-first branch of _order_pending is not entered, and
+# SchedulerConfig.validate_elastic_policy forbids elastic_replicas outside "cache".
+# enable_prefetch, cross_workflow_lifecycle and min_residency_load_multiple are left at
+# their defaults rather than written out, because setting them here would suggest they
+# still decide something.
+#
+# The predictor is not inert despite all that: select_placement reads
+# peak_vram_mb_upper_bound, and the three caches disagree about whether Qwen3-4B fits a
+# 32 GB V100, so swapping the cache still moves work between card kinds.
+policy: fifo
+# Matches every serve_0728 arm. _order_pending and _order_by_load_yield derive their
+# starvation threshold from 0.5 * acquire_timeout_sec, so this is not a free parameter.
+acquire_timeout_sec: 1800.0

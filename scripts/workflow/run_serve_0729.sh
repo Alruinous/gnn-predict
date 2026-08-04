@@ -1,27 +1,34 @@
 #!/bin/sh
-# Run ONE cell of the serve_0728 matrix against a resident Ray head and exit.
+# Run ONE cell of the serve_0729 GPU-time-distribution matrix and exit.
+#
+# serve_0729 differs from serve_0728 in what "GBDT" and "Formula" mean. There they were
+# SagePilot with its predictor swapped, i.e. predictor ablations. Here the four baseline
+# arms use none of SagePilot's scheduling mechanisms and keep only their own prediction
+# cache, so parrot / formula_baseline / gbdt_baseline differ from one another in exactly
+# one factor: the cache. The *_with_sagepilot arms reproduce the serve_0728 definition on
+# the same cards for direct comparison.
 #
 # Must run from the main checkout: the resident cluster's _SchedulerActor and NodeWorker
 # actors carry no runtime_env, so they always import /home/wangjh/gnn_predict/src. A
 # master started from a worktree ships a SchedulerConfig whose field set does not match
-# the actors' class and dies mid-tick. After changing SchedulerConfig, restart the
-# resident actors on every head before submitting.
+# the actors' class and dies mid-tick.
 #
-# Factors: ARM x ARRIVAL x RAY_PORT (hardware) x REPEAT. One cluster runs one experiment
-# at a time (each run evict_all's the shared GPU pool); parallelism comes from the three
-# heads, which are the three hardware cells.
+# One cluster runs one experiment at a time (each run evict_all's the shared GPU pool).
 #
 # Usage (one line = one run, no loops):
-#   ARM=sagepilot ARRIVAL=burst RAY_PORT=6661 REPEAT=1 sh scripts/workflow/run_serve_0728.sh
-#   ARM=noprefetch ARRIVAL=poisson_r025 RAY_PORT=6663 REPEAT=2 sh scripts/workflow/run_serve_0728.sh
+#   ARM=parrot ARRIVAL=burst RAY_PORT=6663 REPEAT=1 sh scripts/workflow/run_serve_0729.sh
 #
-# Output: output/serve_0728/<hw>__<arrival>__<arm>/r<REPEAT>/
+# Output: output/serve_0729/<hw>__<arrival>__<arm>/r<REPEAT>/
 set -e
 
 PROJECT_DIR="${PROJECT_DIR:-/home/wangjh/gnn_predict}"
-CFG="config/workflow/serve/serve_0728"
+# The arrival and workflow definitions are read from serve_0728's directory rather than
+# copied: run_manifest.json records each file's sha256, so reusing the originals proves
+# the two datasets were offered the identical session sequence.
+CFG="config/workflow/serve/serve_0729"
+ARRIVAL_CFG="config/workflow/serve/serve_0728"
 WORKFLOW_CFG="config/workflow/serve/motivation_20260727"
-OUTPUT_ROOT="${OUTPUT_ROOT:-output/serve_0728}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-output/serve_0729}"
 
 ARM="${ARM:?ARM is required}"
 ARRIVAL="${ARRIVAL:?ARRIVAL is required}"
@@ -31,18 +38,19 @@ REPEAT="${REPEAT:?REPEAT is required}"
 # An unknown factor value must fail here. Falling back to a default would produce a run
 # that looks valid and only reveals itself as the wrong cell at report time.
 case "$ARM" in
-  sagepilot)  SCHED=scheduler_sagepilot;            PREDICTIONS=cache/profile_v2/predictions.yaml;  FUSE=1 ;;
-  analytical) SCHED=scheduler_sagepilot;            PREDICTIONS=cache/static/predictions.yaml;  FUSE=1 ;;
-  gbdt)       SCHED=scheduler_sagepilot;            PREDICTIONS=cache/tabular/predictions.yaml; FUSE=1 ;;
-  # The three ablations share the reference cell's cache on purpose: each must differ
-  # from sagepilot in exactly one mechanism, or its effect cannot be attributed.
-  nofuse)     SCHED=scheduler_sagepilot;            PREDICTIONS=cache/profile_v2/predictions.yaml;  FUSE=  ;;
-  noprefetch) SCHED=scheduler_sagepilot_noprefetch; PREDICTIONS=cache/profile_v2/predictions.yaml;  FUSE=1 ;;
-  noxwf)      SCHED=scheduler_sagepilot_noxwf;      PREDICTIONS=cache/profile_v2/predictions.yaml;  FUSE=1 ;;
-  # The two published orderings keep cache/profile (raw measurements): profile_v2 and
-  # gnn_v2 carry this project's own load-time calibration, which is not theirs to get.
-  parrot)     SCHED=scheduler_parrot;               PREDICTIONS=cache/profile/predictions.yaml; FUSE=  ;;
-  kairos)     SCHED=scheduler_kairos;               PREDICTIONS=cache/profile/predictions.yaml; FUSE=  ;;
+  # Four baselines. No prefetch, no cost-aware eviction, no load-yield ordering, no
+  # elastic replicas, no anti-flap, no node fusion — see scheduler_baseline_fifo.yaml.
+  parrot)           SCHED=scheduler_baseline_fifo; PREDICTIONS=cache/profile/predictions.yaml;    FUSE=  ;;
+  kairos)           SCHED=scheduler_kairos;        PREDICTIONS=cache/profile/predictions.yaml;    FUSE=  ;;
+  formula_baseline) SCHED=scheduler_baseline_fifo; PREDICTIONS=cache/static/predictions.yaml;     FUSE=  ;;
+  gbdt_baseline)    SCHED=scheduler_baseline_fifo; PREDICTIONS=cache/tabular/predictions.yaml;    FUSE=  ;;
+  # The full system.
+  sagepilot)        SCHED=scheduler_sagepilot;     PREDICTIONS=cache/profile_v2/predictions.yaml; FUSE=1 ;;
+  # The serve_0728 reading of the same two predictors: full SagePilot scheduler, cache
+  # swapped. Run second, so the figure can separate "changed the predictor" from
+  # "changed the whole scheduler" on one set of cards.
+  formula_with_sagepilot) SCHED=scheduler_sagepilot; PREDICTIONS=cache/static/predictions.yaml;  FUSE=1 ;;
+  gbdt_with_sagepilot)    SCHED=scheduler_sagepilot; PREDICTIONS=cache/tabular/predictions.yaml; FUSE=1 ;;
   *) echo "unknown ARM: $ARM" >&2; exit 2 ;;
 esac
 
@@ -59,12 +67,10 @@ esac
 cd "$PROJECT_DIR"
 . .venv/bin/activate
 
-# Read the card mix from the head instead of assuming it from the port: the three
-# clusters have been re-provisioned since this matrix started, so a port no longer
-# implies a GPU count. This also keeps the directory's hardware segment identical to
-# the accelerator list run_manifest.json records, because both come from Ray.
-# Only `ray status -v` reports accelerator_type. Its cluster totals come before the
-# first per-node block, so stop there rather than summing each node's copy twice.
+# Read the card mix from the head instead of assuming it from the port, so the
+# directory's hardware segment always matches the accelerator list run_manifest.json
+# records. Only `ray status -v` reports accelerator_type, and its cluster totals come
+# before the first per-node block, so stop there rather than counting each node twice.
 HW_SPEC=$(ray status --address "127.0.0.1:$RAY_PORT" -v | awk '
   /^Node:/ { exit }
   $2 == "GPU" { split($1, f, "/"); total = f[2] + 0 }
@@ -98,7 +104,7 @@ PYTHONPATH=src PYTHONHASHSEED=0 python -m workflow.master \
   --workflow-files "$WORKFLOW_CFG/h5_moa_gsm8k.yaml,$WORKFLOW_CFG/h5_repair_mbpp.yaml,$WORKFLOW_CFG/h5_chain_qmsum.yaml" \
   --functions experiment.workflow.motivation_workflows:build_registry \
   --experiment experiment.workflow.experiments.dataset_replay:run \
-  --experiment-config "$CFG/replay_${ARRIVAL}.yaml" \
+  --experiment-config "$ARRIVAL_CFG/replay_${ARRIVAL}.yaml" \
   --scheduler-config "$CFG/$SCHED.yaml" \
   --vllm-python "$PROJECT_DIR/envs/vllm-v100/.venv/bin/python" \
   --predictions "$PREDICTIONS" \

@@ -45,6 +45,8 @@ PolicyName = Literal[
     "fifo",
     "kairos",
 ]
+AgentDurationSource = Literal["exact", "node_batch", "model_batch", "task_any_batch"]
+LoadDurationSource = Literal["cold", "warm", "any"]
 
 # Replay arms that exercise a scheduler policy directly rather than swapping the
 # prediction source; they let the counterfactual compare against the serve baselines.
@@ -142,6 +144,30 @@ class AgentDurationTable:
     task_any_batch: Mapping[tuple[str, str], float]
 
 
+def resolve_agent_duration(
+    table: AgentDurationTable,
+    *,
+    session_id: str,
+    workflow_name: str,
+    node_id: str,
+    batch_size: int,
+    model_key: str,
+    gpu_kind: str,
+) -> tuple[float, AgentDurationSource]:
+    candidates: tuple[tuple[AgentDurationSource, float | None], ...] = (
+        ("exact", table.exact.get((session_id, node_id, batch_size))),
+        ("node_batch", table.node_batch.get((workflow_name, node_id, batch_size))),
+        ("model_batch", table.model_batch.get((model_key, gpu_kind, batch_size))),
+        ("task_any_batch", table.task_any_batch.get((session_id, node_id))),
+    )
+    for source, duration in candidates:
+        if duration is not None:
+            return duration, source
+    raise ValueError(
+        f"agent duration coverage is missing: {session_id}/{node_id}/b{batch_size}"
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class TaskSpec:
     session_id: str
@@ -165,6 +191,25 @@ class ReplayWorkload:
     any_load_sec: Mapping[tuple[str, str], float]
     eviction_sec: Mapping[str, float]
     gpu_slots: Mapping[str, int]
+
+
+def resolve_load_duration(
+    workload: ReplayWorkload,
+    model_name: str,
+    gpu_kind: str,
+    *,
+    cold: bool,
+) -> tuple[float, LoadDurationSource]:
+    identity = (model_name, gpu_kind)
+    source: LoadDurationSource = "cold" if cold else "warm"
+    primary = workload.cold_load_sec if cold else workload.warm_load_sec
+    duration = primary.get(identity)
+    if duration is not None:
+        return duration, source
+    duration = workload.any_load_sec.get(identity)
+    if duration is None:
+        raise ValueError(f"load duration coverage is missing: {identity}")
+    return duration, "any"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1160,43 +1205,27 @@ class ReplaySimulator:
         node_id: str,
         grant: GrantInfo,
     ) -> float:
-        batch_size = grant.admitted_batch_size
-        table = self.workload.agent_durations
-        exact = table.exact.get((session_id, node_id, batch_size))
-        if exact is not None:
-            self.duration_fallback_counts["exact"] += 1
-            return exact
-        node_value = table.node_batch.get((workflow_name, node_id, batch_size))
-        if node_value is not None:
-            self.duration_fallback_counts["node_batch"] += 1
-            return node_value
-        model_value = table.model_batch.get(
-            (grant.model_key, grant.gpu_kind, batch_size)
+        duration, source = resolve_agent_duration(
+            self.workload.agent_durations,
+            session_id=session_id,
+            workflow_name=workflow_name,
+            node_id=node_id,
+            batch_size=grant.admitted_batch_size,
+            model_key=grant.model_key,
+            gpu_kind=grant.gpu_kind,
         )
-        if model_value is not None:
-            self.duration_fallback_counts["model_batch"] += 1
-            return model_value
-        task_value = table.task_any_batch.get((session_id, node_id))
-        if task_value is None:
-            raise ValueError(
-                "agent duration coverage is missing: "
-                f"{session_id}/{node_id}/b{batch_size}"
-            )
-        self.duration_fallback_counts["task_any_batch"] += 1
-        return task_value
+        self.duration_fallback_counts[source] += 1
+        return duration
 
     def _load_duration(self, model_name: str, gpu_kind: str, *, cold: bool) -> float:
-        identity = (model_name, gpu_kind)
-        primary = self.workload.cold_load_sec if cold else self.workload.warm_load_sec
-        value = primary.get(identity)
-        if value is not None:
-            self.load_fallback_counts["cold" if cold else "warm"] += 1
-            return value
-        value = self.workload.any_load_sec.get(identity)
-        if value is None:
-            raise ValueError(f"load duration coverage is missing: {identity}")
-        self.load_fallback_counts["any"] += 1
-        return value
+        duration, source = resolve_load_duration(
+            self.workload,
+            model_name,
+            gpu_kind,
+            cold=cold,
+        )
+        self.load_fallback_counts[source] += 1
+        return duration
 
     def _metrics(self, business_finished: float) -> ReplayMetrics:
         active_gpu_seconds = 0.0

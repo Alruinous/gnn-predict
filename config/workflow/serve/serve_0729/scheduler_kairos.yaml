@@ -1,0 +1,11 @@
+# Kairos's request ordering: shortest-remaining-critical-path first (SRPT).
+# Only the ordering rule is taken; the Wasserstein/MDS priority embedding and the
+# 0.5 s time-slot KV packing dispatcher are deliberately not implemented. For a
+# non-negative distribution W1(P, delta_0) = E[X], so ordering by distance to Kairos's
+# zero-latency anchor reduces to ordering by mean remaining latency, which is SRPT.
+#
+# Identical to config/workflow/serve/serve_0728/scheduler_kairos.yaml. Kept as its own
+# file so serve_0729 can be reproduced from one directory, and pinned equal to the
+# serve_0728 copy by tests/test_serve_0729_configs.py.
+policy: kairos
+acquire_timeout_sec: 1800.0
