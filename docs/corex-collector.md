@@ -2,7 +2,7 @@
 
 本文介绍如何在 BI-V150 上运行模型变体，并采集运行耗时和 Prometheus 监控数据。这里不训练 GNN，因此卡上不需要安装 `torch-geometric`。
 
-当前实测进度：`corex_resnet50_smoke.yaml` 的单个 ResNet50 变体已在 BI-V150 上运行并生成结果 JSON；该配置的 `export_graph: false`，所以 `fx_graphs/` 为空是预期结果。已确认 Pod 所在节点及其物理 GPU UUID。监控脚本目前只验证到依赖导入阶段，**尚未确认成功生成监控 CSV**；计算图导出、其他变体及完整数据采集也尚未验证。
+当前实测进度：早期单变体 ResNet50 测试已在 BI-V150 上运行并生成结果 JSON；当时关闭导图，所以 `fx_graphs/` 为空。当前配置已扩展为三个变体，每个训练、推理阶段至少 60 秒，只有第一个开启导图。已确认 Pod 所在节点及其物理 GPU UUID；完整三变体结果、有效监控 CSV 以及跨 PyTorch 版本读图仍需逐项验证。
 
 ## 保留容器中的 CoreX 环境
 
@@ -32,15 +32,17 @@ gnnpython() {
 
 保存后执行一次 `source ~/.bashrc`，以后将下文命令中的 `python3` 换成 `gnnpython` 即可。如果容器重建且用户主目录未保留，安装的包和 `~/.bashrc` 修改也可能需要重做。若导入失败，请停止并记录完整报错；不要通过安装普通版本的 `torch` 或 `torchvision` 来尝试修复。YOLO 等其他模型类型可能需要额外依赖及单独验证。
 
-## 先运行一个 ResNet50 变体
+## 先运行三个 ResNet50 测试变体
 
 ```bash
 gnnpython main.py --config config/arch/corex_resnet50_smoke.yaml --output_dir output --gpu_node bi-v150 --device_backend corex
 ```
 
-程序会在日志中记录识别到的设备名称和后端，并在 `output/corex_resnet50_smoke/results/` 下写入结果 JSON。已实测生成 `corex_resnet50_smoke_bi-v150_1790615496_results.json`。JSON 中的训练、推理时间区间供后续监控采集使用。
+程序会在日志中记录识别到的设备名称和后端，并在 `output/corex_resnet50_smoke/results/` 下写入结果 JSON。早期单变体实验生成过 `corex_resnet50_smoke_bi-v150_1790615496_results.json`；再次运行时必须使用本次新生成的 JSON。JSON 中的训练、推理时间区间供后续监控采集使用。
 
-此单变体配置关闭了计算图导出：CoreX PyTorch 2.4 生成的图文件，尚未验证能否由另一台使用 PyTorch 2.9 的机器读取和处理。**请先确认模型构建、运行和计时成功，再单独验证导图。**
+运行较大的变体 YAML 时，可在 `main.py` 命令末尾加 `--continue_on_variant_error`。单个变体失败会写入结果 JSON 的 `failures`（变体名、失败阶段、异常类型与原因），记录完整错误日志，并继续后续变体；成功的变体仍保存在 `variants` 中。结果 JSON 在每个成功或失败的变体后原子更新，因此中途停止时已经完成的记录不会因尚未运行到最后一步而全部丢失。若有失败，命令最终返回非零状态，不能将整批视为全部成功。默认不加此参数时仍在首个变体异常后停止，但已成功变体也会逐个保存。设备清理失败、存储权限/空间异常或用户中断不会被当成普通变体失败继续运行。监控采集应在模型运行结束后，针对这次生成的 JSON 执行；失败变体没有性能阶段可供采集。
+
+当前只给第一个测试变体开启了计算图导出，其余两个仍关闭。CoreX PyTorch 2.4 生成的图文件，尚未验证能否由另一台使用 PyTorch 2.9 的机器读取和处理。若要将三个变体全部用于后续 GNN 数据制作，每个变体都需要对应的 `.pt2` 图。
 
 ## 配置并采集监控数据
 
@@ -64,7 +66,7 @@ gnnpython monitor.py --config config/monitor/monitor_corex_example.yaml
 
 ## 正式采集时的监控完整性
 
-上面的 `corex_resnet50_smoke.yaml` 和 `monitor_corex_example.yaml` 是快速连通性测试配置：前者只运行约 12 秒，后者的 CPU `rate` 窗口仅 3 秒，**不要直接用它们生成 GNN 训练数据**。在本次集群实测中，Pod CPU 原始指标约每 10–18 秒出现一个新样本；3 秒窗口无法计算 CPU 使用率，22 秒窗口也曾间断。正式采集建议先将每个训练、推理阶段延长至至少 60 秒，并在对应监控 YAML 的 `defaults` 中设置：
+早期快速连通性测试只运行约 12 秒，CPU `rate` 窗口仅 3 秒；这种配置**不能直接用来生成 GNN 训练数据**。在本次集群实测中，Pod CPU 原始指标约每 10–18 秒出现一个新样本；3 秒窗口无法计算 CPU 使用率，22 秒窗口也曾间断。当前三个测试变体已改为每个训练、推理阶段至少 60 秒，对应监控 YAML 也已设置：
 
 ```yaml
 cpu_rate_window: "30s"

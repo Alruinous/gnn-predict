@@ -18,6 +18,7 @@ if str(SRC) not in sys.path:
 
 if TYPE_CHECKING:
     from gnn_archs.config import ArchConfig
+    from gnn_archs.result import VariantFailure, VariantResult
     from gnn_archs.variant_runner import OutputLayout
 
 
@@ -50,6 +51,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="auto",
         help="Accelerator backend; auto identifies NVIDIA or CoreX from cuda:0.",
     )
+    parser.add_argument(
+        "--continue_on_variant_error",
+        action="store_true",
+        help=(
+            "Record a failed variant and continue with the next one. "
+            "The result JSON is checkpointed after each variant."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -72,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     run_timestamp_text = format_timestamp(run_timestamp)
     runtime = resolve_runtime(args.device_backend)
     device = runtime.device
+    any_failed_variants = False
 
     for config_path_str in args.config:
         config_path = Path(config_path_str).resolve()
@@ -107,29 +117,57 @@ def main(argv: list[str] | None = None) -> int:
             device_backend=runtime.backend,
             device_name=runtime.device_name,
         )
-        variant_results = run_variants(variants, context)
-        document = ResultDocument(
-            config_path=str(config_path),
-            gpu_node=args.gpu_node,
-            timings={
-                "full": build_time_window(config_started_at, time.time()),
-                "run_started": TimeWindow(
-                    started_at_ts=run_timestamp,
-                    ended_at_ts=run_timestamp,
-                    started_at_text=run_timestamp_text,
-                    ended_at_text=run_timestamp_text,
-                ),
-            },
-            variants=variant_results,
-            summary=summarize_variant_results(variant_results),
-        )
         result_path = output_layout.results_dir / (
             f"{config_path.stem}_{args.gpu_node}_{int(config_started_at)}_results.json"
         )
-        write_result_document(result_path, document)
-        logger.info("wrote result document to %s", result_path)
+        failed_variants: list[VariantFailure] = []
 
-    return 0
+        def checkpoint(
+            variant_results: list[VariantResult],
+            failures: list[VariantFailure],
+        ) -> None:
+            nonlocal failed_variants
+            failed_variants = failures
+            document = ResultDocument(
+                config_path=str(config_path),
+                gpu_node=args.gpu_node,
+                timings={
+                    "full": build_time_window(config_started_at, time.time()),
+                    "run_started": TimeWindow(
+                        started_at_ts=run_timestamp,
+                        ended_at_ts=run_timestamp,
+                        started_at_text=run_timestamp_text,
+                        ended_at_text=run_timestamp_text,
+                    ),
+                },
+                variants=variant_results,
+                failures=failures,
+                summary={
+                    **summarize_variant_results(variant_results),
+                    "planned_variant_count": len(variants),
+                    "failed_variant_count": len(failures),
+                },
+            )
+            write_result_document(result_path, document)
+
+        variant_results = run_variants(
+            variants,
+            context,
+            continue_on_error=args.continue_on_variant_error,
+            on_progress=checkpoint,
+        )
+        checkpoint(variant_results, failed_variants)
+        logger.info("wrote result document to %s", result_path)
+        if failed_variants:
+            any_failed_variants = True
+            logger.warning(
+                "completed %s/%s variants; %s failed (see result JSON and log)",
+                len(variant_results),
+                len(variants),
+                len(failed_variants),
+            )
+
+    return 1 if any_failed_variants else 0
 
 
 def configure_logging(

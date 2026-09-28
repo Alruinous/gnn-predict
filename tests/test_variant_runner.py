@@ -35,6 +35,7 @@ from gnn_archs.result import (
     ResultDocument,
     TimeWindow,
     TrainingResult,
+    VariantResult,
     write_result_document,
 )
 from gnn_archs.util.variant_expander import expand_arch_config
@@ -2157,6 +2158,40 @@ def test_run_variants_releases_reused_model_on_failure(
     assert model_reference is not None
     assert model_reference() is None
     assert cleanup_calls == ["cpu", "cpu", "cpu"]
+
+
+def test_run_variants_does_not_continue_when_device_is_lost(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = build_image_variant([], example_input_shape=[1, 3, 8, 8])
+    first = first.model_copy(update={"name": "failing_variant"})
+    second = first.model_copy(update={"name": "should_not_run"})
+    context = RunContext(
+        config_path=tmp_path / "device_failure.yaml",
+        output_layout=prepare_output_layout(
+            tmp_path / "output", tmp_path / "device_failure.yaml"
+        ),
+        device=torch.device("cuda:0"),
+        gpu_node="device-test",
+        logger=logging.getLogger("test_device_failure"),
+    )
+    attempted: list[str] = []
+
+    def fail_variant(spec: ResolvedVariantSpec, _context: RunContext) -> VariantResult:
+        attempted.append(spec.name)
+        raise RuntimeError("variant failed")
+
+    monkeypatch.setattr(variant_runner_module, "run_variant", fail_variant)
+    monkeypatch.setattr(
+        variant_runner_module, "cleanup_workload_boundary", lambda device: None
+    )
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+
+    with pytest.raises(RuntimeError, match="device is unavailable"):
+        run_variants([first, second], context, continue_on_error=True)
+
+    assert attempted == ["failing_variant"]
 
 
 def test_run_variant_releases_model_and_export_program(

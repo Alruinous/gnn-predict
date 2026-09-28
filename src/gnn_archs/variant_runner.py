@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import errno
 import gc
 import time
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
@@ -32,6 +33,7 @@ from gnn_archs.result import (
     InferenceResult,
     TimeWindow,
     TrainingResult,
+    VariantFailure,
     VariantResult,
 )
 
@@ -62,6 +64,7 @@ class RunContext:
     logger: logging.Logger
     device_backend: str = "unknown"
     device_name: str = "unknown"
+    stage_tracker: Callable[[str], None] | None = None
 
 
 class CausalLMGenerator(Protocol):
@@ -103,6 +106,7 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
     run_started_at = time.time()
     model: nn.Module | None = None
     try:
+        _record_stage(context, "model_build")
         model, model_build_timing = build_model_for_run(spec, context.device)
         return execute_variant(
             spec,
@@ -114,14 +118,24 @@ def run_variant(spec: ResolvedVariantSpec, context: RunContext) -> VariantResult
         )
     finally:
         model = None
-        cleanup_workload_boundary(context.device)
+        try:
+            cleanup_workload_boundary(context.device)
+        except Exception:
+            _record_stage(context, "cleanup")
+            raise
 
 
 def run_variants(
     specs: Sequence[ResolvedVariantSpec],
     context: RunContext,
+    *,
+    continue_on_error: bool = False,
+    on_progress: (
+        Callable[[list[VariantResult], list[VariantFailure]], None] | None
+    ) = None,
 ) -> list[VariantResult]:
     results: list[VariantResult] = []
+    failures: list[VariantFailure] = []
     reusable_model: nn.Module | None = None
     reusable_key: tuple[str, str, str] | None = None
     reusable_build_timing: TimeWindow | None = None
@@ -133,51 +147,116 @@ def run_variants(
                 len(specs),
                 spec.name,
             )
-            reuse_key = resolve_model_reuse_key(spec)
-            if reuse_key is None:
-                if reusable_model is not None:
-                    reusable_model = None
-                    reusable_key = None
-                    reusable_build_timing = None
-                    cleanup_workload_boundary(context.device)
-                results.append(run_variant(spec, context))
+            stage = "variant_setup"
+
+            def track_stage(value: str) -> None:
+                nonlocal stage
+                stage = value
+
+            variant_context = replace(context, stage_tracker=track_stage)
+            try:
+                reuse_key = resolve_model_reuse_key(spec)
+                if reuse_key is None:
+                    if reusable_model is not None:
+                        reusable_model = None
+                        reusable_key = None
+                        reusable_build_timing = None
+                        track_stage("cleanup")
+                        cleanup_workload_boundary(context.device)
+                    result = run_variant(spec, variant_context)
+                else:
+                    model_build_reused = (
+                        reusable_model is not None and reuse_key == reusable_key
+                    )
+                    if not model_build_reused:
+                        if reusable_model is not None:
+                            reusable_model = None
+                            reusable_build_timing = None
+                            track_stage("cleanup")
+                            cleanup_workload_boundary(context.device)
+                        run_started_at = time.time()
+                        track_stage("model_build")
+                        reusable_model, reusable_build_timing = build_model_for_run(
+                            spec,
+                            context.device,
+                        )
+                        reusable_key = reuse_key
+                    else:
+                        run_started_at = time.time()
+
+                    assert reusable_model is not None
+                    assert reusable_build_timing is not None
+                    try:
+                        result = execute_variant(
+                            spec,
+                            variant_context,
+                            reusable_model,
+                            model_build_timing=reusable_build_timing,
+                            run_started_at=run_started_at,
+                            model_build_reused=model_build_reused,
+                        )
+                    finally:
+                        try:
+                            cleanup_workload_boundary(context.device)
+                        except Exception:
+                            track_stage("cleanup")
+                            raise
+            except Exception as exc:
+                failure = VariantFailure(
+                    name=spec.name,
+                    stage=stage,
+                    error_type=type(exc).__name__,
+                    message=str(exc),
+                )
+                failures.append(failure)
+                context.logger.exception(
+                    "variant %s failed during %s", spec.name, stage
+                )
+                # A reused model may be partially mutated after a failed variant.
+                # Never carry it into the next variant.
+                reusable_model = None
+                reusable_key = None
+                reusable_build_timing = None
+                if on_progress is not None:
+                    on_progress(list(results), list(failures))
+                if not continue_on_error or _is_fatal_variant_error(exc):
+                    raise
+                # If the accelerator cannot synchronize, this is a device failure,
+                # not an isolated variant failure; do not skip the remaining work.
+                cleanup_workload_boundary(context.device)
+                _verify_device_after_failure(context.device)
                 continue
 
-            model_build_reused = (
-                reusable_model is not None and reuse_key == reusable_key
-            )
-            if not model_build_reused:
-                if reusable_model is not None:
-                    reusable_model = None
-                    reusable_build_timing = None
-                    cleanup_workload_boundary(context.device)
-                run_started_at = time.time()
-                reusable_model, reusable_build_timing = build_model_for_run(
-                    spec,
-                    context.device,
-                )
-                reusable_key = reuse_key
-            else:
-                run_started_at = time.time()
-
-            assert reusable_model is not None
-            assert reusable_build_timing is not None
-            try:
-                result = execute_variant(
-                    spec,
-                    context,
-                    reusable_model,
-                    model_build_timing=reusable_build_timing,
-                    run_started_at=run_started_at,
-                    model_build_reused=model_build_reused,
-                )
-            finally:
-                cleanup_workload_boundary(context.device)
             results.append(result)
+            if on_progress is not None:
+                on_progress(list(results), list(failures))
         return results
     finally:
         reusable_model = None
         cleanup_workload_boundary(context.device)
+
+
+def _record_stage(context: RunContext, stage: str) -> None:
+    if context.stage_tracker is not None:
+        context.stage_tracker(stage)
+
+
+def _is_fatal_variant_error(exc: Exception) -> bool:
+    return isinstance(exc, OSError) and exc.errno in {
+        errno.EACCES,
+        errno.ENOSPC,
+        errno.EROFS,
+    }
+
+
+def _verify_device_after_failure(device: torch.device) -> None:
+    if device.type != "cuda":
+        return
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA-compatible device is unavailable after variant failure"
+        )
+    torch.cuda.synchronize(device)
 
 
 def resolve_model_reuse_key(
@@ -231,6 +310,7 @@ def execute_variant(
     prefill_result: InferenceResult | None = None
     decode_result: InferenceResult | None = None
 
+    _record_stage(context, "validation")
     validation_started_at = time.time()
     validation_metrics = validate_model(
         spec,
@@ -241,6 +321,7 @@ def execute_variant(
     timings["validation"] = build_time_window(validation_started_at, time.time())
 
     if spec.variant_config.export_graph:
+        _record_stage(context, "graph_export")
         from gnn_archs.graph_export import (
             export_causal_lm_decode_graph,
             export_model_graph,
@@ -268,6 +349,7 @@ def execute_variant(
         )
 
     if spec.variant_config.run_training:
+        _record_stage(context, "training")
         training_result = train_model(
             spec,
             model,
@@ -276,6 +358,7 @@ def execute_variant(
         timings["training"] = training_result.timings
 
     if spec.variant_config.run_inference:
+        _record_stage(context, "inference")
         if training_result is not None:
             wait_for_inference_cooldown(
                 spec.variant_config.pre_inference_cooldown_seconds,
@@ -290,6 +373,7 @@ def execute_variant(
         timings["inference"] = inference_result.timings
 
     if spec.variant_config.run_prefill:
+        _record_stage(context, "prefill")
         if training_result is not None or inference_result is not None:
             wait_for_inference_cooldown(
                 spec.variant_config.pre_prefill_cooldown_seconds,
@@ -299,6 +383,7 @@ def execute_variant(
         timings["prefill"] = prefill_result.timings
 
     if spec.variant_config.run_decode:
+        _record_stage(context, "decode")
         if (
             training_result is not None
             or inference_result is not None
@@ -311,6 +396,7 @@ def execute_variant(
         decode_result = run_decode(spec, model, context.device)
         timings["decode"] = decode_result.timings
 
+    _record_stage(context, "result_serialization")
     timings["full"] = build_time_window(run_started_at, time.time())
 
     return VariantResult(
