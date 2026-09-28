@@ -9,12 +9,12 @@ targets:
   corex_resnet50_smoke:
     enabled: true
     # Replace with the JSON path printed by main.py.
-    result_json: "output/corex_resnet50_smoke/results/REPLACE_WITH_RESULT_JSON.json"
+    result_json: "output/corex_resnet50_smoke/results/corex_resnet50_smoke_bi-v150_1790615496_results.json"
     # Confirm the node on which the active Pod actually ran.
-    node_name: "REPLACE_WITH_NODE_NAME"
+    node_name: "inspur-01"
     pod_name: "jpt-luoruian26-260928-01fe9-default0-0"
     gpu_backend: ix
     gpu_id: "0"
     # Read the UUID from ix_gpu_utilization{node_name="...",gpu="0"}.
-    gpu_uuid: "REPLACE_WITH_GPU_UUID"
+    gpu_uuid: "GPU-8241332d-37cb-5585-8482-a32f429b4bdc"
     output_csv: "output/corex_resnet50_smoke/monitor.csv"
