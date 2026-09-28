@@ -108,8 +108,17 @@ def replace_state_with_zero_storage(
         exported_program.module_call_graph,
         example_inputs=None,
         constants=constants,
-        verifiers=exported_program.verifiers,
+        **_exported_program_verifier_kwargs(exported_program),
     )
+
+
+def _exported_program_verifier_kwargs(exported_program: ExportedProgram) -> dict[str, Any]:
+    # PyTorch 2.4 exposes one `verifier`; PyTorch 2.9 exposes `verifiers`.
+    if hasattr(exported_program, "verifiers"):
+        return {"verifiers": exported_program.verifiers}
+    if hasattr(exported_program, "verifier"):
+        return {"verifier": exported_program.verifier}
+    raise ValueError("ExportedProgram has no supported verifier attribute")
 
 
 def build_zero_storage_tensor(value: torch.Tensor) -> torch.Tensor:

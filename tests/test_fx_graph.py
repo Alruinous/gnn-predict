@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 import torch
 import torch.nn as nn
+from torch.export import ExportedProgram
 from gnn_model_test_utils import TinyConvNet
 
 import common.graph_artifact as graph_artifact_module
 from common.graph_artifact import (
     GRAPH_ARTIFACT_METADATA_FILE,
     GRAPH_ARTIFACT_SCHEMA_VERSION,
+    _exported_program_verifier_kwargs,
     capture_inference_graph,
     clear_graph_capture_caches,
     load_graph_artifact,
@@ -49,6 +53,20 @@ def test_clear_graph_capture_caches_resets_compiler_and_fake_tensor_cache(
     clear_graph_capture_caches()
 
     assert calls == ["compiler", "fake_tensor"]
+
+
+def test_exported_program_verifier_kwargs_supports_old_and_new_torch() -> None:
+    old_verifier = object()
+    new_verifiers = [object()]
+    old_program = cast(ExportedProgram, SimpleNamespace(verifier=old_verifier))
+    new_program = cast(ExportedProgram, SimpleNamespace(verifiers=new_verifiers))
+
+    assert _exported_program_verifier_kwargs(old_program) == {
+        "verifier": old_verifier
+    }
+    assert _exported_program_verifier_kwargs(new_program) == {
+        "verifiers": new_verifiers
+    }
 
 
 def test_graph_artifact_preserves_state_shape_without_weight_storage(
