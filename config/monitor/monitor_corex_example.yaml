@@ -14,7 +14,7 @@ targets:
     node_name: "inspur-01"
     pod_name: "jpt-luoruian26-260928-01fe9-default0-0"
     gpu_backend: ix
-    gpu_id: "0"
+    gpu_id: "7"
     # Read the UUID from ix_gpu_utilization{node_name="...",gpu="0"}.
     gpu_uuid: "GPU-8241332d-37cb-5585-8482-a32f429b4bdc"
     output_csv: "output/corex_resnet50_smoke/monitor.csv"
