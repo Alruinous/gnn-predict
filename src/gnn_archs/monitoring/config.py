@@ -4,6 +4,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import Field, field_validator, model_validator
@@ -65,6 +66,8 @@ class MonitorTarget(StrictModel):
     pod_name: str
     gpu_id: str
     output_csv: str | None = None
+    gpu_backend: Literal["dcgm", "ix"] = "dcgm"
+    gpu_uuid: str | None = None
 
     @field_validator("result_json", "node_name", "pod_name", "gpu_id")
     @classmethod
@@ -82,6 +85,16 @@ class MonitorTarget(StrictModel):
         normalized_value = value.strip()
         if not normalized_value:
             raise ValueError("output_csv must not be empty when provided")
+        return normalized_value
+
+    @field_validator("gpu_uuid")
+    @classmethod
+    def validate_optional_gpu_uuid(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise ValueError("gpu_uuid must not be empty when provided")
         return normalized_value
 
 
@@ -104,6 +117,8 @@ class ResolvedMonitorTarget:
     gpu_id: str
     result_json: Path
     output_csv: Path
+    gpu_backend: Literal["dcgm", "ix"] = "dcgm"
+    gpu_uuid: str | None = None
 
 
 @dataclass(frozen=True)
@@ -227,6 +242,8 @@ def _resolve_target(
         gpu_id=target.gpu_id,
         result_json=result_json,
         output_csv=output_csv,
+        gpu_backend=target.gpu_backend,
+        gpu_uuid=target.gpu_uuid,
     )
 
 

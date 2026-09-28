@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -12,8 +12,10 @@ from gnn_archs.result import ResultDocument
 from .prometheus import PrometheusClient
 from .queries import (
     GPU_METRIC_DEFINITIONS,
+    IX_GPU_METRIC_DEFINITIONS,
     build_container_start_time_query,
     build_gpu_metrics_query,
+    build_ix_gpu_metrics_query,
     build_node_cpu_total_query,
     build_node_memory_total_query,
     build_pod_cpu_query,
@@ -40,6 +42,8 @@ CSV_COLUMNS = [
     "pod_name",
     "gpu_node",
     "gpu_id",
+    "gpu_backend",
+    "gpu_uuid",
     "phase",
     "started_at_ts",
     "ended_at_ts",
@@ -71,6 +75,9 @@ CSV_COLUMNS = [
     "gpu_sm_active_percent_avg",
     "gpu_sm_active_percent_max",
     "gpu_sm_active_percent_p95",
+    "gpu_sm_util_percent_avg",
+    "gpu_sm_util_percent_max",
+    "gpu_sm_util_percent_p95",
     "gpu_sm_occupancy_percent_avg",
     "gpu_sm_occupancy_percent_max",
     "gpu_sm_occupancy_percent_p95",
@@ -133,6 +140,8 @@ class MonitorPhaseRecord:
     phase_rounds: int
     batch_size: int
     decode_output_length: int
+    gpu_backend: str = "dcgm"
+    gpu_uuid: str | None = None
 
 
 @dataclass(frozen=True)
@@ -277,6 +286,10 @@ def monitor_target(
         pod_name=target.pod_name,
         gpu_id=target.gpu_id,
     )
+    phase_records = [
+        replace(record, gpu_backend=target.gpu_backend, gpu_uuid=target.gpu_uuid)
+        for record in phase_records
+    ]
 
     reference_timestamp = phase_records[0].started_at_ts
     _validate_target_pod(client, target, settings.namespace, reference_timestamp)
@@ -550,12 +563,26 @@ def _monitor_phase_record(
         )
         return {}
 
-    gpu_query = build_gpu_metrics_query(
-        tuple(definition.prometheus_name for definition in GPU_METRIC_DEFINITIONS),
-        phase_record.pod_name,
-        phase_record.namespace,
-        phase_record.gpu_id,
+    gpu_definitions = (
+        IX_GPU_METRIC_DEFINITIONS
+        if phase_record.gpu_backend == "ix"
+        else GPU_METRIC_DEFINITIONS
     )
+    metric_names = tuple(definition.prometheus_name for definition in gpu_definitions)
+    if phase_record.gpu_backend == "ix":
+        gpu_query = build_ix_gpu_metrics_query(
+            metric_names,
+            phase_record.node_name,
+            phase_record.gpu_id,
+            phase_record.gpu_uuid,
+        )
+    else:
+        gpu_query = build_gpu_metrics_query(
+            metric_names,
+            phase_record.pod_name,
+            phase_record.namespace,
+            phase_record.gpu_id,
+        )
     gpu_series = client.range_query(
         gpu_query,
         phase_record.started_at_ts,
@@ -601,6 +628,8 @@ def _monitor_phase_record(
         "pod_name": phase_record.pod_name,
         "gpu_node": phase_record.gpu_node,
         "gpu_id": phase_record.gpu_id,
+        "gpu_backend": phase_record.gpu_backend,
+        "gpu_uuid": phase_record.gpu_uuid,
         "phase": phase_record.phase,
         "started_at_ts": phase_record.started_at_ts,
         "ended_at_ts": phase_record.ended_at_ts,
@@ -707,11 +736,19 @@ def _extract_gpu_metrics(
 
     resolved_gpu_label: str | None = None
     resolved_device_label: str | None = None
+    resolved_uuid_label: str | None = None
     sample_counts: list[int] = []
     metric_summaries: dict[str, Any] = {}
 
-    for definition in GPU_METRIC_DEFINITIONS:
+    definitions = (
+        IX_GPU_METRIC_DEFINITIONS
+        if phase_record.gpu_backend == "ix"
+        else GPU_METRIC_DEFINITIONS
+    )
+    for definition in definitions:
         series_candidates = metrics_by_name.get(definition.prometheus_name, [])
+        if not series_candidates and not definition.required:
+            continue
         if len(series_candidates) != 1:
             raise ValueError(
                 "expected exactly one GPU series for "
@@ -723,10 +760,14 @@ def _extract_gpu_metrics(
         series = series_candidates[0]
         metric_labels = series.get("metric", {})
         gpu_label = metric_labels.get("gpu")
-        device_label = metric_labels.get("device")
+        device_label = (
+            metric_labels.get("name")
+            if phase_record.gpu_backend == "ix"
+            else metric_labels.get("device")
+        )
         if not gpu_label or not device_label:
             raise ValueError(
-                "GPU series must include both gpu and device labels for "
+                "GPU series must include gpu and device/name labels for "
                 f"{definition.prometheus_name}"
             )
         if gpu_label != phase_record.gpu_id:
@@ -735,6 +776,25 @@ def _extract_gpu_metrics(
                 f"{phase_record.variant_name}/{phase_record.phase}: "
                 f"{gpu_label} != {phase_record.gpu_id}"
             )
+        if phase_record.gpu_backend == "ix":
+            if metric_labels.get("node_name") != phase_record.node_name:
+                raise ValueError(
+                    f"IX GPU series is not on node {phase_record.node_name}"
+                )
+            if (
+                phase_record.gpu_uuid is not None
+                and metric_labels.get("uuid") != phase_record.gpu_uuid
+            ):
+                raise ValueError(
+                    f"IX GPU series UUID does not match {phase_record.gpu_uuid}"
+                )
+            uuid_label = metric_labels.get("uuid")
+            if not uuid_label:
+                raise ValueError("IX GPU series must include a uuid label")
+            if resolved_uuid_label is None:
+                resolved_uuid_label = uuid_label
+            elif uuid_label != resolved_uuid_label:
+                raise ValueError("IX GPU metrics resolved to inconsistent UUIDs")
         if resolved_gpu_label is None:
             resolved_gpu_label = gpu_label
             resolved_device_label = device_label

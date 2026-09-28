@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from prometheus_api_client import PrometheusConnect
@@ -64,8 +64,8 @@ class PrometheusClient:
         try:
             result = self._client.custom_query_range(
                 query=query,
-                start_time=datetime.fromtimestamp(start_ts, tz=UTC),
-                end_time=datetime.fromtimestamp(end_ts, tz=UTC),
+                start_time=datetime.fromtimestamp(start_ts, tz=timezone.utc),
+                end_time=datetime.fromtimestamp(end_ts, tz=timezone.utc),
                 step=f"{step_seconds}s",
                 timeout=self._timeout_seconds,
             )

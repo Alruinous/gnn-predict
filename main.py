@@ -44,10 +44,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         required=True,
         help="GPU node label for the current run.",
     )
+    parser.add_argument(
+        "--device_backend",
+        choices=("auto", "cpu", "nvidia", "corex"),
+        default="auto",
+        help="Accelerator backend; auto identifies NVIDIA or CoreX from cuda:0.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
+    from gnn_archs.device_runtime import resolve_runtime
     from gnn_archs.result import ResultDocument, TimeWindow, write_result_document
     from gnn_archs.util.variant_expander import expand_arch_config
     from gnn_archs.variant_runner import (
@@ -63,7 +70,8 @@ def main(argv: list[str] | None = None) -> int:
     output_root = Path(args.output_dir).resolve()
     run_timestamp = time.time()
     run_timestamp_text = format_timestamp(run_timestamp)
-    device = resolve_device()
+    runtime = resolve_runtime(args.device_backend)
+    device = runtime.device
 
     for config_path_str in args.config:
         config_path = Path(config_path_str).resolve()
@@ -79,7 +87,13 @@ def main(argv: list[str] | None = None) -> int:
         variants = expand_arch_config(config)
         logger.info("starting migrated gnn_archs run")
         logger.info("config files: %s", ", ".join(args.config))
-        logger.info("gpu_node=%s device=%s", args.gpu_node, device)
+        logger.info(
+            "gpu_node=%s device=%s backend=%s device_name=%s",
+            args.gpu_node,
+            device,
+            runtime.backend,
+            runtime.device_name,
+        )
         logger.info("output_root=%s", output_root)
         logger.info("dataset_artifacts_dir=%s", output_layout.root)
         logger.info("processing %s with %s variants", config_path, len(variants))
@@ -90,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
             device=device,
             gpu_node=args.gpu_node,
             logger=logger,
+            device_backend=runtime.backend,
+            device_name=runtime.device_name,
         )
         variant_results = run_variants(variants, context)
         document = ResultDocument(
@@ -155,9 +171,9 @@ def load_arch_config(config_path: Path) -> ArchConfig:
 
 
 def resolve_device() -> torch.device:
-    if torch.cuda.is_available():
-        return torch.device("cuda:0")
-    return torch.device("cpu")
+    from gnn_archs.device_runtime import resolve_runtime
+
+    return resolve_runtime().device
 
 
 if __name__ == "__main__":

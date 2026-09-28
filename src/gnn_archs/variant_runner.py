@@ -4,7 +4,7 @@ import gc
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import timm
@@ -60,6 +60,8 @@ class RunContext:
     device: torch.device
     gpu_node: str
     logger: logging.Logger
+    device_backend: str = "unknown"
+    device_name: str = "unknown"
 
 
 class CausalLMGenerator(Protocol):
@@ -328,6 +330,8 @@ def execute_variant(
         decode_graph_export=decode_graph_result,
         metadata={
             "device": str(context.device),
+            "device_backend": context.device_backend,
+            "device_name": context.device_name,
             "gpu_node": context.gpu_node,
             "model_kind": resolve_model_kind(
                 spec.base_model.name,
@@ -931,4 +935,4 @@ def build_time_window(started_at_ts: float, ended_at_ts: float) -> TimeWindow:
 
 
 def format_timestamp(timestamp: float) -> str:
-    return datetime.fromtimestamp(timestamp, tz=UTC).isoformat()
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()

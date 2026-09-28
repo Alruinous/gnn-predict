@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +13,10 @@ import gnn_archs.monitoring.service as monitoring_service
 from gnn_archs.monitoring import (
     CSV_COLUMNS,
     GPU_METRIC_DEFINITIONS,
+    IX_GPU_METRIC_DEFINITIONS,
     build_container_start_time_query,
     build_gpu_metrics_query,
+    build_ix_gpu_metrics_query,
     build_node_cpu_total_query,
     build_node_memory_total_query,
     build_pod_cpu_query,
@@ -895,6 +898,91 @@ def test_query_builders_lock_expected_cpu_and_memory_promql() -> None:
         'DCGM_FI_DEV_POWER_USAGE|DCGM_FI_DEV_GPU_TEMP",pod="pod-a",'
         'namespace="ns-a",gpu="1"})'
     )
+
+
+def test_monitor_target_collects_ix_metrics_without_pod_labels(tmp_path: Path) -> None:
+    result_json = _write_result_document(tmp_path)
+    settings, target = _build_settings(tmp_path, result_json, gpu_id="0")
+    ix_target = replace(target, gpu_backend="ix", gpu_uuid="GPU-BI-V150-0")
+    settings = replace(settings, targets=(ix_target,))
+    client = _build_fake_client(
+        namespace=settings.namespace,
+        node_name=target.node_name,
+        pod_name=target.pod_name,
+        gpu_id="0",
+    )
+    ix_query = build_ix_gpu_metrics_query(
+        tuple(definition.prometheus_name for definition in IX_GPU_METRIC_DEFINITIONS),
+        target.node_name,
+        "0",
+        "GPU-BI-V150-0",
+    )
+    client.range_responses[ix_query] = [
+        [
+            {
+                "metric": {
+                    "__name__": definition.prometheus_name,
+                    "gpu": "0",
+                    "uuid": "GPU-BI-V150-0",
+                    "name": "Iluvatar BI-V150",
+                    "node_name": target.node_name,
+                },
+                "values": [[100.0, "10"], [101.0, "20"], [102.0, "30"]],
+            }
+            for definition in IX_GPU_METRIC_DEFINITIONS
+            if definition.required
+        ]
+        for _ in range(2)
+    ]
+
+    frame = monitor_target(settings, ix_target, client, TEST_LOGGER)
+
+    assert len(frame) == 2
+    assert frame.loc[0, "gpu_backend"] == "ix"
+    assert frame.loc[0, "gpu_uuid"] == "GPU-BI-V150-0"
+    assert frame.loc[0, "resolved_device_label"] == "Iluvatar BI-V150"
+    assert frame.loc[0, "gpu_util_percent_max"] == 30.0
+    assert frame.loc[0, "gpu_mem_used_mb_max"] == 30.0
+    assert pd.isna(frame.loc[0, "gpu_sm_occupancy_percent_max"])
+    assert pd.isna(frame.loc[0, "gpu_power_watts_avg"])
+
+
+def test_load_monitor_settings_accepts_ix_backend_and_uuid(tmp_path: Path) -> None:
+    config_path = tmp_path / "monitor_ix.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "defaults:",
+                '  prometheus_url: "http://example:9090"',
+                '  namespace: "crater-workspace"',
+                "targets:",
+                "  corex:",
+                '    result_json: "results.json"',
+                '    node_name: "inspur-01"',
+                '    pod_name: "corex-pod"',
+                '    gpu_id: "0"',
+                "    gpu_backend: ix",
+                '    gpu_uuid: "GPU-1"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    target = load_monitor_settings(config_path).targets[0]
+
+    assert target.gpu_backend == "ix"
+    assert target.gpu_uuid == "GPU-1"
+
+
+def test_ix_query_selects_node_and_gpu_uuid() -> None:
+    query = build_ix_gpu_metrics_query(
+        ("ix_gpu_utilization",), "inspur-01", "0", "GPU-1"
+    )
+
+    assert 'node_name="inspur-01"' in query
+    assert 'gpu="0"' in query
+    assert 'uuid="GPU-1"' in query
+    assert 'pod=' not in query
 
 
 def _build_settings(

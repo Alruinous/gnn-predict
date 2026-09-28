@@ -400,11 +400,11 @@ def run_detection_inference(
 
 
 def _build_time_window(started_at: float, ended_at: float) -> TimeWindow:
-    from datetime import UTC, datetime
+    from datetime import datetime, timezone
 
     return TimeWindow(
         started_at_ts=started_at,
         ended_at_ts=ended_at,
-        started_at_text=datetime.fromtimestamp(started_at, tz=UTC).isoformat(),
-        ended_at_text=datetime.fromtimestamp(ended_at, tz=UTC).isoformat(),
+        started_at_text=datetime.fromtimestamp(started_at, tz=timezone.utc).isoformat(),
+        ended_at_text=datetime.fromtimestamp(ended_at, tz=timezone.utc).isoformat(),
     )

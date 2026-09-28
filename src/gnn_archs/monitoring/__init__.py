@@ -10,8 +10,10 @@ from .config import (
 )
 from .queries import (
     GPU_METRIC_DEFINITIONS,
+    IX_GPU_METRIC_DEFINITIONS,
     build_container_start_time_query,
     build_gpu_metrics_query,
+    build_ix_gpu_metrics_query,
     build_node_cpu_total_query,
     build_node_memory_total_query,
     build_pod_cpu_query,
@@ -28,6 +30,7 @@ from .service import (
 __all__ = [
     "CSV_COLUMNS",
     "GPU_METRIC_DEFINITIONS",
+    "IX_GPU_METRIC_DEFINITIONS",
     "MonitorConfig",
     "MonitorDefaults",
     "MonitorTarget",
@@ -35,6 +38,7 @@ __all__ = [
     "ResolvedMonitorTarget",
     "build_container_start_time_query",
     "build_gpu_metrics_query",
+    "build_ix_gpu_metrics_query",
     "build_node_cpu_total_query",
     "build_node_memory_total_query",
     "build_pod_cpu_query",
