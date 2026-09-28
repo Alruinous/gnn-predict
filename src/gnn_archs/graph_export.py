@@ -14,14 +14,6 @@ from common.graph_artifact import (
     capture_inference_graph,
     save_graph_artifact,
 )
-from gnn_archs.causal_lm_builder import (
-    CausalLMDecodeGraph,
-    CausalLMPrefillGraph,
-    build_causal_lm_kv_input_names,
-    collect_causal_lm_kv_pairs,
-    run_causal_lm_dry_prefill,
-    temporary_causal_lm_graph_mode,
-)
 from gnn_archs.config import is_causal_lm_model_name, is_detection_model_name
 from gnn_archs.result import GraphExportResult
 from gnn_archs.t5_builder import T5SequenceClassificationGraph
@@ -90,6 +82,10 @@ def export_causal_lm_prefill_graph(
     model: nn.Module,
     context: RunContext,
 ) -> GraphExportResult:
+    from gnn_archs.causal_lm_builder import (
+        CausalLMPrefillGraph,
+        temporary_causal_lm_graph_mode,
+    )
     from gnn_archs.variant_runner import build_example_batch
 
     batch = build_example_batch(spec.variant_config, model, True)
@@ -112,6 +108,13 @@ def export_causal_lm_decode_graph(
     model: nn.Module,
     context: RunContext,
 ) -> GraphExportResult:
+    from gnn_archs.causal_lm_builder import (
+        CausalLMDecodeGraph,
+        build_causal_lm_kv_input_names,
+        collect_causal_lm_kv_pairs,
+        run_causal_lm_dry_prefill,
+        temporary_causal_lm_graph_mode,
+    )
     from gnn_archs.variant_runner import build_text_input_ids
 
     batch_size, sequence_length = spec.variant_config.example_input_shape

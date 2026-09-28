@@ -10,13 +10,14 @@ import torch.nn as nn
 from transformers import (
     AutoModelForCausalLM,
     DynamicCache,
-    Gemma4TextConfig,
     Qwen3Config,
 )
 
 from gnn_archs.config import get_causal_lm_family, normalize_model_identifier
 
 if TYPE_CHECKING:
+    from transformers import Gemma4TextConfig
+
     from gnn_archs.config import ResolvedVariantSpec
 
 
@@ -209,6 +210,14 @@ def build_gemma4_config_model(
     gemma4_config = spec.variant_config.gemma4_config
     if gemma4_config is None:
         raise ValueError("gemma4 variants require variant_config.gemma4_config")
+
+    try:
+        from transformers import Gemma4TextConfig
+    except ImportError as exc:
+        raise ImportError(
+            "Gemma4 variants require a Transformers version that provides "
+            "Gemma4TextConfig; this environment cannot run Gemma4 variants"
+        ) from exc
 
     config_values = gemma4_config.model_dump(mode="python", exclude_none=True)
     config_values["layer_types"] = config_values.get(
