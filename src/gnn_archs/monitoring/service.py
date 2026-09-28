@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -51,6 +52,9 @@ CSV_COLUMNS = [
     "deployment_duration_sec_avg",
     "phase_rounds",
     "sample_count",
+    "cpu_sample_coverage",
+    "memory_sample_coverage",
+    "gpu_min_sample_coverage",
     "batch_size",
     "decode_output_length",
     "resolved_gpu_label",
@@ -107,6 +111,10 @@ CSV_COLUMNS = [
     "gpu_temp_celsius_p95",
 ]
 MIN_REQUIRED_PHASE_SAMPLES = 1
+
+
+class MissingMonitorDataError(ValueError):
+    """A required metric was absent, rather than malformed or ambiguous."""
 
 
 def require_int_value(value: object, label: str) -> int:
@@ -291,20 +299,9 @@ def monitor_target(
         for record in phase_records
     ]
 
-    reference_timestamp = phase_records[0].started_at_ts
-    _validate_target_pod(client, target, settings.namespace, reference_timestamp)
-    node_total_cpu = _query_scalar(
-        client,
-        build_node_cpu_total_query(target.node_name),
-        reference_timestamp,
-        description="node CPU total",
+    reference_timestamp, node_total_cpu, node_total_memory_gb = _resolve_node_context(
+        client, target, settings.namespace, phase_records
     )
-    node_total_memory_gb = _query_scalar(
-        client,
-        build_node_memory_total_query(target.node_name),
-        reference_timestamp,
-        description="node memory total",
-    ) / (1024**3)
     memory_baseline = _query_memory_baseline(
         client,
         target.pod_name,
@@ -315,27 +312,45 @@ def monitor_target(
         logger,
     )
 
-    rows = []
+    rows: list[dict[str, Any]] = []
+    skipped: list[str] = []
     for record in phase_records:
-        row = _monitor_phase_record(
-            phase_record=record,
-            client=client,
-            cpu_rate_window=settings.cpu_rate_window,
-            cpu_rate_window_seconds=settings.cpu_rate_window_seconds,
-            query_step_seconds=settings.query_step_seconds,
-            node_total_cpu=node_total_cpu,
-            node_total_memory_gb=node_total_memory_gb,
-            memory_baseline=memory_baseline,
-            logger=logger,
-        )
-        if len(row) == 0:
+        try:
+            row = _monitor_phase_record(
+                phase_record=record,
+                client=client,
+                cpu_rate_window=settings.cpu_rate_window,
+                cpu_rate_window_seconds=settings.cpu_rate_window_seconds,
+                query_step_seconds=settings.query_step_seconds,
+                min_phase_coverage_ratio=settings.min_phase_coverage_ratio,
+                node_total_cpu=node_total_cpu,
+                node_total_memory_gb=node_total_memory_gb,
+                memory_baseline=memory_baseline,
+                logger=logger,
+            )
+        except MissingMonitorDataError as exc:
+            skipped.append(f"{record.variant_name}/{record.phase}")
             logger.warning(
-                f"skipping monitor record for {record.variant_name}/"
-                + f"{record.phase} due to missing metrics"
+                "skipping monitor record for %s/%s: %s",
+                record.variant_name,
+                record.phase,
+                exc,
             )
             continue
         rows.append(row)
 
+    if not rows:
+        raise MissingMonitorDataError(
+            f"no complete monitoring records for {target.name}; "
+            f"skipped {len(skipped)} phase(s): {', '.join(skipped)}"
+        )
+    logger.info(
+        "monitor target %s: collected %d/%d phases; skipped %d",
+        target.name,
+        len(rows),
+        len(phase_records),
+        len(skipped),
+    )
     dataframe = pd.DataFrame(rows, columns=CSV_COLUMNS)
     target.output_csv.parent.mkdir(parents=True, exist_ok=True)
     dataframe.to_csv(target.output_csv, index=False, encoding="utf-8")
@@ -476,6 +491,47 @@ def _require_timestamp(
     return float(value)
 
 
+def _resolve_node_context(
+    client: PrometheusQueryAPI,
+    target: ResolvedMonitorTarget,
+    namespace: str,
+    phase_records: list[MonitorPhaseRecord],
+) -> tuple[float, float, float]:
+    # A single failed scrape at the first phase boundary must not invalidate
+    # later variants. Node capacities are stable, but still read near this run.
+    candidate_timestamps = dict.fromkeys(
+        [record.ended_at_ts for record in phase_records]
+        + [record.started_at_ts for record in phase_records]
+    )
+    last_missing: MissingMonitorDataError | None = None
+    for timestamp in candidate_timestamps:
+        try:
+            _validate_target_pod(client, target, namespace, timestamp)
+            node_total_cpu = _query_scalar(
+                client,
+                build_node_cpu_total_query(target.node_name),
+                timestamp,
+                description="node CPU total",
+            )
+            node_total_memory_gb = _query_scalar(
+                client,
+                build_node_memory_total_query(target.node_name),
+                timestamp,
+                description="node memory total",
+            ) / (1024**3)
+        except MissingMonitorDataError as exc:
+            last_missing = exc
+            continue
+        if node_total_cpu <= 0 or node_total_memory_gb <= 0:
+            raise ValueError("node CPU and memory totals must be positive")
+        return timestamp, node_total_cpu, node_total_memory_gb
+
+    raise MissingMonitorDataError(
+        f"no valid Pod and node capacity metrics for {target.name} during its "
+        f"phases; last missing metric: {last_missing}"
+    )
+
+
 def _validate_target_pod(
     client: PrometheusQueryAPI,
     target: ResolvedMonitorTarget,
@@ -486,6 +542,10 @@ def _validate_target_pod(
         build_pod_info_query(target.pod_name, namespace),
         timestamp,
     )
+    if len(pod_info) == 0:
+        raise MissingMonitorDataError(
+            f"no kube_pod_info series for {target.pod_name} in {namespace}"
+        )
     if len(pod_info) != 1:
         raise ValueError(
             "expected exactly one kube_pod_info series for "
@@ -506,6 +566,7 @@ def _monitor_phase_record(
     cpu_rate_window: str,
     cpu_rate_window_seconds: float,
     query_step_seconds: int,
+    min_phase_coverage_ratio: float,
     node_total_cpu: float,
     node_total_memory_gb: float,
     memory_baseline: MemoryBaseline,
@@ -536,12 +597,17 @@ def _monitor_phase_record(
         scale_factor=1.0,
     )
     if len(cpu_values) == 0:
-        logger.warning(
+        raise MissingMonitorDataError(
             f"No CPU samples returned for {phase_record.variant_name}/"
-            + f"{phase_record.phase}; this may indicate an issue with the "
-            + "Prometheus query or scrape configuration."
+            f"{phase_record.phase}; check the rate window and scrape interval"
         )
-        return {}
+    cpu_coverage = _sample_coverage(
+        len(cpu_values),
+        cpu_query_start_ts,
+        phase_record.ended_at_ts,
+        query_step_seconds,
+    )
+    _require_coverage(cpu_coverage, min_phase_coverage_ratio, phase_record, "CPU usage")
 
     memory_values = _extract_single_series_values(
         client.range_query(
@@ -556,12 +622,19 @@ def _monitor_phase_record(
         scale_factor=1 / (1024**3),
     )
     if len(memory_values) == 0:
-        logger.warning(
+        raise MissingMonitorDataError(
             f"No memory samples returned for {phase_record.variant_name}/"
-            + f"{phase_record.phase}; this may indicate an issue with the "
-            + "Prometheus query or scrape configuration."
+            f"{phase_record.phase}; check the Prometheus scrape configuration"
         )
-        return {}
+    memory_coverage = _sample_coverage(
+        len(memory_values),
+        phase_record.started_at_ts,
+        phase_record.ended_at_ts,
+        query_step_seconds,
+    )
+    _require_coverage(
+        memory_coverage, min_phase_coverage_ratio, phase_record, "memory usage"
+    )
 
     gpu_definitions = (
         IX_GPU_METRIC_DEFINITIONS
@@ -595,6 +668,18 @@ def _monitor_phase_record(
             phase_record=phase_record,
         )
     )
+    gpu_min_coverage = min(
+        _sample_coverage(
+            count,
+            phase_record.started_at_ts,
+            phase_record.ended_at_ts,
+            query_step_seconds,
+        )
+        for count in gpu_sample_counts
+    )
+    _require_coverage(
+        gpu_min_coverage, min_phase_coverage_ratio, phase_record, "required GPU metrics"
+    )
 
     cpu_summary = _summarize_values(cpu_values, "cpu_cores")
     cpu_summary["cpu_cores_pct_of_total_avg"] = round(
@@ -611,7 +696,7 @@ def _monitor_phase_record(
 
     sample_count = min([len(cpu_values), len(memory_values), *gpu_sample_counts])
     if sample_count < MIN_REQUIRED_PHASE_SAMPLES:
-        raise ValueError(
+        raise MissingMonitorDataError(
             f"{phase_record.variant_name}/{phase_record.phase} has too few samples "
             f"(min={sample_count}, required={MIN_REQUIRED_PHASE_SAMPLES}); "
             "increase the experiment measurement window"
@@ -640,6 +725,9 @@ def _monitor_phase_record(
         ),
         "phase_rounds": phase_record.phase_rounds,
         "sample_count": sample_count,
+        "cpu_sample_coverage": round(cpu_coverage, 3),
+        "memory_sample_coverage": round(memory_coverage, 3),
+        "gpu_min_sample_coverage": round(gpu_min_coverage, 3),
         "resolved_gpu_label": resolved_gpu_label,
         "resolved_device_label": resolved_device_label,
         "batch_size": phase_record.batch_size,
@@ -653,6 +741,26 @@ def _monitor_phase_record(
     row.update(memory_delta_summary)
     row.update(gpu_metrics)
     return row
+
+
+def _sample_coverage(
+    sample_count: int, start_ts: float, end_ts: float, step_seconds: int
+) -> float:
+    expected_count = math.floor((end_ts - start_ts) / step_seconds + 1e-9) + 1
+    return min(sample_count / max(expected_count, 1), 1.0)
+
+
+def _require_coverage(
+    coverage: float,
+    minimum: float,
+    phase_record: MonitorPhaseRecord,
+    description: str,
+) -> None:
+    if coverage < minimum:
+        raise MissingMonitorDataError(
+            f"{description} coverage for {phase_record.variant_name}/"
+            f"{phase_record.phase} is {coverage:.1%}, below required {minimum:.1%}"
+        )
 
 
 def _query_memory_baseline(
@@ -749,6 +857,12 @@ def _extract_gpu_metrics(
         series_candidates = metrics_by_name.get(definition.prometheus_name, [])
         if not series_candidates and not definition.required:
             continue
+        if not series_candidates and definition.required:
+            raise MissingMonitorDataError(
+                "no GPU series for "
+                f"{definition.prometheus_name} during "
+                f"{phase_record.variant_name}/{phase_record.phase}"
+            )
         if len(series_candidates) != 1:
             raise ValueError(
                 "expected exactly one GPU series for "
@@ -804,15 +918,21 @@ def _extract_gpu_metrics(
                 f"{phase_record.variant_name}/{phase_record.phase}"
             )
 
-        values = _extract_series_values(
-            series,
-            description=(
-                f"{definition.prometheus_name} for "
-                f"{phase_record.variant_name}/{phase_record.phase}"
-            ),
-            scale_factor=definition.scale_factor,
-        )
-        sample_counts.append(len(values))
+        try:
+            values = _extract_series_values(
+                series,
+                description=(
+                    f"{definition.prometheus_name} for "
+                    f"{phase_record.variant_name}/{phase_record.phase}"
+                ),
+                scale_factor=definition.scale_factor,
+            )
+        except MissingMonitorDataError:
+            if not definition.required:
+                continue
+            raise
+        if definition.required:
+            sample_counts.append(len(values))
         metric_summaries.update(_summarize_values(values, definition.output_prefix))
 
     assert resolved_gpu_label is not None
@@ -828,6 +948,8 @@ def _query_scalar(
     description: str,
 ) -> float:
     result = client.instant_query(query, timestamp)
+    if len(result) == 0:
+        raise MissingMonitorDataError(f"no series for {description}")
     if len(result) != 1:
         raise ValueError(
             f"expected exactly one series for {description}, got {len(result)}"
@@ -918,7 +1040,7 @@ def _extract_series_values(
         values.append(float(raw_value) * scale_factor)
 
     if not values:
-        raise ValueError(f"no samples returned for {description}")
+        raise MissingMonitorDataError(f"no samples returned for {description}")
     return values
 
 

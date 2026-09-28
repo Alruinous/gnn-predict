@@ -29,6 +29,7 @@ class MonitorDefaults(StrictModel):
     cpu_rate_window: str = "3s"
     query_step_seconds: int = 1
     memory_baseline_window_seconds: int = 5
+    min_phase_coverage_ratio: float = 0.0
 
     @field_validator("prometheus_url", "namespace", "cpu_rate_window")
     @classmethod
@@ -56,6 +57,13 @@ class MonitorDefaults(StrictModel):
     def validate_positive_memory_baseline_window(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("memory_baseline_window_seconds must be positive")
+        return value
+
+    @field_validator("min_phase_coverage_ratio")
+    @classmethod
+    def validate_phase_coverage_ratio(cls, value: float) -> float:
+        if not 0 <= value <= 1:
+            raise ValueError("min_phase_coverage_ratio must be between 0 and 1")
         return value
 
 
@@ -131,6 +139,7 @@ class ResolvedMonitorSettings:
     query_step_seconds: int
     targets: tuple[ResolvedMonitorTarget, ...]
     memory_baseline_window_seconds: int = 5
+    min_phase_coverage_ratio: float = 0.0
 
 
 def load_monitor_settings(
@@ -189,6 +198,7 @@ def load_monitor_settings(
         query_step_seconds=config.defaults.query_step_seconds,
         targets=tuple(resolved_targets),
         memory_baseline_window_seconds=config.defaults.memory_baseline_window_seconds,
+        min_phase_coverage_ratio=config.defaults.min_phase_coverage_ratio,
     )
 
 

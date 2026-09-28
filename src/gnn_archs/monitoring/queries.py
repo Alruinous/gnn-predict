@@ -53,11 +53,17 @@ IX_GPU_METRIC_DEFINITIONS: tuple[MetricDefinition, ...] = (
 
 
 def build_node_cpu_total_query(node_name: str) -> str:
-    return f'max(machine_cpu_cores{{node="{_escape_label_value(node_name)}"}})'
+    return (
+        "max(max_over_time("
+        f'machine_cpu_cores{{node="{_escape_label_value(node_name)}"}}[30s]))'
+    )
 
 
 def build_node_memory_total_query(node_name: str) -> str:
-    return f'max(machine_memory_bytes{{node="{_escape_label_value(node_name)}"}})'
+    return (
+        "max(max_over_time("
+        f'machine_memory_bytes{{node="{_escape_label_value(node_name)}"}}[30s]))'
+    )
 
 
 def build_container_start_time_query(pod_name: str, namespace: str) -> str:

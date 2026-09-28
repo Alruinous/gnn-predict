@@ -1,9 +1,11 @@
 defaults:
   prometheus_url: "http://192.168.5.60:31110"
   namespace: "crater-workspace"
-  cpu_rate_window: "3s"
+  # Keep the rate window shorter than each 60-second measurement phase.
+  cpu_rate_window: "30s"
   query_step_seconds: 1
-  memory_baseline_window_seconds: 5
+  memory_baseline_window_seconds: 30
+  min_phase_coverage_ratio: 0.8
 
 targets:
   corex_resnet50_smoke:
@@ -15,6 +17,6 @@ targets:
     pod_name: "jpt-luoruian26-260928-01fe9-default0-0"
     gpu_backend: ix
     gpu_id: "7"
-    # Read the UUID from ix_gpu_utilization{node_name="...",gpu="0"}.
+    # Match the container's `ixsmi -q` UUID to the node's IX metric before setting gpu_id.
     gpu_uuid: "GPU-8241332d-37cb-5585-8482-a32f429b4bdc"
     output_csv: "output/corex_resnet50_smoke/monitor.csv"

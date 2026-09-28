@@ -28,8 +28,9 @@ def test_monitoring_cli_main_filters_models_and_prints_written_paths(
         recorded["target_names"] = target_names
         return fake_settings
 
-    def fake_run_monitoring(settings: object) -> list[Path]:
+    def fake_run_monitoring(settings: object, *, logger: object) -> list[Path]:
         assert settings is fake_settings
+        assert logger is monitoring_cli.logger
         return written_paths
 
     monkeypatch.setattr(
@@ -55,9 +56,7 @@ def test_monitoring_cli_main_filters_models_and_prints_written_paths(
     assert exit_code == 0
     assert recorded["config_path"] == Path("config/monitor/monitor.yaml")
     assert recorded["target_names"] == ("densenet121", "bert-large-cased")
-    assert capsys.readouterr().out.splitlines() == [
-        str(path) for path in written_paths
-    ]
+    assert capsys.readouterr().out.splitlines() == [str(path) for path in written_paths]
 
 
 def test_monitoring_cli_empty_models_argument_uses_all_enabled_targets(
@@ -77,8 +76,9 @@ def test_monitoring_cli_empty_models_argument_uses_all_enabled_targets(
         recorded["target_names"] = target_names
         return fake_settings
 
-    def fake_run_monitoring(settings: object) -> list[Path]:
+    def fake_run_monitoring(settings: object, *, logger: object) -> list[Path]:
         assert settings is fake_settings
+        assert logger is monitoring_cli.logger
         return [Path("/tmp/all-enabled.csv")]
 
     monkeypatch.setattr(
@@ -109,7 +109,7 @@ def test_monitoring_cli_empty_models_argument_uses_all_enabled_targets(
         "Empty --models value provided; reading all enabled targets from "
         "config/monitor/monitor.yaml."
     ) in caplog.text
-    assert capsys.readouterr().out.splitlines() == ["/tmp/all-enabled.csv"]
+    assert capsys.readouterr().out.splitlines() == [str(Path("/tmp/all-enabled.csv"))]
 
 
 def test_monitor_py_delegates_to_package_cli(
@@ -145,8 +145,9 @@ def test_python_m_monitoring_entry_uses_cli_main(
         recorded["target_names"] = target_names
         return fake_settings
 
-    def fake_run_monitoring(settings: object) -> list[Path]:
+    def fake_run_monitoring(settings: object, *, logger: object) -> list[Path]:
         assert settings is fake_settings
+        assert logger is monitoring_cli.logger
         return [Path("/tmp/out.csv")]
 
     monkeypatch.setattr(
@@ -176,4 +177,4 @@ def test_python_m_monitoring_entry_uses_cli_main(
 
     assert recorded["config_path"] == Path("config/monitor/monitor.yaml")
     assert recorded["target_names"] == ("densenet121", "bert-large-cased")
-    assert capsys.readouterr().out.splitlines() == ["/tmp/out.csv"]
+    assert capsys.readouterr().out.splitlines() == [str(Path("/tmp/out.csv"))]

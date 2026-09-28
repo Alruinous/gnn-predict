@@ -47,6 +47,9 @@ class FakePrometheusClient:
         range_responses: dict[str, list[list[dict[str, Any]]]] | None = None,
     ) -> None:
         self.instant_responses = instant_responses or {}
+        self.instant_responses_by_time: dict[
+            tuple[str, float], list[dict[str, Any]]
+        ] = {}
         self.range_responses = range_responses or {}
         self.instant_calls: list[tuple[str, float | None]] = []
         self.range_calls: list[tuple[str, float, float, int]] = []
@@ -55,6 +58,11 @@ class FakePrometheusClient:
         self, query: str, timestamp: float | None = None
     ) -> list[dict[str, Any]]:
         self.instant_calls.append((query, timestamp))
+        if (
+            timestamp is not None
+            and (query, timestamp) in self.instant_responses_by_time
+        ):
+            return self.instant_responses_by_time[(query, timestamp)]
         if query not in self.instant_responses:
             raise AssertionError(f"unexpected instant query: {query}")
         return self.instant_responses[query]
@@ -87,6 +95,7 @@ def test_load_monitor_settings_keeps_relative_paths_unchanged(
                 '  prometheus_url: "http://example:9090"',
                 '  namespace: "crater-workspace"',
                 '  cpu_rate_window: "2m"',
+                "  min_phase_coverage_ratio: 0.8",
                 "  query_step_seconds: 3",
                 "targets:",
                 "  bert_large:",
@@ -106,6 +115,7 @@ def test_load_monitor_settings_keeps_relative_paths_unchanged(
     assert settings.namespace == "crater-workspace"
     assert settings.cpu_rate_window == "2m"
     assert settings.cpu_rate_window_seconds == 120.0
+    assert settings.min_phase_coverage_ratio == 0.8
     assert settings.query_step_seconds == 3
     assert settings.memory_baseline_window_seconds == 5
     assert len(settings.targets) == 1
@@ -201,7 +211,7 @@ def test_load_monitor_settings_filters_targets_in_requested_order(
                 "targets:",
                 "  bert_large:",
                 "    enabled: true",
-                f'    result_json: "{absolute_result}"',
+                f"    result_json: '{absolute_result}'",
                 '    node_name: "dell-67"',
                 '    pod_name: "pod-bert"',
                 '    gpu_id: "1"',
@@ -724,11 +734,71 @@ def test_monitor_target_fails_when_node_total_is_missing(tmp_path: Path) -> None
     )
     client.instant_responses[build_node_cpu_total_query(target.node_name)] = []
 
-    with pytest.raises(ValueError, match="expected exactly one series for node CPU total"):
+    with pytest.raises(ValueError, match="no series for node CPU total"):
         monitor_target(settings, target, client, TEST_LOGGER)
 
 
-def test_monitor_target_fails_when_metric_samples_are_missing(tmp_path: Path) -> None:
+def test_monitor_target_uses_later_phase_when_node_capacity_is_temporarily_missing(
+    tmp_path: Path,
+) -> None:
+    result_json = _write_result_document(tmp_path)
+    settings, target = _build_settings(tmp_path, result_json)
+    client = _build_fake_client(
+        namespace=settings.namespace,
+        node_name=target.node_name,
+        pod_name=target.pod_name,
+    )
+    node_cpu_query = build_node_cpu_total_query(target.node_name)
+    client.instant_responses_by_time[(node_cpu_query, 107.0)] = []
+
+    dataframe = monitor_target(settings, target, client, TEST_LOGGER)
+
+    assert len(dataframe) == 2
+    assert (node_cpu_query, 107.0) in client.instant_calls
+    assert (node_cpu_query, 116.0) in client.instant_calls
+
+
+def test_monitor_target_skips_first_variant_and_keeps_later_variant(
+    tmp_path: Path,
+) -> None:
+    result_json = _write_result_document(tmp_path)
+    document = ResultDocument.model_validate_json(
+        result_json.read_text(encoding="utf-8")
+    )
+    first_variant = document.variants[0]
+    first_variant.inference = None
+    second_variant = first_variant.model_copy(deep=True)
+    second_variant.name = "second_variant"
+    assert second_variant.training is not None
+    second_variant.training.timings = TimeWindow(started_at_ts=110.0, ended_at_ts=116.0)
+    second_variant.timings["model_build"] = TimeWindow(
+        started_at_ts=108.0, ended_at_ts=109.5
+    )
+    document.variants.append(second_variant)
+    write_result_document(result_json, document)
+
+    settings, target = _build_settings(tmp_path, result_json)
+    client = _build_fake_client(
+        namespace=settings.namespace,
+        node_name=target.node_name,
+        pod_name=target.pod_name,
+    )
+    node_cpu_query = build_node_cpu_total_query(target.node_name)
+    client.instant_responses_by_time[(node_cpu_query, 107.0)] = []
+    cpu_query = build_pod_cpu_query(
+        target.pod_name, settings.namespace, settings.cpu_rate_window
+    )
+    client.range_responses[cpu_query][0] = []
+
+    dataframe = monitor_target(settings, target, client, TEST_LOGGER)
+
+    assert dataframe["variant_name"].tolist() == ["second_variant"]
+    assert (node_cpu_query, 116.0) in client.instant_calls
+
+
+def test_monitor_target_skips_phase_when_cpu_samples_are_missing(
+    tmp_path: Path,
+) -> None:
     result_json = _write_result_document(tmp_path)
     settings, target = _build_settings(tmp_path, result_json)
     client = _build_fake_client(
@@ -743,8 +813,51 @@ def test_monitor_target_fails_when_metric_samples_are_missing(tmp_path: Path) ->
     )
     client.range_responses[cpu_query][0] = [{"metric": {}, "values": []}]
 
-    with pytest.raises(ValueError, match="no samples returned for CPU usage"):
+    dataframe = monitor_target(settings, target, client, TEST_LOGGER)
+
+    assert dataframe["phase"].tolist() == ["inference"]
+    assert pd.read_csv(target.output_csv)["phase"].tolist() == ["inference"]
+
+
+def test_monitor_target_fails_without_writing_header_only_csv(
+    tmp_path: Path,
+) -> None:
+    result_json = _write_result_document(tmp_path)
+    settings, target = _build_settings(tmp_path, result_json)
+    client = _build_fake_client(
+        namespace=settings.namespace,
+        node_name=target.node_name,
+        pod_name=target.pod_name,
+    )
+    cpu_query = build_pod_cpu_query(
+        target.pod_name,
+        settings.namespace,
+        settings.cpu_rate_window,
+    )
+    client.range_responses[cpu_query] = [[], []]
+
+    with pytest.raises(ValueError, match="no complete monitoring records"):
         monitor_target(settings, target, client, TEST_LOGGER)
+
+    assert not target.output_csv.exists()
+
+
+def test_monitor_target_skips_phase_below_configured_coverage(
+    tmp_path: Path,
+) -> None:
+    result_json = _write_result_document(tmp_path)
+    settings, target = _build_settings(tmp_path, result_json)
+    settings = replace(settings, min_phase_coverage_ratio=0.8)
+    client = _build_fake_client(
+        namespace=settings.namespace,
+        node_name=target.node_name,
+        pod_name=target.pod_name,
+    )
+
+    with pytest.raises(ValueError, match="no complete monitoring records"):
+        monitor_target(settings, target, client, TEST_LOGGER)
+
+    assert not target.output_csv.exists()
 
 
 def test_monitor_target_clamps_cpu_queries_when_phase_is_shorter_than_cpu_window(
@@ -776,7 +889,7 @@ def test_monitor_target_clamps_cpu_queries_when_phase_is_shorter_than_cpu_window
     assert inference_cpu_call[1:] == (116.0, 116.0, 1)
 
 
-def test_monitor_target_fails_when_sample_count_is_too_small(
+def test_monitor_target_skips_phase_when_sample_count_is_too_small(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -799,11 +912,12 @@ def test_monitor_target_fails_when_sample_count_is_too_small(
         }
     ]
 
-    with pytest.raises(ValueError, match="has too few samples"):
-        monitor_target(settings, target, client, TEST_LOGGER)
+    dataframe = monitor_target(settings, target, client, TEST_LOGGER)
+
+    assert dataframe["phase"].tolist() == ["inference"]
 
 
-def test_monitor_target_fails_when_configured_gpu_has_no_series(
+def test_monitor_target_skips_phase_when_configured_gpu_has_no_series(
     tmp_path: Path,
 ) -> None:
     result_json = _write_result_document(tmp_path)
@@ -822,8 +936,9 @@ def test_monitor_target_fails_when_configured_gpu_has_no_series(
     )
     client.range_responses[gpu_query][0] = []
 
-    with pytest.raises(ValueError, match="expected exactly one GPU series"):
-        monitor_target(settings, target, client, TEST_LOGGER)
+    dataframe = monitor_target(settings, target, client, TEST_LOGGER)
+
+    assert dataframe["phase"].tolist() == ["inference"]
 
 
 def test_monitor_target_fails_when_multiple_gpu_series_are_returned(
@@ -862,27 +977,28 @@ def test_monitor_target_fails_when_multiple_gpu_series_are_returned(
 
 
 def test_query_builders_lock_expected_cpu_and_memory_promql() -> None:
-    assert build_node_cpu_total_query("dell-67") == 'max(machine_cpu_cores{node="dell-67"})'
+    assert build_node_cpu_total_query("dell-67") == (
+        'max(max_over_time(machine_cpu_cores{node="dell-67"}[30s]))'
+    )
     assert build_node_memory_total_query("dell-67") == (
-        'max(machine_memory_bytes{node="dell-67"})'
+        'max(max_over_time(machine_memory_bytes{node="dell-67"}[30s]))'
     )
     assert build_container_start_time_query("pod-a", "ns-a") == (
         'min(container_start_time_seconds{pod="pod-a",namespace="ns-a",'
         'container!="",container!="POD"})'
     )
     assert build_pod_cpu_query("pod-a", "ns-a", "2m") == (
-        'sum(max by (pod,namespace,node,container) '
+        "sum(max by (pod,namespace,node,container) "
         '(rate(container_cpu_usage_seconds_total{pod="pod-a",namespace="ns-a",'
         'container!="",container!="POD"}[2m])))'
     )
     assert build_pod_memory_query("pod-a", "ns-a") == (
-        'sum(max by (pod,namespace,node,container) '
+        "sum(max by (pod,namespace,node,container) "
         '(container_memory_working_set_bytes{pod="pod-a",namespace="ns-a",'
         'container!="",container!="POD"}))'
     )
     assert build_pod_info_query("pod-a", "ns-a") == (
-        'count by (pod,namespace,node) '
-        '(kube_pod_info{pod="pod-a",namespace="ns-a"})'
+        'count by (pod,namespace,node) (kube_pod_info{pod="pod-a",namespace="ns-a"})'
     )
     assert build_gpu_metrics_query(
         tuple(definition.prometheus_name for definition in GPU_METRIC_DEFINITIONS),
@@ -890,11 +1006,11 @@ def test_query_builders_lock_expected_cpu_and_memory_promql() -> None:
         "ns-a",
         "1",
     ) == (
-        'max by (__name__,pod,namespace,gpu,device,Hostname) '
+        "max by (__name__,pod,namespace,gpu,device,Hostname) "
         '({__name__=~"DCGM_FI_DEV_GPU_UTIL|DCGM_FI_PROF_SM_ACTIVE|'
-        'DCGM_FI_PROF_SM_OCCUPANCY|DCGM_FI_DEV_FB_USED|DCGM_FI_DEV_FB_FREE|'
-        'DCGM_FI_DEV_MEM_COPY_UTIL|DCGM_FI_PROF_DRAM_ACTIVE|'
-        'DCGM_FI_PROF_PCIE_TX_BYTES|DCGM_FI_PROF_PCIE_RX_BYTES|'
+        "DCGM_FI_PROF_SM_OCCUPANCY|DCGM_FI_DEV_FB_USED|DCGM_FI_DEV_FB_FREE|"
+        "DCGM_FI_DEV_MEM_COPY_UTIL|DCGM_FI_PROF_DRAM_ACTIVE|"
+        "DCGM_FI_PROF_PCIE_TX_BYTES|DCGM_FI_PROF_PCIE_RX_BYTES|"
         'DCGM_FI_DEV_POWER_USAGE|DCGM_FI_DEV_GPU_TEMP",pod="pod-a",'
         'namespace="ns-a",gpu="1"})'
     )
@@ -934,6 +1050,19 @@ def test_monitor_target_collects_ix_metrics_without_pod_labels(tmp_path: Path) -
         ]
         for _ in range(2)
     ]
+    for response in client.range_responses[ix_query]:
+        response.append(
+            {
+                "metric": {
+                    "__name__": "ix_sm_utilization",
+                    "gpu": "0",
+                    "uuid": "GPU-BI-V150-0",
+                    "name": "Iluvatar BI-V150",
+                    "node_name": target.node_name,
+                },
+                "values": [],
+            }
+        )
 
     frame = monitor_target(settings, ix_target, client, TEST_LOGGER)
 
@@ -982,7 +1111,7 @@ def test_ix_query_selects_node_and_gpu_uuid() -> None:
     assert 'node_name="inspur-01"' in query
     assert 'gpu="0"' in query
     assert 'uuid="GPU-1"' in query
-    assert 'pod=' not in query
+    assert "pod=" not in query
 
 
 def _build_settings(
@@ -1121,9 +1250,7 @@ def _build_fake_client(
                 }
             ],
             node_cpu_query: [{"metric": {}, "value": [100.0, "80"]}],
-            node_memory_query: [
-                {"metric": {}, "value": [100.0, str(256 * 1024**3)]}
-            ],
+            node_memory_query: [{"metric": {}, "value": [100.0, str(256 * 1024**3)]}],
             container_start_query: [{"metric": {}, "value": [100.0, "90.0"]}],
         },
         range_responses={
