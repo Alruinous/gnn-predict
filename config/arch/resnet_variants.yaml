@@ -12,7 +12,7 @@ base_model_groups:
       - 3
       - 224
       - 224
-      export_graph: false
+      export_graph: true
       run_training: true
       batch_size: 16
       training_measurement_min_seconds: 40.0
@@ -39,7 +39,7 @@ base_model_groups:
       - 224
       - 224
       run_training: true
-      export_graph: false
+      export_graph: true
       batch_size: 16
       training_measurement_min_seconds: 40.0
       use_fake_imagenet: true
@@ -60,7 +60,7 @@ base_model_groups:
       - 3
       - 224
       - 224
-      export_graph: false
+      export_graph: true
       run_training: true
       batch_size: 16
       training_measurement_min_seconds: 40.0
@@ -85,7 +85,7 @@ base_model_groups:
     - 200
     - 500
     base_variant_config_template:
-      export_graph: false
+      export_graph: true
       example_input_shape:
       - 1
       - 3
