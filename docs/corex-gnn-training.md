@@ -12,6 +12,8 @@
 
 BI-V150 的 `.pt2` 是由 `torch 2.4.1+corex.4.3.0` 写出的。项目的图加载器要求 PyTorch 主、次版本相同；**不能假定**在默认的 PyTorch 2.9 训练环境里可直接读取。先用一份真实 `.pt2` 在拟用于提取的环境中测试读取和特征构建。如果失败，使用与导图版本匹配的 PyTorch 2.4 环境提取，而不是关闭版本校验或覆盖厂商版 torch。
 
+完整 ResNet50 配置用 `example_input_shape` 的 batch 1 导出静态推理图，并以 batch 1 测推理、以 `batch_size: 16` 测训练。因此，`.pt2` 中节点形状、MACs、激活内存等**静态图指标是导图 batch 1 的参考值**，并不冒充 batch 16 训练图。提取时会分别保留 `graph_capture_batch_size=1` 与监控行的实测 `batch_size`；图级特征中的 `batch_size` 使用实测值（训练 16、推理 1）。训练阶段的实际耗时和资源目标仍来自 batch 16 的监控，不能把 CSV 的训练 batch 改成 1。当前还没有导出反向传播图，因此训练预测的静态结构信息仅来自共用的推理图；评估预测误差时应考虑这一限制。
+
 提取环境还需 `polars`、`torch-geometric`、`pydantic`、`PyYAML`。它可以是原 BI-V150 容器，也可以是另一台可读取该图的 CPU 机器；提取计算主要使用 CPU，**不要求在天数卡上训练 GNN**。**不要在 CoreX 容器执行 `uv sync` 或不加限制地执行 `pip install -r ...`**，它们可能按项目配置安装标准 PyTorch 2.9，覆盖已验证的厂商版 torch。若重新申请容器，先确认它仍将同一份 Ceph Home 挂载到 `/home/luoruian26`，且能看见本次 `monitor.csv`、`results/` 和 `fx_graphs/`。更换提取容器不会改变之前在 BI-V150 上测得的时间和资源标签，但新镜像的软件环境不会因 Home 持久化而自动一致。
 
 以下命令都在**原 BI-V150 容器的终端**执行；每次打开新终端，至少重新执行 `cd` 和 `export PYTHONPATH`，除非已把这些路径写入 shell 启动配置。先确认使用的是包含数据提取修改的最新项目代码，并检查输入文件和当前 Python：
@@ -49,6 +51,7 @@ graph = build_graph_data_from_fx(
     graph_path, batch_size=16, gpu_name='bi-v150', phase='training'
 )
 print('graph:', graph_path, 'nodes:', graph.num_nodes)
+print('graph capture batch:', graph.graph_capture_batch_size)
 PY
 ```
 
@@ -72,7 +75,7 @@ from pathlib import Path
 
 path = Path('data/corex_bi_v150/raw/manifest.json')
 manifest = json.loads(path.read_text(encoding='utf-8'))
-for key in ('gpu_names', 'sample_count', 'split_counts', 'quality_report', 'target_names'):
+for key in ('gpu_names', 'graph_capture_batch_sizes', 'sample_count', 'split_counts', 'quality_report', 'target_names'):
     print(key, manifest[key])
 for name in ('train.pt', 'val.pt', 'test.pt'):
     print(name, (path.parent / name).is_file())

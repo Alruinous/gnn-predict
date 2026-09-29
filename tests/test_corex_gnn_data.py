@@ -46,6 +46,8 @@ def test_bi_v150_extracts_valid_rows_without_nvidia_sm_metrics(
             row["gpu_node"] = "bi-v150"
             row["gpu_sm_active_percent_max"] = ""
             row["gpu_sm_occupancy_percent_max"] = ""
+            if phase == "training":
+                row["batch_size"] = 16
             rows.append(row)
     write_monitor_csv(csv_dir / "monitor.csv", rows)
 
@@ -56,6 +58,7 @@ def test_bi_v150_extracts_valid_rows_without_nvidia_sm_metrics(
     assert manifest["target_names"] == list(COREX_BI_V150_TARGET_FIELDS)
     assert manifest["split_unit"] == "gpu_model_variant"
     assert manifest["sample_count"] == len(rows)
+    assert manifest["graph_capture_batch_sizes"] == [2]
     assert manifest["quality_report"]["retained_row_count"] == len(rows)
     split_membership: dict[str, set[str]] = {}
     for split_name in ("train", "val", "test"):
@@ -63,6 +66,8 @@ def test_bi_v150_extracts_valid_rows_without_nvidia_sm_metrics(
         assert graphs
         for graph in graphs:
             assert graph.y.shape == (1, len(COREX_BI_V150_TARGET_FIELDS))
+            assert graph.graph_capture_batch_size == 2
+            assert graph.batch_size == (16 if graph.phase == "training" else 2)
             split_membership.setdefault(graph.variant_name, set()).add(split_name)
     assert all(len(splits) == 1 for splits in split_membership.values())
     assert "variant_elu_e" in split_membership

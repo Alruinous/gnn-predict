@@ -306,7 +306,7 @@ def build_graph_data_from_exported_program(
     edge_features = [
         build_edge_feature_vector(edge, in_degree, out_degree) for edge in edges
     ]
-    graph_features = build_graph_feature_vector(
+    graph_features, graph_capture_batch_size = build_graph_feature_vector(
         exported_program,
         node_infos=node_infos,
         edges=edges,
@@ -341,6 +341,7 @@ def build_graph_data_from_exported_program(
             [OP_TYPE_TO_INDEX[info.category] for info in node_infos],
             dtype=torch.long,
         ),
+        graph_capture_batch_size=graph_capture_batch_size,
         graph_path=str(graph_path) if graph_path is not None else "",
     )
 
@@ -532,7 +533,7 @@ def build_graph_feature_vector(
     batch_size: int,
     decode_output_length: int,
     gpu_name: str,
-) -> list[float]:
+) -> tuple[list[float], int]:
     normalized_phase = phase.strip().lower()
     if normalized_phase not in PHASE_TO_INDEX:
         raise ValueError(f"unsupported phase: {phase}")
@@ -558,7 +559,7 @@ def build_graph_feature_vector(
             "runtime input name count does not match graph signature: "
             f"{len(runtime_input_names)} != {len(runtime_specs)}"
         )
-    validate_runtime_batch_size(runtime_specs, batch_size)
+    graph_capture_batch_size = infer_graph_capture_batch_size(runtime_specs)
     all_tensor_specs = [
         *(
             tensor_spec
@@ -606,21 +607,30 @@ def build_graph_feature_vector(
     ]
     if len(feature_vector) != GRAPH_FEATURE_DIM:
         raise ValueError(f"invalid graph feature dimension: {len(feature_vector)}")
-    return feature_vector
+    return feature_vector, graph_capture_batch_size
 
 
-def validate_runtime_batch_size(
+def infer_graph_capture_batch_size(
     runtime_specs: list[TensorSpec],
-    batch_size: int,
-) -> None:
+) -> int:
+    if not runtime_specs:
+        raise ValueError("exported graph has no runtime tensor inputs")
+    capture_batch_size: int | None = None
     for tensor_spec in runtime_specs:
         if not tensor_spec.shape:
             raise ValueError("runtime inputs must include a batch dimension")
-        if tensor_spec.shape[0] != batch_size:
+        input_batch_size = tensor_spec.shape[0]
+        if input_batch_size <= 0:
+            raise ValueError("runtime input batch dimension must be positive")
+        if capture_batch_size is None:
+            capture_batch_size = input_batch_size
+        elif input_batch_size != capture_batch_size:
             raise ValueError(
-                "batch_size does not match static runtime input shape: "
-                f"{batch_size} != {tensor_spec.shape[0]}"
+                "inconsistent static runtime input batch sizes: "
+                f"{capture_batch_size} != {input_batch_size}"
             )
+    assert capture_batch_size is not None
+    return capture_batch_size
 
 
 def tensor_spec_for_input(spec: Any, placeholders: dict[str, Node]) -> TensorSpec:

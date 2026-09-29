@@ -352,15 +352,41 @@ def test_build_graph_data_rejects_symbolic_shapes() -> None:
         )
 
 
-def test_build_graph_data_rejects_batch_size_mismatch() -> None:
+def test_build_graph_data_preserves_measurement_and_capture_batch_sizes() -> None:
     exported_program = capture_inference_graph(
         BFloat16Output(),
         (torch.randn(2),),
     )
 
-    with pytest.raises(ValueError, match="batch_size does not match"):
+    data = build_graph_data_from_exported_program(
+        exported_program,
+        runtime_input_names=["inputs"],
+        batch_size=16,
+    )
+
+    graph_values = dict(
+        zip(GRAPH_FEATURE_NAMES, data.graph_features[0].tolist(), strict=True)
+    )
+    assert data.graph_capture_batch_size == 2
+    assert graph_values["batch_size"] == 16.0
+
+
+class InconsistentRuntimeBatchGraph(nn.Module):
+    def forward(
+        self, inputs: torch.Tensor, other: torch.Tensor
+    ) -> torch.Tensor:
+        return inputs + other.mean(dim=0)
+
+
+def test_build_graph_data_rejects_inconsistent_capture_input_batch_sizes() -> None:
+    exported_program = capture_inference_graph(
+        InconsistentRuntimeBatchGraph(),
+        (torch.randn(2, 3), torch.randn(4, 3)),
+    )
+
+    with pytest.raises(ValueError, match="inconsistent static runtime input batch"):
         build_graph_data_from_exported_program(
             exported_program,
-            runtime_input_names=["inputs"],
-            batch_size=1,
+            runtime_input_names=["inputs", "other"],
+            batch_size=16,
         )

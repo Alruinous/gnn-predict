@@ -223,6 +223,9 @@ def build_dataset(
         seed=seed,
         target_names=target_names,
         gpu_names=tuple(sorted({graph.gpu_name for graph in graphs})),
+        graph_capture_batch_sizes=tuple(
+            sorted({graph.graph_capture_batch_size for graph in graphs})
+        ),
         source_row_count=source_row_count,
         excluded_before_gpu_quality_count=excluded_before_gpu_quality_count,
         gpu_quality_filtered_count=total_gpu_quality_filtered_count,
@@ -529,6 +532,7 @@ def build_manifest(
     seed: int,
     target_names: tuple[str, ...] = TARGET_FIELDS,
     gpu_names: tuple[str, ...] = (),
+    graph_capture_batch_sizes: tuple[int, ...] = (),
     source_row_count: int = 0,
     excluded_before_gpu_quality_count: int = 0,
     gpu_quality_filtered_count: int = 0,
@@ -543,6 +547,7 @@ def build_manifest(
         "target_names": list(target_names),
         "split_unit": "gpu_model_variant",
         "gpu_names": list(gpu_names),
+        "graph_capture_batch_sizes": list(graph_capture_batch_sizes),
         "quality_report": {
             "source_row_count": source_row_count,
             "excluded_before_gpu_quality_count": excluded_before_gpu_quality_count,
