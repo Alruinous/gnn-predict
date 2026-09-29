@@ -588,6 +588,7 @@ def test_monitor_target_writes_expected_csv_columns_and_rows(tmp_path: Path) -> 
     assert target.output_csv.exists()
     loaded = pd.read_csv(target.output_csv)
     assert loaded.shape[0] == 2
+    assert set(loaded["result_json"]) == {"../results.json"}
     assert set(loaded["phase"]) == {"training", "inference"}
     assert loaded["phase_rounds"].tolist() == [3, 42]
     assert loaded["gpu_id"].astype(str).tolist() == ["1", "1"]

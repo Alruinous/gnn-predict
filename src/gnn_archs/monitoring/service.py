@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -337,6 +338,16 @@ def monitor_target(
                 exc,
             )
             continue
+        try:
+            row["result_json"] = Path(
+                os.path.relpath(
+                    Path(row["result_json"]).resolve(),
+                    target.output_csv.parent.resolve(),
+                )
+            ).as_posix()
+        except ValueError:
+            # Separate Windows drives cannot be represented by a relative path.
+            pass
         rows.append(row)
 
     if not rows:

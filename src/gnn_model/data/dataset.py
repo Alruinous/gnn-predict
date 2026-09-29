@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +34,14 @@ def load_split_graph_datasets(config: SplitDataConfig) -> GraphDatasetBundle:
     target_names = tuple(config.target_names)
     split_files = config.split_files
     data_dir = Path(config.data_dir)
+    manifest_path = data_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if tuple(manifest["target_names"]) != target_names:
+            raise ValueError(
+                "training target_names do not match dataset manifest: "
+                f"{manifest_path}"
+            )
     train_data = load_graph_split(
         data_dir / split_files["train"],
         target_dim=len(target_names),

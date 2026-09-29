@@ -2,7 +2,7 @@
 
 本文介绍如何在 BI-V150 上运行模型变体，并采集运行耗时和 Prometheus 监控数据。这里不训练 GNN，因此卡上不需要安装 `torch-geometric`。
 
-当前实测进度：早期单变体 ResNet50 测试已在 BI-V150 上运行并生成结果 JSON；当时关闭导图，所以 `fx_graphs/` 为空。当前配置已扩展为三个变体，每个训练、推理阶段至少 60 秒，只有第一个开启导图。已确认 Pod 所在节点及其物理 GPU UUID；完整三变体结果、有效监控 CSV 以及跨 PyTorch 版本读图仍需逐项验证。
+当前实测进度：三个 ResNet50 smoke 变体及其监控采集已完成；用户报告完整的 83 变体 ResNet50 运行也已结束，接下来需核对这次的结果 JSON、计算图并采集正式监控 CSV。跨 PyTorch 版本读图、正式数据提取及 GNN 训练仍未验证。
 
 ## 保留容器中的 CoreX 环境
 
@@ -62,7 +62,38 @@ kubectl get pod -n crater-workspace POD_NAME -o jsonpath='{.spec.nodeName}'
 gnnpython monitor.py --config config/monitor/monitor_corex_example.yaml
 ```
 
-若使用前述 `~/.bashrc` 函数，可以把命令中的 `python3` 换成 `gnnpython`。当前尚未验证监控 CSV 成功生成；成功时文件会写入配置中的 `output_csv` 路径。设计上，CSV 包含 GPU 利用率、显存占用等通用字段；如果 IX exporter 提供相应指标，还会包含功率、温度及 `gpu_sm_util_percent_*`。BI-V150 的 NVIDIA 专属 SM active 和 occupancy 字段保持为空，不会伪造为 0，也不会将 IX 的 SM 利用率视为与它们等价。V100/A100 的监控配置仍默认使用 DCGM。
+若使用前述 `~/.bashrc` 函数，可以把命令中的 `python3` 换成 `gnnpython`。三个 smoke 变体已取得监控 CSV；正式 ResNet50 必须另用下面的配置和本次运行的结果 JSON，不要复用 smoke 的旧 JSON。CSV 包含 GPU 利用率、显存占用等通用字段；如果 IX exporter 提供相应指标，还会包含功率、温度及 `gpu_sm_util_percent_*`。BI-V150 的 NVIDIA 专属 SM active 和 occupancy 字段保持为空，不会伪造为 0，也不会将 IX 的 SM 利用率视为与它们等价。V100/A100 的监控配置仍默认使用 DCGM。
+
+## 完整 ResNet50 运行结束后采集正式监控
+
+在**运行模型的容器**中进入项目根目录，列出本次运行生成的结果 JSON。不要直接沿用 smoke 测试文件或较早的 ResNet50 文件：
+
+```bash
+cd ~/gnn-predict
+ls -lt output/resnet50/results/*_bi-v150_*_results.json
+```
+
+确认最新文件确实属于这次完整运行，然后设置路径并核对成功/失败变体数。若有多个文件，必须人工确认，不要仅凭时间戳猜测：
+
+```bash
+result_json='output/resnet50/results/将这里替换为本次的_results.json'
+gnnpython -c 'import json,sys; d=json.load(open(sys.argv[1])); s=d.get("summary",{}); print("planned:",s.get("planned_variant_count"),"success:",len(d.get("variants",[])),"failures:",len(d.get("failures",[])))' "$result_json"
+```
+
+将 `config/monitor/monitor_corex_resnet50.yaml` 的 `result_json` 改成上述**真实路径**。该配置暂填先前验证过的 Pod `jpt-luoruian26-260928-01fe9-default0-0`、节点 `inspur-01`、物理 `gpu_id: "7"` 和 UUID。请确认本次 83 变体就是在**这个 Pod 和这张卡**上运行；如果期间换过 Pod，应填运行当时的 Pod、节点和 GPU 标识，而非盲目填写当前新 Pod。确认配置后执行：
+
+```bash
+gnnpython monitor.py --config config/monitor/monitor_corex_resnet50.yaml
+```
+
+成功时生成 `output/resnet50/monitor.csv`。检查行数和阶段分布：
+
+```bash
+gnnpython -c 'import csv,collections; r=list(csv.DictReader(open("output/resnet50/monitor.csv",newline=""))); print("rows:",len(r),"phases:",dict(collections.Counter(x["phase"] for x in r)))'
+find output/resnet50/fx_graphs -maxdepth 1 -type f -name '*.pt2' | wc -l
+```
+
+理论上 83 个变体各有训练、推理阶段，最多约 166 行；失败变体或监控样本不足的阶段会减少行数。`monitor.py` 会对缺失阶段打印警告，不会为其编造数据。还应确认每个**准备纳入训练**的变体有对应 `.pt2` 图；仅有 CSV 的变体在后续提取时不能成为图样本。监控依赖 Prometheus 保存的历史时间序列，建议运行结束后尽快采集；若历史数据已过保留期，重新执行监控命令也无法恢复原始样本。
 
 ## 正式采集时的监控完整性
 
@@ -75,4 +106,4 @@ min_phase_coverage_ratio: 0.8
 
 `min_phase_coverage_ratio` 是每个阶段的 CPU、内存及必需 GPU 指标在查询时间点上的最低覆盖率。它不代表独立硬件采样的比例，因为 `query_step_seconds: 1` 可能重复使用同一次 Prometheus 抓取。默认值为 `0.0`，以保持旧的 V100/A100 配置行为；正式采集应显式设定阈值，并检查 CSV 中的 `cpu_sample_coverage`、`memory_sample_coverage`、`gpu_min_sample_coverage`。
 
-监控程序现在允许节点容量指标在阶段边界短暂缺失：它会在各阶段边界寻找 Pod 身份和节点总核数、总内存，并对容量指标回看最多 30 秒。某个阶段缺少必需数据或覆盖率低于阈值时，程序会警告并跳过该**阶段**，继续处理其他阶段和变体；若一个完整阶段都没有，则报错，不再写出只有表头的 CSV。指标标签不匹配或返回多条含糊的 GPU 序列仍会报错，避免把其他卡的数据误认成本卡数据。数据缺失不会被填成 0。正式使用前仍需核对 GPU UUID、结果 JSON 路径以及实际导图能力；完整 ResNet50 变体尚未在 BI-V150 上验证。
+监控程序现在允许节点容量指标在阶段边界短暂缺失：它会在各阶段边界寻找 Pod 身份和节点总核数、总内存，并对容量指标回看最多 30 秒。某个阶段缺少必需数据或覆盖率低于阈值时，程序会警告并跳过该**阶段**，继续处理其他阶段和变体；若一个完整阶段都没有，则报错，不再写出只有表头的 CSV。指标标签不匹配或返回多条含糊的 GPU 序列仍会报错，避免把其他卡的数据误认成本卡数据。数据缺失不会被填成 0。正式使用前仍需核对 GPU UUID、结果 JSON 路径以及实际导图能力；完整 ResNet50 虽已报告运行结束，其监控质量与图覆盖情况仍需以上述检查结果为准。

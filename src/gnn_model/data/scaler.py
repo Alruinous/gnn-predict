@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import pickle
 from collections.abc import Callable
 from pathlib import Path
@@ -49,18 +50,25 @@ def generate_scalers(
             graph_feature_list.append(graph.graph_features.numpy())  # (1, num_features)
             target_list.append(graph.y[...].numpy())  # (1, num_target)
 
-        node_features = np.concatenate(node_feature_list, axis=0)
-        node_feature_scaler.fit(node_features)
+    if not node_feature_list:
+        raise ValueError("training split has no graphs to fit scalers")
+    node_features = np.concatenate(node_feature_list, axis=0)
+    node_feature_scaler.fit(node_features)
 
-        if len(edge_feature_list) > 0:
-            edge_features = np.concatenate(edge_feature_list, axis=0)
-            edge_feature_scaler.fit(edge_features)
+    if edge_feature_list:
+        edge_features = np.concatenate(edge_feature_list, axis=0)
+        edge_feature_scaler.fit(edge_features)
 
-        graph_features = np.concatenate(graph_feature_list, axis=0)
-        graph_feature_scaler.fit(graph_features)
-        target_features = np.concatenate(target_list, axis=0)
-        for i, t in enumerate(target_columns):
-            target_scalers[t].fit(target_features[:, i : i + 1])
+    graph_features = np.concatenate(graph_feature_list, axis=0)
+    graph_feature_scaler.fit(graph_features)
+    target_features = np.concatenate(target_list, axis=0)
+    if target_features.shape[1] != len(target_columns):
+        raise ValueError(
+            "target columns do not match training labels: "
+            f"{len(target_columns)} != {target_features.shape[1]}"
+        )
+    for i, target_name in enumerate(target_columns):
+        target_scalers[target_name].fit(target_features[:, i : i + 1])
 
     feature_scalers = {
         "node_feature_scaler": node_feature_scaler,
@@ -169,14 +177,30 @@ def main():
     )
     parser.add_argument(
         "--target_fields",
-        default="target",
-        help="Comma-separated list of target fields to scale.",
+        default=None,
+        help="Comma-separated target names; defaults to manifest.json target_names.",
     )
     args = parser.parse_args()
-    target_columns = str(args.target_fields).split(",")
-    graph_files = list(Path(args.data_dir).glob("*.pt"))
+    data_dir = Path(args.data_dir)
+    manifest_path = data_dir / "manifest.json"
+    manifest = (
+        json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest_path.exists()
+        else None
+    )
+    if args.target_fields:
+        target_columns = [field.strip() for field in args.target_fields.split(",")]
+        if manifest is not None and target_columns != manifest["target_names"]:
+            raise ValueError("target fields must match manifest.json target_names")
+    else:
+        if manifest is None:
+            raise FileNotFoundError(f"target names require {manifest_path}")
+        target_columns = manifest["target_names"]
+    if not target_columns or any(not field for field in target_columns):
+        raise ValueError("target fields must not be empty")
+    graph_files = [data_dir / "train.pt", data_dir / "val.pt", data_dir / "test.pt"]
     feature_scalers, target_scalers = generate_scalers(
-        graph_files=graph_files,
+        graph_files=[graph_files[0]],
         target_columns=target_columns,
         saved_path=Path(args.scaler_output_path) if args.scaler_output_path else None,
     )
@@ -199,6 +223,18 @@ def main():
                 for graph in graphs
             ]
             torch.save(scaled_graphs, scale_data_output_path / graph_file.name)
+        if manifest is not None:
+            scaled_manifest = {
+                **manifest,
+                "normalization": {
+                    "fit_split": "train",
+                    "scaler_dir": str(Path(args.scaler_output_path).resolve()),
+                },
+            }
+            (scale_data_output_path / "manifest.json").write_text(
+                json.dumps(scaled_manifest, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
 
     logger.info(f"Scaled data saved to {args.scaled_data_output_path}")
 

@@ -136,6 +136,10 @@ GPU_SPECS = {
         300.0,
         16.0,
     ),
+    # BI-V150 is trained as a separate, single-device profile. These legacy
+    # NVIDIA-specific slots are deliberately neutral rather than fabricated
+    # SM/CUDA/NVLink specifications. Do not mix this profile with NVIDIA data.
+    "bi-v150": (0.0,) * len(GPU_SPEC_FIELDS),
 }
 
 PHASE_TO_INDEX = {
@@ -148,6 +152,8 @@ PHASE_TO_INDEX = {
 
 def normalize_gpu_name(value: object) -> str:
     normalized = str(value).strip().lower()
+    if "bi-v150" in normalized or "bi_v150" in normalized or "biv150" in normalized:
+        return "bi-v150"
     if "a100" in normalized:
         return "a100"
     if "v100" in normalized:

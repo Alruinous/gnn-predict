@@ -36,6 +36,15 @@ TARGET_FIELDS = (
     "gpu_mem_used_mb_max",
     "gpu_power_watts_avg",
 )
+COREX_BI_V150_TARGET_FIELDS = (
+    "deployment_duration_sec_avg",
+    "run_duration_sec_avg",
+    "cpu_cores_max",
+    "memory_delta_gb_max",
+    "gpu_util_percent_max",
+    "gpu_mem_used_mb_max",
+    "gpu_power_watts_avg",
+)
 METADATA_FIELDS = (
     "target_name",
     "variant_name",
@@ -91,6 +100,9 @@ class CsvProcessResult:
     records: list[Data]
     gpu_quality_filtered_count: int
     high_memory_delta_count: int
+    target_names: tuple[str, ...] = TARGET_FIELDS
+    source_row_count: int = 0
+    excluded_before_gpu_quality_count: int = 0
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -99,6 +111,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--csv_dirs",
+        "--csv_dir",
         default="csv/v100,csv/a100",
         help="Directory containing *_monitor.csv files.",
     )
@@ -154,13 +167,29 @@ def build_dataset(
         csv_paths.extend(sorted(csv_dir.glob("*.csv")))
     assert csv_paths, f"No csv files found in {csv_dirs}"
     csv_results = [process_csv(csv_path) for csv_path in csv_paths]
+    target_names = csv_results[0].target_names
+    if any(result.target_names != target_names for result in csv_results[1:]):
+        raise ValueError(
+            "CSV files use incompatible target schemas; prepare NVIDIA and "
+            "BI-V150 datasets separately"
+        )
     graphs = [graph for result in csv_results for graph in result.records]
     assert graphs
+    sample_keys = [
+        (graph.gpu_name, graph.model_name, graph.variant_name, graph.phase)
+        for graph in graphs
+    ]
+    if len(sample_keys) != len(set(sample_keys)):
+        raise ValueError("duplicate GPU/model/variant/phase samples across CSV files")
     total_gpu_quality_filtered_count = sum(
         result.gpu_quality_filtered_count for result in csv_results
     )
     total_high_memory_delta_count = sum(
         result.high_memory_delta_count for result in csv_results
+    )
+    source_row_count = sum(result.source_row_count for result in csv_results)
+    excluded_before_gpu_quality_count = sum(
+        result.excluded_before_gpu_quality_count for result in csv_results
     )
     logger.info(
         f"GPU metric quality filter total: CSVs: {len(csv_results)}, "
@@ -192,6 +221,11 @@ def build_dataset(
         val_ratio=val_ratio,
         test_ratio=test_ratio,
         seed=seed,
+        target_names=target_names,
+        gpu_names=tuple(sorted({graph.gpu_name for graph in graphs})),
+        source_row_count=source_row_count,
+        excluded_before_gpu_quality_count=excluded_before_gpu_quality_count,
+        gpu_quality_filtered_count=total_gpu_quality_filtered_count,
     )
     manifest_path = output_path / "manifest.json"
     manifest_path.write_text(
@@ -207,8 +241,26 @@ def process_csv(csv_file: str | Path) -> CsvProcessResult:
     csv_path = Path(csv_file)
     df = pl.read_csv(csv_path)
     df = normalize_monitor_columns(df, csv_path)
-    assert set(REQUIRED_COLUMNS) <= set(df.columns), csv_path
-    df = df.with_columns(
+    if df.is_empty():
+        raise ValueError(f"monitor CSV is empty: {csv_path}")
+    source_row_count = df.height
+    if "gpu_node" not in df.columns:
+        raise ValueError(f"monitor CSV missing gpu_node: {csv_path}")
+    gpu_names = {normalize_gpu_name(value) for value in df["gpu_node"].to_list()}
+    if len(gpu_names) != 1:
+        raise ValueError(f"monitor CSV mixes GPU models: {csv_path}: {gpu_names}")
+    gpu_name = next(iter(gpu_names))
+    target_names = target_fields_for_gpu(gpu_name)
+    required_columns = set(REQUIRED_COLUMNS) - set(SOURCE_TARGET_FIELDS)
+    required_columns.update(
+        field for field in target_names if field != RUN_DURATION_SOURCE_FIELD
+    )
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        raise ValueError(
+            f"monitor CSV missing columns {sorted(missing_columns)}: {csv_path}"
+        )
+    df = df.filter(pl.col("phase_rounds") > 0).with_columns(
         (pl.col("duration_sec") / pl.col("phase_rounds")).alias(
             RUN_DURATION_SOURCE_FIELD
         ),
@@ -216,32 +268,53 @@ def process_csv(csv_file: str | Path) -> CsvProcessResult:
         .map_elements(
             lambda row: str(
                 resolve_graph_path(
-                    row["result_json"], row["variant_name"], row["phase"]
+                    row["result_json"],
+                    row["variant_name"],
+                    row["phase"],
+                    csv_path=csv_path,
                 )
             ),
             return_dtype=pl.String,
         )
         .alias("variant_path"),
     )
-    df = df.drop_nans(subset=["batch_size", *TARGET_FIELDS]).filter(
-        pl.all_horizontal(
-            [
-                pl.col("variant_name").str.len_chars() > 0,
-                ~pl.col("variant_name").str.to_lowercase().str.contains("_elu_"),
-                pl.col("variant_path").map_elements(
-                    lambda path: Path(path).is_file(),
-                    return_dtype=pl.Boolean,
-                ),
-            ]
+    df = (
+        df.drop_nans(subset=["batch_size", *target_names])
+        .drop_nulls(subset=["batch_size", *target_names])
+        .filter(
+            pl.all_horizontal(
+                [pl.col(field).is_finite() for field in target_names]
+            )
+        )
+        .filter(
+            pl.all_horizontal(
+                [
+                    pl.col("variant_name").str.len_chars() > 0,
+                    (
+                        ~pl.col("variant_name").str.to_lowercase().str.contains("_elu_")
+                        if gpu_name != "bi-v150"
+                        else pl.lit(True)
+                    ),
+                    pl.col("variant_path").map_elements(
+                        lambda path: Path(path).is_file(),
+                        return_dtype=pl.Boolean,
+                    ),
+                ]
+            )
         )
     )
     assert df.height > 0, csv_path
     pre_gpu_quality_count = df.height
+    excluded_before_gpu_quality_count = source_row_count - pre_gpu_quality_count
     high_memory_delta_count = df.filter(
         pl.col("memory_delta_gb_max") > MEMORY_DELTA_LOG_THRESHOLD_GB
     ).height
-    df = df.filter(~invalid_gpu_metric_expr())
+    df = df.filter(
+        ~invalid_gpu_metric_expr(require_sm_occupancy=gpu_name != "bi-v150")
+    )
     gpu_quality_filtered_count = pre_gpu_quality_count - df.height
+    if df.is_empty():
+        raise ValueError(f"no usable monitoring records in {csv_path}")
     assert df.unique(ID_FIELDS).height == df.height, csv_path
     records = [
         extract_feature_target(
@@ -249,6 +322,7 @@ def process_csv(csv_file: str | Path) -> CsvProcessResult:
                 record,
                 row_number=i,
                 csv_path=csv_path,
+                target_names=target_names,
             )
         )
         for i, record in enumerate(df.to_dicts())
@@ -266,6 +340,9 @@ def process_csv(csv_file: str | Path) -> CsvProcessResult:
         records=records,
         gpu_quality_filtered_count=gpu_quality_filtered_count,
         high_memory_delta_count=high_memory_delta_count,
+        target_names=target_names,
+        source_row_count=source_row_count,
+        excluded_before_gpu_quality_count=excluded_before_gpu_quality_count,
     )
 
 
@@ -279,16 +356,23 @@ def normalize_monitor_columns(df: pl.DataFrame, csv_path: Path) -> pl.DataFrame:
     return df.with_columns(pl.lit(0, dtype=pl.Int64).alias("decode_output_length"))
 
 
-def invalid_gpu_metric_expr() -> pl.Expr:
+def target_fields_for_gpu(gpu_name: str) -> tuple[str, ...]:
+    return COREX_BI_V150_TARGET_FIELDS if gpu_name == "bi-v150" else TARGET_FIELDS
+
+
+def invalid_gpu_metric_expr(*, require_sm_occupancy: bool = True) -> pl.Expr:
     gpu_mem = pl.col("gpu_mem_used_mb_max")
     gpu_util = pl.col("gpu_util_percent_max")
-    gpu_sm_occupancy = pl.col("gpu_sm_occupancy_percent_max")
-    return (
-        (gpu_mem <= 0)
-        | ((gpu_util <= 0) & (gpu_mem > 0))
-        | ((gpu_util <= 0) & (gpu_sm_occupancy > GPU_SM_OCCUPANCY_CONFLICT_THRESHOLD))
-        | ((gpu_sm_occupancy <= 0) & (gpu_util >= GPU_UTIL_CONFLICT_THRESHOLD))
-    )
+    invalid = (gpu_mem <= 0) | ((gpu_util <= 0) & (gpu_mem > 0))
+    if require_sm_occupancy:
+        gpu_sm_occupancy = pl.col("gpu_sm_occupancy_percent_max")
+        invalid |= (gpu_util <= 0) & (
+            gpu_sm_occupancy > GPU_SM_OCCUPANCY_CONFLICT_THRESHOLD
+        )
+        invalid |= (gpu_sm_occupancy <= 0) & (
+            gpu_util >= GPU_UTIL_CONFLICT_THRESHOLD
+        )
+    return invalid
 
 
 def build_model_record_info(
@@ -296,13 +380,14 @@ def build_model_record_info(
     row_number: int,
     *,
     csv_path: Path,
+    target_names: tuple[str, ...] = TARGET_FIELDS,
 ) -> ModelRecordInfo:
     phase = str(record["phase"]).strip()
     assert phase in {"training", "inference", "prefill", "decode"}
     batch_size = parse_int_value(record["batch_size"])
     assert batch_size > 0
     gpu_name = normalize_gpu_name(record["gpu_node"])
-    target = tuple(parse_float_value(record[field]) for field in TARGET_FIELDS)
+    target = tuple(parse_float_value(record[field]) for field in target_names)
     assert all(math.isfinite(value) for value in target)
     metadata = {field: record[field] for field in METADATA_FIELDS}
     return ModelRecordInfo(
@@ -323,11 +408,32 @@ def resolve_graph_path(
     result_json: object,
     variant_name: object,
     phase: str = "",
+    *,
+    csv_path: Path | None = None,
 ) -> Path:
     result_path = Path(str(result_json).strip())
     variant = str(variant_name).strip()
     suffix = f"_{phase.strip()}" if phase.strip() in {"prefill", "decode"} else ""
-    return result_path.parent.parent / "fx_graphs" / f"{variant}{suffix}.pt2"
+    file_name = f"{variant}{suffix}.pt2"
+    if csv_path is None:
+        return result_path.parent.parent / "fx_graphs" / file_name
+
+    csv_dir = csv_path.resolve().parent
+    candidates = []
+    if not result_path.is_absolute():
+        # New CSV format: result_json is relative to the CSV itself.
+        candidates.append(csv_dir / result_path)
+    # Old CSVs often contain an absolute path from the collection container,
+    # or a path relative to the project root. Preserve the sibling layout after
+    # moving the experiment directory to another machine.
+    if csv_dir.name == result_path.parent.parent.name:
+        candidates.append(csv_dir / "results" / result_path.name)
+    candidates.append(result_path)
+    for candidate in candidates:
+        graph_path = candidate.parent.parent / "fx_graphs" / file_name
+        if graph_path.is_file():
+            return graph_path
+    return candidates[0].parent.parent / "fx_graphs" / file_name
 
 
 def parse_int_value(value: object) -> int:
@@ -386,22 +492,29 @@ def split_graphs(
     test_ratio: float,
     seed: int,
 ) -> tuple[list[Data], list[Data], list[Data]]:
-    train_count, val_count, test_count = resolve_split_counts(
-        len(graphs),
+    group_keys = list(
+        dict.fromkeys(
+            (graph.gpu_name, graph.model_name, graph.variant_name)
+            for graph in graphs
+        )
+    )
+    train_count, val_count, _test_count = resolve_split_counts(
+        len(group_keys),
         val_ratio=val_ratio,
         test_ratio=test_ratio,
     )
-    indices = list(range(len(graphs)))
-    random.Random(seed).shuffle(indices)
-    train_indices = indices[:train_count]
-    val_indices = indices[train_count : train_count + val_count]
-    test_indices = indices[
-        train_count + val_count : train_count + val_count + test_count
-    ]
+    random.Random(seed).shuffle(group_keys)
+    train_keys = set(group_keys[:train_count])
+    val_keys = set(group_keys[train_count : train_count + val_count])
+    test_keys = set(group_keys[train_count + val_count :])
+
+    def group_key(graph: Data) -> tuple[str, str, str]:
+        return graph.gpu_name, graph.model_name, graph.variant_name
+
     return (
-        [graphs[index] for index in train_indices],
-        [graphs[index] for index in val_indices],
-        [graphs[index] for index in test_indices],
+        [graph for graph in graphs if group_key(graph) in train_keys],
+        [graph for graph in graphs if group_key(graph) in val_keys],
+        [graph for graph in graphs if group_key(graph) in test_keys],
     )
 
 
@@ -414,6 +527,11 @@ def build_manifest(
     val_ratio: float,
     test_ratio: float,
     seed: int,
+    target_names: tuple[str, ...] = TARGET_FIELDS,
+    gpu_names: tuple[str, ...] = (),
+    source_row_count: int = 0,
+    excluded_before_gpu_quality_count: int = 0,
+    gpu_quality_filtered_count: int = 0,
 ) -> dict[str, Any]:
     return {
         "schema_version": "5.0.0",
@@ -422,7 +540,15 @@ def build_manifest(
         ),
         "csv_dirs": ",".join([str(Path(csv_dir).resolve()) for csv_dir in csv_dirs]),
         "id_fields": list(ID_FIELDS),
-        "target_names": list(TARGET_FIELDS),
+        "target_names": list(target_names),
+        "split_unit": "gpu_model_variant",
+        "gpu_names": list(gpu_names),
+        "quality_report": {
+            "source_row_count": source_row_count,
+            "excluded_before_gpu_quality_count": excluded_before_gpu_quality_count,
+            "gpu_quality_filtered_count": gpu_quality_filtered_count,
+            "retained_row_count": sample_count,
+        },
         "node_feature_names": list(NODE_FEATURE_NAMES),
         "op_type_names": list(OP_TYPE_NAMES),
         "edge_feature_names": list(EDGE_FEATURE_NAMES),
