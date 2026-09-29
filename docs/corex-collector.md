@@ -2,7 +2,7 @@
 
 本文介绍如何在 BI-V150 上运行模型变体，并采集运行耗时和 Prometheus 监控数据。这里不训练 GNN，因此卡上不需要安装 `torch-geometric`。
 
-当前实测进度：三个 ResNet50 smoke 变体及其监控采集已完成；用户报告完整的 83 变体 ResNet50 运行也已结束，接下来需核对这次的结果 JSON、计算图并采集正式监控 CSV。跨 PyTorch 版本读图、正式数据提取及 GNN 训练仍未验证。
+当前实测进度：三个 ResNet50 smoke 变体及其监控采集已完成；完整的 83 变体 ResNet50 运行已结束，正式监控采集返回 `collected 128/166 phases; skipped 38`，并生成 `output/resnet50/monitor.csv`。仍需核对各变体的阶段覆盖和计算图；跨 PyTorch 版本读图、正式数据提取及 GNN 训练尚未验证。
 
 ## 保留容器中的 CoreX 环境
 
@@ -94,6 +94,46 @@ find output/resnet50/fx_graphs -maxdepth 1 -type f -name '*.pt2' | wc -l
 ```
 
 理论上 83 个变体各有训练、推理阶段，最多约 166 行；失败变体或监控样本不足的阶段会减少行数。`monitor.py` 会对缺失阶段打印警告，不会为其编造数据。还应确认每个**准备纳入训练**的变体有对应 `.pt2` 图；仅有 CSV 的变体在后续提取时不能成为图样本。监控依赖 Prometheus 保存的历史时间序列，建议运行结束后尽快采集；若历史数据已过保留期，重新执行监控命令也无法恢复原始样本。
+
+本次实际保留了 128/166 个阶段，约 77.1%；38 个阶段被跳过。已见到部分推理阶段的 CPU 使用率样本覆盖率为 72.7%，低于配置的 80% 门槛。这里的“跳过阶段”不等于丢掉整个变体：只保留训练或只保留推理阶段的变体，仍可在有图的前提下用于相应阶段的数据提取。不要仅根据 128 行推断有 64 个完整变体；用下面的命令核对实际分布和图覆盖：
+
+```bash
+gnnpython - <<'PY'
+import csv
+import json
+from collections import Counter
+from pathlib import Path
+
+import yaml
+
+config = yaml.safe_load(Path('config/monitor/monitor_corex_resnet50.yaml').read_text())
+result = json.loads(Path(config['targets']['resnet50']['result_json']).read_text())
+rows = list(csv.DictReader(Path('output/resnet50/monitor.csv').open(newline='')))
+actual = {(row['variant_name'], row['phase']) for row in rows}
+expected = {
+    (variant['name'], phase)
+    for variant in result['variants']
+    for phase in ('training', 'inference')
+    if variant.get(phase) is not None
+}
+names = {name for name, _ in actual}
+paired = sum(
+    (name, 'training') in actual and (name, 'inference') in actual
+    for name in names
+)
+missing_graphs = sorted(
+    name for name in names
+    if not (Path('output/resnet50/fx_graphs') / f'{name}.pt2').is_file()
+)
+print('CSV 阶段数:', len(rows), '覆盖变体数:', len(names), '训练/推理均有的变体数:', paired)
+print('结果 JSON 中未采到的阶段:', dict(Counter(phase for _, phase in expected - actual)))
+print('已有监控但缺图的变体数:', len(missing_graphs), '示例:', missing_graphs[:10])
+PY
+```
+
+如果 72.7% 这类警告较多，应先看阶段分布和覆盖率，不建议为了凑齐 166 行直接调低 `min_phase_coverage_ratio`：降低门槛会改变数据质量标准。当前 128 行可以继续进入提取检查；提取时还会按目标字段完整性、GPU 指标质量和图是否存在再次筛选，最终样本数以生成的 `manifest.json` 为准。
+
+采集完成后的原容器依赖准备、单图试读、批量数据提取和结果核对步骤，见 [BI-V150 数据提取与 GNN 训练](corex-gnn-training.md#2-在原-bi-v150-容器提取图特征当前可执行步骤)。
 
 ## 正式采集时的监控完整性
 

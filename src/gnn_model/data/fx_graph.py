@@ -183,6 +183,7 @@ LAYOUT_OPS = {
     "resize",
     "roll",
     "squeeze",
+    "t",
     "transpose",
     "unsqueeze",
     "upsample_bicubic2d",

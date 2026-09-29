@@ -255,6 +255,26 @@ def test_build_graph_data_classifies_roll_as_layout() -> None:
     assert data.op_type_ids.tolist() == [OP_TYPE_TO_INDEX["op_layout"]]
 
 
+class MatrixTransposeGraph(nn.Module):
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return inputs.t()
+
+
+def test_build_graph_data_classifies_aten_t_as_layout() -> None:
+    exported_program = capture_inference_graph(
+        MatrixTransposeGraph(),
+        (torch.randn(2, 3),),
+    )
+
+    data = build_graph_data_from_exported_program(
+        exported_program,
+        runtime_input_names=["inputs"],
+        batch_size=2,
+    )
+
+    assert data.op_type_ids.tolist() == [OP_TYPE_TO_INDEX["op_layout"]]
+
+
 def test_graph_artifact_rejects_pytorch_version_mismatch(tmp_path: Path) -> None:
     exported_program = capture_inference_graph(
         BFloat16Output(),

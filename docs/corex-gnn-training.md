@@ -8,19 +8,80 @@
 
 新生成的 `monitor.csv` 会把 `result_json` 写成**相对 CSV 所在目录**的路径。例如 CSV 位于 `output/resnet50/monitor.csv` 时，值通常是 `results/xxx_results.json`。提取器据此查找同级 `fx_graphs/<变体名>.pt2`。复制到另一台机器时，保持 `monitor.csv`、`results/`、`fx_graphs/` 三者的相对目录结构即可，不需要保留原容器的 `/home/...` 路径。旧 CSV 中的项目根目录相对路径或原容器绝对路径也会尝试映射到 CSV 同级的 `results/`、`fx_graphs/`；如果你把 CSV 单独移到别处，则仍需更正路径或恢复目录结构。不要把多个重复运行的同名变体直接混合进同一数据集，提取器会拒绝重复的“卡／模型／变体／阶段”样本。
 
-## 2. 用兼容的 PyTorch 提取图特征
+## 2. 在原 BI-V150 容器提取图特征（当前可执行步骤）
 
 BI-V150 的 `.pt2` 是由 `torch 2.4.1+corex.4.3.0` 写出的。项目的图加载器要求 PyTorch 主、次版本相同；**不能假定**在默认的 PyTorch 2.9 训练环境里可直接读取。先用一份真实 `.pt2` 在拟用于提取的环境中测试读取和特征构建。如果失败，使用与导图版本匹配的 PyTorch 2.4 环境提取，而不是关闭版本校验或覆盖厂商版 torch。
 
-提取环境还需 `polars`、`torch-geometric`、`pydantic`、`PyYAML`。它可以是 BI-V150 容器，也可以是另一台可读取该图的 CPU 机器；不要求在天数卡上训练 GNN。**不要在 CoreX 容器执行 `uv sync`**，它会按项目锁文件安装标准 PyTorch 2.9。
+提取环境还需 `polars`、`torch-geometric`、`pydantic`、`PyYAML`。它可以是原 BI-V150 容器，也可以是另一台可读取该图的 CPU 机器；提取计算主要使用 CPU，**不要求在天数卡上训练 GNN**。**不要在 CoreX 容器执行 `uv sync` 或不加限制地执行 `pip install -r ...`**，它们可能按项目配置安装标准 PyTorch 2.9，覆盖已验证的厂商版 torch。若重新申请容器，先确认它仍将同一份 Ceph Home 挂载到 `/home/luoruian26`，且能看见本次 `monitor.csv`、`results/` 和 `fx_graphs/`。更换提取容器不会改变之前在 BI-V150 上测得的时间和资源标签，但新镜像的软件环境不会因 Home 持久化而自动一致。
+
+以下命令都在**原 BI-V150 容器的终端**执行；每次打开新终端，至少重新执行 `cd` 和 `export PYTHONPATH`，除非已把这些路径写入 shell 启动配置。先确认使用的是包含数据提取修改的最新项目代码，并检查输入文件和当前 Python：
+
+```bash
+cd ~/gnn-predict
+findmnt -T "$PWD/output/resnet50/monitor.csv" -o TARGET,SOURCE,FSTYPE
+ls -lh output/resnet50/monitor.csv
+find output/resnet50/fx_graphs -maxdepth 1 -type f -name '*.pt2' | wc -l
+ls output/resnet50/results/*_results.json
+python3 -c 'import torch; print(torch.__version__)'
+```
+
+预期最后一行显示 `2.4.1+corex.4.3.0`。如果 `.pt2` 数量为 0，先停止；没有图无法提取 GNN 输入。补充缺失的依赖时，安装到 Ceph Home 下的单独目录，并禁止 pip 自动更换 torch。已安装的包不必重复安装；下例仅适用于前面确认过的 Python 3.10 / x86_64 CoreX 容器：
+
+```bash
+deps_dir="$HOME/.local/gnn-predict-extract-deps"
+python3 -m pip install --no-deps --target "$deps_dir" \
+  'polars==1.39.3' 'polars-runtime-32==1.39.3' 'torch-geometric==2.6.1'
+export PYTHONPATH="$PWD/src:$deps_dir:$HOME/.local/gnn-predict-deps${PYTHONPATH:+:$PYTHONPATH}"
+python3 -c 'import torch, polars, torch_geometric, pydantic, yaml; print("torch:", torch.__version__, "polars:", polars.__version__, "PyG:", torch_geometric.__version__)'
+```
+
+这里使用 `--no-deps` 是为了保护 CoreX torch；如果最后一条命令报缺少其他依赖，需按报错逐项补装到同一个目录，不能因此改装普通版 torch。PyG 仅用于表示和保存图数据，无需为本次提取安装它的可选 CUDA 扩展；[PyG 安装说明](https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html)将这些扩展列为可选组件。Polars 主包和运行时包需要一起安装。若下载或导入失败，先排查该问题，不要直接开始整批提取。
+
+然后先读取一份真实图验证兼容性，不必重新运行 83 个变体：
+
+```bash
+python3 - <<'PY'
+from pathlib import Path
+from gnn_model.data.fx_graph import build_graph_data_from_fx
+
+graph_path = next(Path('output/resnet50/fx_graphs').glob('*no_mutations.pt2'))
+graph = build_graph_data_from_fx(
+    graph_path, batch_size=16, gpu_name='bi-v150', phase='training'
+)
+print('graph:', graph_path, 'nodes:', graph.num_nodes)
+PY
+```
+
+这里的 `PYTHONPATH` 同时包含项目 `src` 和用户目录中的额外依赖。若真实图读取失败，不要继续批量提取；先检查版本和错误信息。
 
 例如在项目根目录中，保证 `output/resnet50/monitor.csv` 和其对应 `results/`、`fx_graphs/` 都在后执行：
 
 ```bash
-PYTHONPATH=src python3 -m gnn_model.data.extract \
+time python3 -m gnn_model.data.extract \
   --csv_dirs output/resnet50 \
   --output_dir data/corex_bi_v150/raw
 ```
+
+`--csv_dirs` 指向包含 `monitor.csv` 的目录，`--output_dir` 是**新数据集**的输出目录；不会重新测量模型或重新查询 Prometheus。保持当前终端打开，等待进程退出且退出码为 0 后，再检查产物：
+
+```bash
+ls -lh data/corex_bi_v150/raw/
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+path = Path('data/corex_bi_v150/raw/manifest.json')
+manifest = json.loads(path.read_text(encoding='utf-8'))
+for key in ('gpu_names', 'sample_count', 'split_counts', 'quality_report', 'target_names'):
+    print(key, manifest[key])
+for name in ('train.pt', 'val.pt', 'test.pt'):
+    print(name, (path.parent / name).is_file())
+PY
+```
+
+预期有 `manifest.json` 和三个 `.pt` 文件，`gpu_names` 为 `['bi-v150']`，三个 `split_counts` 均大于 0，且其和等于 `sample_count`。只有监控 CSV 里的合格记录、对应 `.pt2` 图均存在并成功解析时，才会计入样本。若批量提取中途报错，不能把目录中已有的 `.pt` 当作这次完整成功的数据集；先看错误并核对 `manifest.json` 的生成时间。
+
+提取会逐行读取 `.pt2` 并将生成的图样本保存在内存中，再写出三个划分；128 行监控数据不等于 128 份不同的源图。单核、8 GiB 可先做上述单图试读，但完整提取的耗时和内存是否足够不能事先保证；如果可以重新申请，优先选 4 核以上、16 GiB 以上的容器。完成后检查 `raw/manifest.json` 的 `sample_count`、`quality_report`，不要把监控 CSV 的 128 行直接当作最终可训练样本数。
 
 多个 YAML 的 CSV 可以用逗号分隔目录，例如 `--csv_dirs output/resnet50,output/vgg16`。本命令仅接受同一套七目标 BI-V150 数据；不同型号或 NVIDIA 的 CSV 应单独制作。至少要有三个不同的成功变体，才能生成非空的 train/val/test 划分。
 
