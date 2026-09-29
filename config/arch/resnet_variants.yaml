@@ -15,11 +15,11 @@ base_model_groups:
       export_graph: true
       run_training: true
       batch_size: 16
-      training_measurement_min_seconds: 40.0
+      training_measurement_min_seconds: 60.0
       use_fake_imagenet: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
+      inference_measurement_min_seconds: 60.0
     mutations:
     - type: ChannelPruning
       params:
@@ -41,11 +41,11 @@ base_model_groups:
       run_training: true
       export_graph: true
       batch_size: 16
-      training_measurement_min_seconds: 40.0
+      training_measurement_min_seconds: 60.0
       use_fake_imagenet: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
+      inference_measurement_min_seconds: 60.0
     mutations:
     - type: ChannelPruning
       params:
@@ -63,11 +63,11 @@ base_model_groups:
       export_graph: true
       run_training: true
       batch_size: 16
-      training_measurement_min_seconds: 40.0
+      training_measurement_min_seconds: 60.0
       use_fake_imagenet: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
+      inference_measurement_min_seconds: 60.0
     mutations:
     - type: GlobalChannelPruning
       params:
@@ -93,11 +93,11 @@ base_model_groups:
       - 224
       use_fake_imagenet: true
       run_training: true
-      training_measurement_min_seconds: 40.0
+      training_measurement_min_seconds: 60.0
       batch_size: 16
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
+      inference_measurement_min_seconds: 60.0
     mutation_sets:
     - name: no_mutations
       mutations: []

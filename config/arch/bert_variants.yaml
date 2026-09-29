@@ -13,12 +13,12 @@ base_model_groups:
       run_training: true
       export_graph: true
       batch_size: 4
-      training_measurement_min_seconds: 40.0
+      training_measurement_min_seconds: 60.0
       use_fake_text_dataset: true
       use_real_text_dataset: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
+      inference_measurement_min_seconds: 60.0
     mutations:
     - type: TransformerLayerReduction
       params:
@@ -47,12 +47,12 @@ base_model_groups:
       run_training: true
       export_graph: true
       batch_size: 4
-      training_measurement_min_seconds: 40.0
+      training_measurement_min_seconds: 60.0
       use_fake_text_dataset: true
       use_real_text_dataset: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
+      inference_measurement_min_seconds: 60.0
     mutations:
     - type: TransformerLayerReduction
       params:
@@ -84,12 +84,12 @@ base_model_groups:
       run_training: true
       export_graph: true
       batch_size: 4
-      training_measurement_min_seconds: 40.0
+      training_measurement_min_seconds: 60.0
       use_fake_text_dataset: true
       use_real_text_dataset: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
+      inference_measurement_min_seconds: 60.0
     mutations:
     - type: HiddenSizeModification
       params:
@@ -122,12 +122,12 @@ base_model_groups:
       use_real_text_dataset: true
       use_fake_imagenet: false
       run_training: true
-      training_measurement_min_seconds: 40.0
+      training_measurement_min_seconds: 60.0
       batch_size: 8
       use_fake_text_dataset: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
+      inference_measurement_min_seconds: 60.0
     mutation_sets:
     - name: no_mutations
       mutations: []
