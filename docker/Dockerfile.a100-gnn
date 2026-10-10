@@ -1,0 +1,51 @@
+# GNN normalization/training image. Extract CoreX .pt2 files in PyTorch 2.4 first.
+FROM crater-harbor.act.buaa.edu.cn/docker.io/nvidia/cuda:12.6.3-base-ubuntu24.04
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    VIRTUAL_ENV=/opt/gnn-venv \
+    PYTHONNOUSERSITE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    SHELL=/bin/bash
+
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
+RUN for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
+        if [ -f "$source_file" ]; then \
+            sed -i \
+                -e 's|http://archive.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' \
+                -e 's|http://security.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' \
+                "$source_file"; \
+        fi; \
+    done \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       python3.12 python3.12-venv \
+       ca-certificates sudo git tmux libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3.12 -m venv "$VIRTUAL_ENV"
+
+# The CUDA-enabled PyTorch wheel supplies its required CUDA/cuDNN libraries.
+RUN python -m pip install --upgrade pip \
+    && python -m pip install "torch==2.9.0" \
+       --index-url https://download.pytorch.org/whl/cu126 \
+    && python -m pip install \
+       "torch-geometric==2.7.0" \
+       "numpy==2.2.6" \
+       "scikit-learn==1.7.2" \
+       "pydantic==2.11.7" \
+       "PyYAML==6.0.3" \
+       "jupyterlab==4.4.0"
+
+# The image builder normally has no GPU. Validate imports, not GPU availability.
+RUN python -c "import torch, torch_geometric, sklearn, pydantic, yaml, jupyterlab; assert torch.__version__.split('+')[0] == '2.9.0'; assert torch.version.cuda == '12.6'; print('GNN dependencies OK:', torch.__version__, torch_geometric.__version__)" \
+    && python -m pip check
+
+WORKDIR /workspace
+EXPOSE 8888
+
+CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]

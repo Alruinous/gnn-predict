@@ -32,6 +32,7 @@ from gnn_model.data.constants import (
 from gnn_model.data.fx_graph import (
     build_graph_data_from_exported_program,
     build_graph_data_from_fx,
+    build_node_infos,
 )
 
 
@@ -253,6 +254,56 @@ def test_build_graph_data_classifies_roll_as_layout() -> None:
     )
 
     assert data.op_type_ids.tolist() == [OP_TYPE_TO_INDEX["op_layout"]]
+
+
+class ConstantPaddingGraph(nn.Module):
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return torch.nn.functional.pad(inputs, (1, 2, 0, 1), value=3.0)
+
+
+def test_build_graph_data_classifies_constant_padding_and_preserves_shape() -> None:
+    exported_program = capture_inference_graph(
+        ConstantPaddingGraph(),
+        (torch.randn(2, 3, 4),),
+    )
+    data = build_graph_data_from_exported_program(
+        exported_program,
+        runtime_input_names=["inputs"],
+        batch_size=2,
+    )
+
+    assert data.op_type_ids.tolist() == [OP_TYPE_TO_INDEX["op_layout"]]
+    assert build_node_infos(exported_program)[0].output_specs[0].shape == (2, 4, 7)
+
+
+class HardtanhGraph(nn.Module):
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return torch.ops.aten.hardtanh.default(inputs, 0.0, 6.0)
+
+
+def test_build_graph_data_classifies_hardtanh_as_activation(tmp_path: Path) -> None:
+    exported_program = capture_inference_graph(
+        HardtanhGraph(),
+        (torch.randn(2, 3),),
+    )
+    graph_path = tmp_path / "hardtanh.pt2"
+    save_graph_artifact(
+        exported_program,
+        graph_path,
+        runtime_input_names=["inputs"],
+    )
+
+    data = build_graph_data_from_fx(
+        graph_path, batch_size=16, gpu_name="bi-v150", phase="training"
+    )
+
+    assert data.op_type_ids.tolist() == [OP_TYPE_TO_INDEX["op_activation"]]
+    assert data.x.shape == (1, NODE_FEATURE_DIM)
+    assert data.x[0, 0].item() == 6.0
+    assert data.edge_attr.shape == (0, EDGE_FEATURE_DIM)
+    assert data.graph_features.shape == (1, GRAPH_FEATURE_DIM)
+    assert data.graph_capture_batch_size == 2
+    assert build_node_infos(exported_program)[0].output_specs[0].shape == (2, 3)
 
 
 class MatrixTransposeGraph(nn.Module):

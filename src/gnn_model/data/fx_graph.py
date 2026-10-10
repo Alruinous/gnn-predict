@@ -88,6 +88,7 @@ ACTIVATION_OPS = {
     "gelu",
     "hardsigmoid",
     "hardswish",
+    "hardtanh",
     "leaky_relu",
     "mish",
     "relu",
@@ -175,6 +176,7 @@ SHAPE_OPS = {
 }
 LAYOUT_OPS = {
     "_unsafe_view",
+    "constant_pad_nd",
     "contiguous",
     "flatten",
     "pad",

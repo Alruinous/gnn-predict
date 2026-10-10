@@ -81,3 +81,43 @@ targets:
     gpu_id: "1"
     gpu_uuid: "GPU-f7e62b92-ddc0-53dd-969f-e3abfbe116e2"
     output_csv: "output/inception_v3/monitor.csv"
+
+  resnet101:
+    enabled: true
+    result_json: "output/resnet101/results/resnet101_variants_bi-v150_REPLACE_TIMESTAMP_results.json"
+    node_name: "inspur-01"
+    pod_name: "jpt-luoruian26-260929-fd7cd-default0-0"
+    gpu_backend: ix
+    gpu_id: "1"
+    gpu_uuid: "GPU-f7e62b92-ddc0-53dd-969f-e3abfbe116e2"
+    output_csv: "output/resnet101/monitor.csv"
+
+  resnet152:
+    enabled: true
+    result_json: "output/resnet152/results/resnet152_variants_bi-v150_REPLACE_TIMESTAMP_results.json"
+    node_name: "inspur-01"
+    pod_name: "jpt-luoruian26-260929-fd7cd-default0-0"
+    gpu_backend: ix
+    gpu_id: "1"
+    gpu_uuid: "GPU-f7e62b92-ddc0-53dd-969f-e3abfbe116e2"
+    output_csv: "output/resnet152/monitor.csv"
+
+  bert_large:
+    enabled: true
+    result_json: "output/bert_large/results/bert_large_variants_bi-v150_REPLACE_TIMESTAMP_results.json"
+    node_name: "inspur-01"
+    pod_name: "jpt-luoruian26-260929-fd7cd-default0-0"
+    gpu_backend: ix
+    gpu_id: "1"
+    gpu_uuid: "GPU-f7e62b92-ddc0-53dd-969f-e3abfbe116e2"
+    output_csv: "output/bert_large/monitor.csv"
+
+  swin:
+    enabled: true
+    result_json: "output/swin/results/swin_variants_bi-v150_REPLACE_TIMESTAMP_results.json"
+    node_name: "inspur-01"
+    pod_name: "jpt-luoruian26-260929-fd7cd-default0-0"
+    gpu_backend: ix
+    gpu_id: "1"
+    gpu_uuid: "GPU-f7e62b92-ddc0-53dd-969f-e3abfbe116e2"
+    output_csv: "output/swin/monitor.csv"

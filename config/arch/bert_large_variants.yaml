@@ -13,16 +13,16 @@ base_model_groups:
       example_input_shape:
       - 1
       - 128
-      export_graph: false
+      export_graph: true
       use_real_text_dataset: true
       use_fake_imagenet: false
       run_training: true
-      training_measurement_min_seconds: 40.0
+      training_measurement_min_seconds: 60.0
       batch_size: 2
       use_fake_text_dataset: true
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
+      inference_measurement_min_seconds: 60.0
     mutation_sets:
     - name: no_mutations_large
       mutations: []
