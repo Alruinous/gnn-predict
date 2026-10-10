@@ -615,9 +615,9 @@ def rebuild_vit_model(
         drop_path_rate=get_vit_drop_path_probability(model),
         norm_layer=type(reference_block.norm1),
         act_layer=type(reference_block.mlp.act),
-        device=parameter.device,
-        dtype=parameter.dtype,
     )
+    # timm 1.0.20 does not accept device/dtype constructor arguments.
+    rebuilt_model = rebuilt_model.to(device=parameter.device, dtype=parameter.dtype)
     sync_vit_dropout_configuration(model, rebuilt_model)
     return rebuilt_model
 
