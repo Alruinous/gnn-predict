@@ -10,7 +10,7 @@ base_model_groups:
     - 10
     - 1000
     base_variant_config_template:
-      export_graph: false
+      export_graph: true
       example_input_shape:
       - 1
       - 3
@@ -18,11 +18,11 @@ base_model_groups:
       - 224
       use_fake_imagenet: true
       run_training: true
-      training_measurement_min_seconds: 40.0
+      training_measurement_min_seconds: 60.0
       batch_size: 16
       run_inference: true
       pre_inference_cooldown_seconds: 5.0
-      inference_measurement_min_seconds: 40.0
+      inference_measurement_min_seconds: 60.0
     mutation_sets:
     - name: no_mutations
       mutations: []

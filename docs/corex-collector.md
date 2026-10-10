@@ -147,3 +147,45 @@ min_phase_coverage_ratio: 0.8
 `min_phase_coverage_ratio` 是每个阶段的 CPU、内存及必需 GPU 指标在查询时间点上的最低覆盖率。它不代表独立硬件采样的比例，因为 `query_step_seconds: 1` 可能重复使用同一次 Prometheus 抓取。默认值为 `0.0`，以保持旧的 V100/A100 配置行为；正式采集应显式设定阈值，并检查 CSV 中的 `cpu_sample_coverage`、`memory_sample_coverage`、`gpu_min_sample_coverage`。
 
 监控程序现在允许节点容量指标在阶段边界短暂缺失：它会在各阶段边界寻找 Pod 身份和节点总核数、总内存，并对容量指标回看最多 30 秒。某个阶段缺少必需数据或覆盖率低于阈值时，程序会警告并跳过该**阶段**，继续处理其他阶段和变体；若一个完整阶段都没有，则报错，不再写出只有表头的 CSV。指标标签不匹配或返回多条含糊的 GPU 序列仍会报错，避免把其他卡的数据误认成本卡数据。数据缺失不会被填成 0。正式使用前仍需核对 GPU UUID、结果 JSON 路径以及实际导图能力；完整 ResNet50 虽已报告运行结束，其监控质量与图覆盖情况仍需以上述检查结果为准。
+
+## ResNet101/152、BERT-large 和 Swin 的采集
+
+这四份原架构配置现已统一开启 `export_graph: true`，训练和推理各测量至少 60 秒：
+
+- `config/arch/resnet101_variants.yaml`：204 个变体。
+- `config/arch/resnet152_variants.yaml`：204 个变体。
+- `config/arch/bert_large_variants.yaml`：174 个变体。
+- `config/arch/swin_variants.yaml`：108 个变体，包含 Swin-tiny 和 Swin-small。
+
+ResNet 的训练 batch 保持 16，BERT-large 保持 2，Swin 保持 16。这些是性能采样配置；当前模型构建使用随机初始化，不会根据 YAML 的 `pretrained: true` 加载预训练权重。
+
+Swin 图中的 `aten.constant_pad_nd` 已归入已有的 `op_layout` 类别，节点、边和全图特征维度保持不变。在原 CoreX 4.3 / PyTorch 2.4 容器中，Swin-tiny 基线的 CPU 导图和特征提取已通过，得到 1,038 个节点。此结果不代表所有变体的 BI-V150 GPU 运行都已通过。
+
+同步代码到容器后，在项目根目录顺序运行：
+
+```bash
+gnnpython main.py \
+  --config \
+    config/arch/resnet101_variants.yaml \
+    config/arch/resnet152_variants.yaml \
+    config/arch/bert_large_variants.yaml \
+    config/arch/swin_variants.yaml \
+  --output_dir output \
+  --gpu_node bi-v150 \
+  --device_backend corex \
+  --continue_on_variant_error
+```
+
+四份配置共 690 个变体；全部成功时，仅训练和推理测量就至少约 23 小时，另有构建、导图、冷却等时间。输出分别位于 `output/resnet101`、`output/resnet152`、`output/bert_large` 和 `output/swin`。
+
+`config/monitor/monitor_bi_v150.yaml` 已添加上述四个同名 target，均为 `enabled: true`。当前模板使用节点 `inspur-01`、Pod `jpt-luoruian26-260929-fd7cd-default0-0`、物理 GPU 编号 `1` 和 UUID `GPU-f7e62b92-ddc0-53dd-969f-e3abfbe116e2`。更换容器或卡后应按实际分配更新这些字段；容器内 `cuda:0` 不等于节点物理卡号 `0`。
+
+运行完成后，先将这四个 target 的 `result_json` 中 `REPLACE_TIMESTAMP` 替换为对应结果文件的实际时间戳，再统一采集：
+
+```bash
+gnnpython monitor.py \
+  --config config/monitor/monitor_bi_v150.yaml \
+  --models resnet101,resnet152,bert_large,swin
+```
+
+只完成其中部分模型时，`--models` 只填写已完成且已更新结果路径的 target。CSV 分别保存为各自输出目录中的 `monitor.csv`，之后可以与其他模型一起提取数据。
