@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import torch
 import torch.nn as nn
 from torch.export import ExportedProgram
+from torch.nn.attention import SDPBackend, sdpa_kernel
 from transformers import T5ForSequenceClassification
 
 from common.graph_artifact import (
@@ -35,6 +37,23 @@ class ModelInferenceGraph(nn.Module):
         else:
             outputs = self.model(inputs[0])
         return extract_graph_logits(outputs)
+
+
+def _capture_inference_graph_for_backend(
+    model: nn.Module,
+    args: tuple[Any, ...],
+    *,
+    device_backend: str,
+) -> ExportedProgram:
+    # CoreX 4.3 / PyTorch 2.4 cannot serialize some fused attention outputs.
+    # Scope the fallback to graph capture so runtime measurements keep their kernels.
+    attention_context = (
+        sdpa_kernel(SDPBackend.MATH)
+        if device_backend == "corex"
+        else nullcontext()
+    )
+    with attention_context:
+        return capture_inference_graph(model, args)
 
 
 def export_model_graph(
@@ -67,9 +86,10 @@ def export_model_graph(
         args = (batch["inputs"],)
         runtime_input_names = ["inputs"]
         export_model = ModelInferenceGraph(model, is_text_model=False)
-    exported_program = capture_inference_graph(
+    exported_program = _capture_inference_graph_for_backend(
         export_model.to(context.device),
         args,
+        device_backend=context.device_backend,
     )
     export_path = context.output_layout.fx_graphs_dir / f"{spec.name}.pt2"
     result = write_graph_export(exported_program, export_path, runtime_input_names)
