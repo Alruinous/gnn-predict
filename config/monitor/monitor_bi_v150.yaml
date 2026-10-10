@@ -14,7 +14,7 @@ defaults:
 targets:
   resnet50:
     enabled: true
-    result_json: "output/resnet50/results/resnet50_variants_bi-v150_REPLACE_TIMESTAMP_results.json"
+    result_json: "output/resnet50/results/resnet50_variants_bi-v150_1790844573_results.json"
     node_name: "inspur-01"
     pod_name: "jpt-luoruian26-260929-fd7cd-default0-0"
     gpu_backend: ix
@@ -24,7 +24,7 @@ targets:
 
   resnet:
     enabled: true
-    result_json: "output/resnet/results/resnet_variants_bi-v150_REPLACE_TIMESTAMP_results.json"
+    result_json: "output/resnet/results/resnet_variants_bi-v150_1790773863_results.json"
     node_name: "inspur-01"
     pod_name: "jpt-luoruian26-260929-fd7cd-default0-0"
     gpu_backend: ix
@@ -34,7 +34,7 @@ targets:
 
   mobilenet:
     enabled: true
-    result_json: "output/mobilenet/results/mobilenet_variants_bi-v150_REPLACE_TIMESTAMP_results.json"
+    result_json: "output/mobilenet/results/mobilenet_variants_bi-v150_1790675462_results.json"
     node_name: "inspur-01"
     pod_name: "jpt-luoruian26-260929-fd7cd-default0-0"
     gpu_backend: ix
@@ -44,7 +44,7 @@ targets:
 
   efficientnet:
     enabled: true
-    result_json: "output/efficientnet/results/efficientnet_variants_bi-v150_REPLACE_TIMESTAMP_results.json"
+    result_json: "output/efficientnet/results/efficientnet_variants_bi-v150_1790719243_results.json"
     node_name: "inspur-01"
     pod_name: "jpt-luoruian26-260929-fd7cd-default0-0"
     gpu_backend: ix
@@ -54,7 +54,7 @@ targets:
 
   vit:
     enabled: true
-    result_json: "output/vit/results/vit_variants_bi-v150_REPLACE_TIMESTAMP_results.json"
+    result_json: "output/vit/results/vit_variants_bi-v150_1791625325_results.json"
     node_name: "inspur-01"
     pod_name: "jpt-luoruian26-260929-fd7cd-default0-0"
     gpu_backend: ix
@@ -64,7 +64,7 @@ targets:
 
   bert:
     enabled: true
-    result_json: "output/bert/results/bert_variants_bi-v150_REPLACE_TIMESTAMP_results.json"
+    result_json: "output/bert/results/bert_variants_bi-v150_1790857862_results.json"
     node_name: "inspur-01"
     pod_name: "jpt-luoruian26-260929-fd7cd-default0-0"
     gpu_backend: ix
@@ -74,7 +74,7 @@ targets:
 
   inception_v3:
     enabled: true
-    result_json: "output/inception_v3/results/inception_v3_variants_bi-v150_REPLACE_TIMESTAMP_results.json"
+    result_json: "output/inception_v3/results/inception_v3_variants_bi-v150_1790900154_results.json"
     node_name: "inspur-01"
     pod_name: "jpt-luoruian26-260929-fd7cd-default0-0"
     gpu_backend: ix
