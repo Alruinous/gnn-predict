@@ -48,6 +48,7 @@ ATTENTION_OPS = {
     "scaled_dot_product_attention",
     "_scaled_dot_product_attention_math",
     "_scaled_dot_product_flash_attention",
+    "_scaled_dot_product_efficient_attention",
     "softmax",
     "_softmax",
     "log_softmax",
@@ -772,6 +773,7 @@ def estimate_attention_macs(info: FxNodeInfo, output_elements: int) -> int:
         "scaled_dot_product_attention",
         "_scaled_dot_product_attention_math",
         "_scaled_dot_product_flash_attention",
+        "_scaled_dot_product_efficient_attention",
     }:
         return output_elements * 5
     if len(info.input_specs) < 2:

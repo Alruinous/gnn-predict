@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import operator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -30,6 +31,7 @@ from gnn_model.data.constants import (
     OP_TYPE_TO_INDEX,
 )
 from gnn_model.data.fx_graph import (
+    build_edges,
     build_graph_data_from_exported_program,
     build_graph_data_from_fx,
     build_node_infos,
@@ -274,6 +276,42 @@ def test_build_graph_data_classifies_constant_padding_and_preserves_shape() -> N
 
     assert data.op_type_ids.tolist() == [OP_TYPE_TO_INDEX["op_layout"]]
     assert build_node_infos(exported_program)[0].output_specs[0].shape == (2, 4, 7)
+
+
+def test_efficient_attention_features_handle_tuple_outputs_without_gpu() -> None:
+    graph = torch.fx.Graph()
+    query = graph.placeholder("query")
+    key = graph.placeholder("key")
+    value = graph.placeholder("value")
+    query.meta["val"] = torch.empty(2, 3, 4, 8)
+    key.meta["val"] = torch.empty(2, 3, 5, 8)
+    value.meta["val"] = torch.empty(2, 3, 5, 8)
+    attention = graph.call_function(
+        torch.ops.aten._scaled_dot_product_efficient_attention.default,
+        args=(query, key, value, None, True),
+    )
+    attention.meta["val"] = (
+        torch.empty(2, 3, 4, 8),
+        torch.empty(2, 3, 4),
+        torch.empty((), dtype=torch.int64),
+        torch.empty((), dtype=torch.int64),
+    )
+    output = graph.call_function(operator.getitem, args=(attention, 0))
+    output.meta["val"] = attention.meta["val"][0]
+    graph.output(output)
+    program = cast(
+        ExportedProgram,
+        SimpleNamespace(graph=graph, graph_signature=SimpleNamespace(input_specs=[])),
+    )
+
+    infos = build_node_infos(program)
+    assert infos[0].category == "op_attention"
+    assert infos[0].macs == 2 * (2 * 3 * 4 * 5) * 8 + 5 * (2 * 3 * 4 * 5)
+    assert len(infos[0].output_specs) == 4
+    assert infos[1].category == "op_identity"
+    edges = build_edges(infos, {info.node: i for i, info in enumerate(infos)})
+    assert len(edges) == 1
+    assert edges[0].tensor.shape == (2, 3, 4, 8)
 
 
 class HardtanhGraph(nn.Module):
