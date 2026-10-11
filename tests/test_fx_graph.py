@@ -35,6 +35,7 @@ from gnn_model.data.fx_graph import (
     build_graph_data_from_exported_program,
     build_graph_data_from_fx,
     build_node_infos,
+    find_unsupported_tensor_operators,
 )
 
 
@@ -314,6 +315,26 @@ def test_efficient_attention_features_handle_tuple_outputs_without_gpu() -> None
     assert edges[0].tensor.shape == (2, 3, 4, 8)
 
 
+def test_operator_inventory_reports_all_unknown_tensor_operators() -> None:
+    graph = torch.fx.Graph()
+    inputs = graph.placeholder("inputs")
+    inputs.meta["val"] = torch.empty(2, 3)
+    for target in (torch.ops.aten.lgamma.default, torch.ops.aten.digamma.default):
+        node = graph.call_function(target, args=(inputs,))
+        node.meta["val"] = torch.empty(2, 3)
+    supported = graph.call_function(torch.ops.aten.relu.default, args=(inputs,))
+    supported.meta["val"] = torch.empty(2, 3)
+    graph.output(supported)
+    program = cast(
+        ExportedProgram,
+        SimpleNamespace(graph=graph, graph_signature=SimpleNamespace(input_specs=[])),
+    )
+
+    assert find_unsupported_tensor_operators(program) == [
+        "aten.digamma.default", "aten.lgamma.default"
+    ]
+
+
 class HardtanhGraph(nn.Module):
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return torch.ops.aten.hardtanh.default(inputs, 0.0, 6.0)
@@ -342,6 +363,33 @@ def test_build_graph_data_classifies_hardtanh_as_activation(tmp_path: Path) -> N
     assert data.graph_features.shape == (1, GRAPH_FEATURE_DIM)
     assert data.graph_capture_batch_size == 2
     assert build_node_infos(exported_program)[0].output_specs[0].shape == (2, 3)
+
+
+@pytest.mark.parametrize("op_name", ["prelu", "_prelu_kernel"])
+def test_prelu_operator_preserves_activation_shape_and_weight_input(op_name: str) -> None:
+    graph = torch.fx.Graph()
+    inputs = graph.placeholder("inputs")
+    weight = graph.placeholder("weight")
+    inputs.meta["val"] = torch.empty(2, 3)
+    weight.meta["val"] = torch.empty(3 if op_name == "prelu" else (1, 3))
+    activation = graph.call_function(
+        getattr(torch.ops.aten, op_name).default, args=(inputs, weight)
+    )
+    activation.meta["val"] = torch.empty(2, 3)
+    graph.output(activation)
+    program = cast(
+        ExportedProgram,
+        SimpleNamespace(graph=graph, graph_signature=SimpleNamespace(input_specs=[])),
+    )
+
+    infos = build_node_infos(program)
+
+    assert len(infos) == 1
+    assert infos[0].category == "op_activation"
+    assert len(infos[0].input_specs) == 2
+    assert infos[0].input_specs[1].elements == 3
+    assert infos[0].output_specs[0].shape == (2, 3)
+    assert infos[0].macs == 6
 
 
 class MatrixTransposeGraph(nn.Module):

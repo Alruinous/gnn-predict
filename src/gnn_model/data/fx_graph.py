@@ -81,6 +81,7 @@ POOL_OPS = {
     "max_pool2d_with_indices",
 }
 ACTIVATION_OPS = {
+    "_prelu_kernel",
     "clamp",
     "clamp_max",
     "clamp_min",
@@ -92,6 +93,7 @@ ACTIVATION_OPS = {
     "hardtanh",
     "leaky_relu",
     "mish",
+    "prelu",
     "relu",
     "relu_",
     "selu",
@@ -347,6 +349,30 @@ def build_graph_data_from_exported_program(
         graph_capture_batch_size=graph_capture_batch_size,
         graph_path=str(graph_path) if graph_path is not None else "",
     )
+
+
+def find_unsupported_tensor_operators(exported_program: ExportedProgram) -> list[str]:
+    """Inspect every tensor operator, rather than stopping at the first failure."""
+    constant_placeholders = {
+        str(getattr(spec.arg, "name", ""))
+        for spec in exported_program.graph_signature.input_specs
+        if spec.kind == InputKind.CONSTANT_TENSOR
+    }
+    unsupported: set[str] = set()
+    for node in exported_program.graph.nodes:
+        if node.op != "call_function" or not tuple(
+            tensor_specs_from_value(node.meta.get("val"))
+        ):
+            continue
+        try:
+            resolve_op_category(
+                node,
+                resolve_op_name(node.target),
+                constant_placeholders=constant_placeholders,
+            )
+        except ValueError:
+            unsupported.add(str(node.target))
+    return sorted(unsupported)
 
 
 def build_node_infos(exported_program: ExportedProgram) -> list[FxNodeInfo]:
