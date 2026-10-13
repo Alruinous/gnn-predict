@@ -1,10 +1,9 @@
-experiment_name: gnn_model_corex_bi_v150
+experiment_name: gnn_model_corex_bi_v150_6targets
 data:
   kind: split
-  data_dir: data/corex_bi_v150/scaled
-  scaler_dir: data/corex_bi_v150/scalers
+  data_dir: data/corex_bi_v150_6targets/scaled
+  scaler_dir: data/corex_bi_v150_6targets/scalers
   target_names:
-    - deployment_duration_sec_avg
     - run_duration_sec_avg
     - cpu_cores_max
     - memory_delta_gb_max
@@ -23,4 +22,4 @@ training:
   num_epochs: 100
   learning_rate: 0.0008
   weight_decay: 0.0001
-  loss_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  loss_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]

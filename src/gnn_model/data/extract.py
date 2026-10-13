@@ -37,7 +37,6 @@ TARGET_FIELDS = (
     "gpu_power_watts_avg",
 )
 COREX_BI_V150_TARGET_FIELDS = (
-    "deployment_duration_sec_avg",
     "run_duration_sec_avg",
     "cpu_cores_max",
     "memory_delta_gb_max",

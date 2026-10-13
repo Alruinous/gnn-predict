@@ -62,18 +62,18 @@ PY
 ```bash
 time python3 -m gnn_model.data.extract \
   --csv_dirs output/resnet50 \
-  --output_dir data/corex_bi_v150/raw
+  --output_dir data/corex_bi_v150_6targets/raw
 ```
 
 `--csv_dirs` 指向包含 `monitor.csv` 的目录，`--output_dir` 是**新数据集**的输出目录；不会重新测量模型或重新查询 Prometheus。保持当前终端打开，等待进程退出且退出码为 0 后，再检查产物：
 
 ```bash
-ls -lh data/corex_bi_v150/raw/
+ls -lh data/corex_bi_v150_6targets/raw/
 python3 - <<'PY'
 import json
 from pathlib import Path
 
-path = Path('data/corex_bi_v150/raw/manifest.json')
+path = Path('data/corex_bi_v150_6targets/raw/manifest.json')
 manifest = json.loads(path.read_text(encoding='utf-8'))
 for key in ('gpu_names', 'graph_capture_batch_sizes', 'sample_count', 'split_counts', 'quality_report', 'target_names'):
     print(key, manifest[key])
@@ -86,31 +86,72 @@ PY
 
 提取会逐行读取 `.pt2` 并将生成的图样本保存在内存中，再写出三个划分；128 行监控数据不等于 128 份不同的源图。单核、8 GiB 可先做上述单图试读，但完整提取的耗时和内存是否足够不能事先保证；如果可以重新申请，优先选 4 核以上、16 GiB 以上的容器。完成后检查 `raw/manifest.json` 的 `sample_count`、`quality_report`，不要把监控 CSV 的 128 行直接当作最终可训练样本数。
 
-多个 YAML 的 CSV 可以用逗号分隔目录，例如 `--csv_dirs output/resnet50,output/vgg16`。本命令仅接受同一套七目标 BI-V150 数据；不同型号或 NVIDIA 的 CSV 应单独制作。至少要有三个不同的成功变体，才能生成非空的 train/val/test 划分。
+多个 YAML 的 CSV 可以用逗号分隔目录，例如 `--csv_dirs output/resnet50,output/vgg16`。本命令仅接受同一套六目标 BI-V150 数据；不同型号或 NVIDIA 的 CSV 应单独制作。至少要有三个不同的成功变体，才能生成非空的 train/val/test 划分。
 
-生成的 `data/corex_bi_v150/raw/` 中有 `train.pt`、`val.pt`、`test.pt` 和 `manifest.json`。它们是 CPU 图特征及实测标签，不是原始 `.pt2`，也不是 GNN 权重。首次跨环境转移时，先用目标训练环境读取一个小样本确认 PyTorch/PyG 序列化兼容，再转移整批。只读取自己生成、可信的 `.pt` 文件。
+生成的 `data/corex_bi_v150_6targets/raw/` 中有 `train.pt`、`val.pt`、`test.pt` 和 `manifest.json`。它们是 CPU 图特征及实测标签，不是原始 `.pt2`，也不是 GNN 权重。首次跨环境转移时，先用目标训练环境读取一个小样本确认 PyTorch/PyG 序列化兼容，再转移整批。只读取自己生成、可信的 `.pt` 文件。
 
 ## 3. 在 GNN 训练机器归一化并训练
 
 训练机器使用本项目 Python 3.12、PyTorch 2.9 和 PyG 环境。将 `raw/` 文件复制到同名目录后，从项目根目录执行：
 
 ```bash
-PYTHONPATH=src uv run python -m gnn_model.data.scaler \
-  --data_dir data/corex_bi_v150/raw \
-  --scaler_output_path data/corex_bi_v150/scalers \
-  --scaled_data_output_path data/corex_bi_v150/scaled
+PYTHONPATH="$PWD/src" python3 -m gnn_model.data.scaler \
+  --data_dir data/corex_bi_v150_6targets/raw \
+  --scaler_output_path data/corex_bi_v150_6targets/scalers \
+  --scaled_data_output_path data/corex_bi_v150_6targets/scaled
 
-PYTHONPATH=src uv run python -m gnn_model \
+PYTHONPATH="$PWD/src" python3 -m gnn_model \
   --config config/gnn_model/corex_bi_v150.yaml \
-  --output_dir output \
+  --output_dir output/gnn_run_02 \
   --device cuda:0
 ```
 
-没有 NVIDIA GPU 的训练机器可改为 `--device cpu`。scaler 从 `raw/manifest.json` 读取七个目标名称，只用 `train.pt` 拟合，再变换三个划分，避免测试集信息泄漏；归一化后的 `scaled/manifest.json` 会记录目标顺序，训练时自动核对配置。GNN 的最佳权重在 `output/gnn_model_corex_bi_v150/checkpoints/best_model.pt`，结果 JSON 在同目录的 `results/`，scaler 单独保存在 `data/corex_bi_v150/scalers/`。三者和配置需要一起保留才能复现预测。训练配置默认 100 轮，最终使用验证误差最小的权重在测试集上评估。
+没有 NVIDIA GPU 的训练机器可改为 `--device cpu`。scaler 从 `raw/manifest.json` 读取六个目标名称，只用 `train.pt` 拟合，再变换三个划分，避免测试集信息泄漏；归一化后的 `scaled/manifest.json` 会记录目标顺序，训练时自动核对配置。GNN 的最佳权重在 `output/gnn_run_02/gnn_model_corex_bi_v150_6targets/checkpoints/best_model.pt`，结果 JSON 在同目录的 `results/`，scaler 单独保存在 `data/corex_bi_v150_6targets/scalers/`。三者和配置需要一起保留才能复现预测。训练配置默认 100 轮，最终使用验证误差最小的权重在测试集上评估。
 
 ## 重要边界
 
 - 此版本是**BI-V150 单卡档案**：旧 NVIDIA 图特征维度保留，但 NVIDIA 专属硬件参数槽在 BI-V150 数据中置为中性常量 0，不代表实际硬件值。BI-V150 与 V100/A100 数据不得合训或共用权重；将来做跨卡共享 GNN 时必须设计并验证跨厂商硬件特征。
-- BI-V150 的监控数据没有 NVIDIA `SM active` 和 `SM occupancy`；七目标配置不预测这两项，也不会将缺失值填为 0。
+- BI-V150 的监控数据没有 NVIDIA `SM active` 和 `SM occupancy`；六目标配置不预测这两项，也不会将缺失值填为 0。
 - 采集容器的 CPU、内存配额会影响 CPU 与部分耗时标签。多次采样应固定资源条件，并在实验记录中保存配额。
 - 一份 ResNet50 YAML 可以验证“未见过的 ResNet50 变体”，不能证明对其他模型架构泛化。应继续采集其他模型，并做按模型族留出的外部测试。
+
+## 4. 从已完成的七目标实验重新训练六目标 GNN
+
+本次只移除 BI-V150 的 `deployment_duration_sec_avg` 标签，其余六项及顺序不变：平均每轮耗时、CPU 核数峰值、主机内存最大增量、GPU 利用率峰值、GPU 显存峰值、GPU 平均功率。原 CSV 的构建耗时字段仍保留；即使该字段缺失或为空，也不再因此排除 BI-V150 样本。V100/A100 的九目标提取和配置不变。
+
+**不需要重新运行模型、导图或采集监控。** 使用已有 CSV 和对应图，在 PyTorch 2.4 提取环境重新制作六标签数据。旧的七标签 `.pt`、scaler、权重不能直接当作六目标模型使用。新的数据根目录为 `data/corex_bi_v150_6targets/`，默认配置 `config/gnn_model/corex_bi_v150.yaml` 已指向它。旧版配置保存在 `config/gnn_model/corex_bi_v150_7targets.yaml`，只用于旧七目标数据和权重；新提取器不再默认制作七目标 BI-V150 数据。
+
+原 CoreX 容器，项目根目录：
+
+```bash
+cd ~/gnn-predict
+export PYTHONPATH="$PWD/src:$HOME/.local/gnn-predict-extract-deps:$HOME/.local/gnn-predict-deps${PYTHONPATH:+:$PYTHONPATH}"
+
+time python3 -m gnn_model.data.extract \
+  --csv_dirs output/resnet50,output/resnet,output/mobilenet,output/efficientnet,output/vit,output/bert,output/inception_v3 \
+  --output_dir data/corex_bi_v150_6targets/raw \
+  --val_ratio 0.2 --test_ratio 0.2 --seed 42
+```
+
+为了对比“只删除一个目标”的影响，先保持这七个目录、输入 CSV 和随机种子与第一轮一致；新增四类模型留到单独实验。如果七项数据曾因构建耗时为空而被过滤，六目标版本可能新增样本，必须核对样本数和各集合的身份，不能把不同样本集误当成完全公平的目标删除对照。
+
+A100 训练容器，项目根目录：
+
+```bash
+cd ~/gnn-predict
+export PYTHONPATH="$PWD/src"
+
+time python3 -m gnn_model.data.scaler \
+  --data_dir data/corex_bi_v150_6targets/raw \
+  --scaler_output_path data/corex_bi_v150_6targets/scalers \
+  --scaled_data_output_path data/corex_bi_v150_6targets/scaled
+
+time python3 -m gnn_model \
+  --config config/gnn_model/corex_bi_v150.yaml \
+  --output_dir output/gnn_run_02 \
+  --device cuda:0
+```
+
+确认新 manifest 的 `target_names` 恰好六项且不包含构建耗时，再训练；训练仍为 100 轮、batch 32、六项等权。最佳权重保存在 `output/gnn_run_02/gnn_model_corex_bi_v150_6targets/checkpoints/best_model.pt`，结果在同级 `results/`。旧 `data/corex_bi_v150/` 和 `output/gnn_run_01/` 不受这些命令影响。第二次重跑六目标实验仍应换输出目录，并避免在训练过程中覆盖其数据或 scaler。
+
+去掉一个预测目标并不保证其他指标变好。对比相同测试样本的六项原始尺度 MAE、RMSE、WAPE 和 R²；七目标与六目标的总损失不是同一组目标的平均值，不宜直接比较大小。

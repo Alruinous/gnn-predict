@@ -8,13 +8,14 @@ from pathlib import Path
 import pytest
 import torch
 
-from gnn_model.config import SplitDataConfig
+from gnn_model.config import SplitDataConfig, load_experiment_config
 from gnn_model.data.constants import GPU_SPEC_FIELDS, GPU_SPECS, normalize_gpu_name
 from gnn_model.data.dataset import load_split_graph_datasets
 from gnn_model.data.extract import (
     COREX_BI_V150_TARGET_FIELDS,
     build_dataset,
     resolve_graph_path,
+    target_fields_for_gpu,
 )
 from gnn_model.data.scaler import generate_scalers, main as scaler_main
 from gnn_model.runner import run_experiment
@@ -31,8 +32,10 @@ from test_gnn_model_cli import (
 )
 
 
+@pytest.mark.parametrize("deployment_value", [1.25, "", "missing"])
 def test_bi_v150_extracts_valid_rows_without_nvidia_sm_metrics(
     tmp_path: Path,
+    deployment_value: object,
 ) -> None:
     csv_dir = tmp_path / "csv"
     csv_dir.mkdir()
@@ -46,6 +49,10 @@ def test_bi_v150_extracts_valid_rows_without_nvidia_sm_metrics(
             row["gpu_node"] = "bi-v150"
             row["gpu_sm_active_percent_max"] = ""
             row["gpu_sm_occupancy_percent_max"] = ""
+            if deployment_value == "missing":
+                row.pop("deployment_duration_sec_avg")
+            else:
+                row["deployment_duration_sec_avg"] = deployment_value
             if phase == "training":
                 row["batch_size"] = 16
             rows.append(row)
@@ -56,6 +63,8 @@ def test_bi_v150_extracts_valid_rows_without_nvidia_sm_metrics(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert manifest["target_names"] == list(COREX_BI_V150_TARGET_FIELDS)
+    assert len(manifest["target_names"]) == 6
+    assert "deployment_duration_sec_avg" not in manifest["target_names"]
     assert manifest["split_unit"] == "gpu_model_variant"
     assert manifest["sample_count"] == len(rows)
     assert manifest["graph_capture_batch_sizes"] == [2]
@@ -66,11 +75,30 @@ def test_bi_v150_extracts_valid_rows_without_nvidia_sm_metrics(
         assert graphs
         for graph in graphs:
             assert graph.y.shape == (1, len(COREX_BI_V150_TARGET_FIELDS))
+            assert graph.y[0, 0].item() == pytest.approx(40.0 / 3)
             assert graph.graph_capture_batch_size == 2
             assert graph.batch_size == (16 if graph.phase == "training" else 2)
             split_membership.setdefault(graph.variant_name, set()).add(split_name)
     assert all(len(splits) == 1 for splits in split_membership.values())
     assert "variant_elu_e" in split_membership
+
+
+def test_bi_v150_config_matches_six_targets_and_preserves_legacy_config() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = load_experiment_config(root / "config/gnn_model/corex_bi_v150.yaml")
+    legacy = load_experiment_config(root / "config/gnn_model/corex_bi_v150_7targets.yaml")
+
+    assert config.data.target_names == list(COREX_BI_V150_TARGET_FIELDS)
+    assert len(config.training.loss_weights) == 6
+    assert config.data.data_dir != legacy.data.data_dir
+    assert config.data.scaler_dir != legacy.data.scaler_dir
+    assert legacy.data.target_names == [
+        "deployment_duration_sec_avg", *COREX_BI_V150_TARGET_FIELDS
+    ]
+    assert "deployment_duration_sec_avg" in target_fields_for_gpu("v100")
+    assert "deployment_duration_sec_avg" in target_fields_for_gpu("a100")
+    assert len(target_fields_for_gpu("v100")) == 9
+    assert len(target_fields_for_gpu("a100")) == 9
 
 
 def test_bi_v150_and_nvidia_csvs_cannot_share_one_dataset(tmp_path: Path) -> None:
